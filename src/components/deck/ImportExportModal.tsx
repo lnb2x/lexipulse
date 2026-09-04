@@ -1,9 +1,10 @@
 import { Calendar, Check, Copy, Download, FileSpreadsheet, Layers, Loader2, Plus, Sparkles, Upload, X } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
-import { db, exportDeckToCsv, exportDeckToJson, exportDeckToXlsx, importDeckFromJson } from '../../services/db';
-import { lookupWord } from '../../services/dictionary';
-import { createInitialReviewMeta } from '../../services/sm2';
+import { exportDeckToCsv, exportDeckToJson, exportDeckToXlsx, importDeckFromJson } from '../../services/db';
+import { runBulkEnrichment, createUnenrichedWordItem } from '../../services/bulkEnrichment';
+import { bulkUpsertWords } from '../../services/vocabRepository';
+import { parseBulkImportInput } from '../../utils/importParser';
 import type { WordItem } from '../../types/vocab';
 import { formatLocalDate, parseLocalDateToTimestamp } from '../../utils/dateUtils';
 
@@ -39,9 +40,11 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   );
   const [batchTags, setBatchTags] = useState('#TOEIC');
   const [autoEnrich, setAutoEnrich] = useState(true);
+  const [replaceProgress, setReplaceProgress] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState<{ current: number; total: number; word: string } | null>(null);
   const [bulkSuccessMsg, setBulkSuccessMsg] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Export state
   const [exportScope, setExportScope] = useState<'all' | 'date' | 'filtered'>(
@@ -56,6 +59,13 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number; errors: string[] } | null>(null);
 
   if (!isOpen) return null;
+
+  const handleCancel = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+  };
 
   // Determine words to export based on selected scope
   const getWordsToExport = (): WordItem[] => {
@@ -118,25 +128,24 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
 
   // Bulk import processor
   const handleBulkAdd = async () => {
-    // Robust parsing: handle newlines and/or commas
-    const lines = bulkText.split('\n').map((l) => l.trim()).filter(Boolean);
-    const rawLines: string[] = [];
-    for (const line of lines) {
-      // If line does NOT have a definition separator (' - ' or ' : '), but has commas, split by comma!
-      if (!line.includes(' - ') && !line.includes(' : ') && line.includes(',')) {
-        rawLines.push(...line.split(',').map((w) => w.trim()).filter(Boolean));
-      } else {
-        rawLines.push(line);
-      }
-    }
+    const existingSet = new Set(allWords.map((w) => w.word));
+    const parsed = parseBulkImportInput(bulkText, { existingDeckWords: existingSet });
 
-    if (rawLines.length === 0) return;
+    if (parsed.items.length === 0) {
+      if (parsed.duplicatesWithDeck > 0 || parsed.duplicatesInBatch > 0) {
+        setBulkSuccessMsg(
+          language === 'vi'
+            ? `Tất cả từ nhập vào đều đã có trong Deck hoặc bị trùng lặp (${parsed.duplicatesWithDeck} trong Deck, ${parsed.duplicatesInBatch} trong batch).`
+            : `All imported words already exist in Deck or were duplicated (${parsed.duplicatesWithDeck} in Deck, ${parsed.duplicatesInBatch} in batch).`
+        );
+      }
+      return;
+    }
 
     setIsProcessing(true);
     setBulkSuccessMsg(null);
-    setProgress({ current: 0, total: rawLines.length, word: '' });
+    setProgress({ current: 0, total: parsed.items.length, word: '' });
 
-    // Parse tag list
     const parsedTags = batchTags
       .split(/[, ]/)
       .map((t) => t.trim())
@@ -144,153 +153,62 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
       .map((t) => (t.startsWith('#') ? t : `#${t}`));
     if (parsedTags.length === 0) parsedTags.push('#TOEIC');
 
-    // Parse date timestamp in local timezone (noon to avoid time-zone day shift)
     const dateTimestamp = parseLocalDateToTimestamp(customDate, 'noon');
+    abortControllerRef.current = new AbortController();
 
-    let addedCount = 0;
-
-    const createFallbackItem = (
-      wordStr: string,
-      meaningStr: string
-    ): WordItem => {
-      const clean = wordStr.trim();
-      return {
-        id: `word-${dateTimestamp}-${Math.random().toString(36).slice(2, 7)}`,
-        word: clean.toLowerCase(),
-        phonetics: { us: `/${clean}/`, uk: `/${clean}/` },
-        pos: ['noun'],
-        vietnameseDefinition: meaningStr || `Ý nghĩa của "${clean}"`,
-        englishDefinition: `Definition for ${clean}`,
-        meanings: [
-          {
-            pos: 'noun',
-            englishDefinition: `Definition for ${clean}`,
-            example: `This example illustrates the use of ${clean}.`,
+    try {
+      if (autoEnrich) {
+        const result = await runBulkEnrichment(parsed.items, {
+          concurrency: 3,
+          timeoutMs: 4000,
+          tags: parsedTags,
+          createdAt: dateTimestamp,
+          abortSignal: abortControllerRef.current.signal,
+          onProgress: (p) => {
+            setProgress({ current: p.current, total: p.total, word: p.currentWord });
           },
-        ],
-        collocations: [
-          { phrase: `${clean} in practice`, meaningVi: 'áp dụng trong thực tế' },
-        ],
-        wordFamily: [],
-        examples: [
-          {
-            en: `This demonstrates the practical use of ${clean}.`,
-            vi: `Điều này thể hiện cách sử dụng thực tế của từ ${clean}.`,
-            context: 'general',
-          },
-        ],
-        tags: parsedTags,
-        status: 'new',
-        createdAt: dateTimestamp,
-        updatedAt: dateTimestamp,
-        reviewMeta: createInitialReviewMeta(),
-      };
-    };
+        });
 
-    for (let i = 0; i < rawLines.length; i++) {
-      const line = rawLines[i];
-      // Format: "word - meaning" or "word : meaning" or just "word"
-      let rawWord = line;
-      let userMeaning = '';
-
-      if (line.includes(' - ')) {
-        const parts = line.split(' - ');
-        rawWord = parts[0].trim();
-        userMeaning = parts.slice(1).join(' - ').trim();
-      } else if (line.includes(' : ')) {
-        const parts = line.split(' : ');
-        rawWord = parts[0].trim();
-        userMeaning = parts.slice(1).join(' : ').trim();
-      } else if (line.includes('-')) {
-        const parts = line.split('-');
-        rawWord = parts[0].trim();
-        userMeaning = parts.slice(1).join('-').trim();
-      } else if (line.includes(':')) {
-        const parts = line.split(':');
-        rawWord = parts[0].trim();
-        userMeaning = parts.slice(1).join(':').trim();
+        const cancelNote = result.cancelled ? (language === 'vi' ? ' (đã hủy giữa chừng)' : ' (cancelled early)') : '';
+        setBulkSuccessMsg(
+          language === 'vi'
+            ? `Hoàn tất import${cancelNote}: ${result.succeeded} từ tra thành công, ${result.failed} từ thêm dạng cơ bản, ${parsed.duplicatesWithDeck} từ đã tồn tại, ${parsed.duplicatesInBatch} trùng lặp.`
+            : `Import completed${cancelNote}: ${result.succeeded} enriched, ${result.failed} basic fallback, ${parsed.duplicatesWithDeck} existing in deck, ${parsed.duplicatesInBatch} duplicated in batch.`
+        );
+      } else {
+        const unenriched = parsed.items.map((item) =>
+          createUnenrichedWordItem(item, parsedTags, dateTimestamp, 'manual')
+        );
+        const res = await bulkUpsertWords(unenriched, { replaceProgress });
+        setBulkSuccessMsg(
+          language === 'vi'
+            ? `Đã thêm thành công ${res.added} từ mới, cập nhật ${res.updated} từ (${parsed.duplicatesWithDeck} từ đã có trong Deck, ${parsed.duplicatesInBatch} trùng lặp trong batch).`
+            : `Successfully added ${res.added} words, updated ${res.updated} (${parsed.duplicatesWithDeck} existing, ${parsed.duplicatesInBatch} duplicates).`
+        );
       }
-
-      // Strip leading bullet numbers like "1. ", "2) ", "- "
-      rawWord = rawWord.replace(/^[\d]+[.)]\s*/, '').replace(/^[-*•]\s*/, '').trim();
-
-      if (!rawWord) continue;
-      setProgress({ current: i + 1, total: rawLines.length, word: rawWord });
-
-      try {
-        let item: WordItem;
-
-        if (autoEnrich) {
-          try {
-            const timeoutPromise = new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error('Timeout')), 3000)
-            );
-            const lookedUp = await Promise.race([lookupWord(rawWord), timeoutPromise]);
-            item = {
-              ...lookedUp,
-              word: rawWord.toLowerCase(),
-              id: `word-${dateTimestamp}-${Math.random().toString(36).slice(2, 7)}`,
-              vietnameseDefinition: userMeaning || lookedUp.vietnameseDefinition,
-              createdAt: dateTimestamp,
-              updatedAt: dateTimestamp,
-              tags: Array.from(new Set([...lookedUp.tags, ...parsedTags])),
-            };
-          } catch (lookupErr) {
-            console.warn(`Lookup failed or timed out for "${rawWord}", using reliable offline fallback:`, lookupErr);
-            item = createFallbackItem(rawWord, userMeaning);
-          }
-        } else {
-          item = createFallbackItem(rawWord, userMeaning);
-        }
-
-        const normalized = item.word.trim().toLowerCase();
-        const existing = await db.words.where('word').equals(normalized).first();
-        if (existing) {
-          await db.words.put({
-            ...existing,
-            ...item,
-            word: normalized,
-            id: existing.id,
-            createdAt: dateTimestamp,
-            updatedAt: Date.now(),
-          });
-        } else {
-          let safeId = item.id;
-          if (await db.words.get(safeId)) {
-            safeId = `word-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-          }
-          await db.words.put({
-            ...item,
-            id: safeId,
-            word: normalized,
-            createdAt: dateTimestamp,
-            updatedAt: Date.now(),
-          });
-        }
-
-        addedCount++;
-      } catch (err) {
-        console.error(`Failed to process word "${rawWord}":`, err);
-      }
+      setBulkText('');
+      onImportComplete(customDate);
+    } catch (err: any) {
+      console.error('Bulk add error:', err);
+    } finally {
+      setIsProcessing(false);
+      setProgress(null);
+      abortControllerRef.current = null;
     }
-
-    setIsProcessing(false);
-    setProgress(null);
-    setBulkText('');
-    setBulkSuccessMsg(
-      language === 'vi'
-        ? `Đã thêm thành công ${addedCount} từ vào Deck với ngày ghi nhận là ${customDate}!`
-        : `Successfully added ${addedCount} words to Deck with date ${customDate}!`
-    );
-    onImportComplete(customDate);
   };
 
   const handleImportJsonText = async () => {
     if (!importText.trim()) return;
-    const res = await importDeckFromJson(importText.trim());
-    setImportResult(res);
-    if (res.imported > 0) {
-      onImportComplete();
+    setIsProcessing(true);
+    setImportResult(null);
+    try {
+      const res = await importDeckFromJson(importText.trim(), { replaceProgress });
+      setImportResult(res);
+      if (res.imported > 0) {
+        onImportComplete();
+      }
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -302,10 +220,15 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
     reader.onload = async (event) => {
       const content = event.target?.result as string;
       setImportText(content);
-      const res = await importDeckFromJson(content);
-      setImportResult(res);
-      if (res.imported > 0) {
-        onImportComplete();
+      setIsProcessing(true);
+      try {
+        const res = await importDeckFromJson(content, { replaceProgress });
+        setImportResult(res);
+        if (res.imported > 0) {
+          onImportComplete();
+        }
+      } finally {
+        setIsProcessing(false);
       }
     };
     reader.readAsText(file);
@@ -436,35 +359,57 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
               </div>
             </div>
 
-            {/* Auto enrich toggle */}
-            <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
-              <input
-                type="checkbox"
-                checked={autoEnrich}
-                onChange={(e) => setAutoEnrich(e.target.checked)}
-                disabled={isProcessing}
-                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-              />
-              <span className="flex items-center gap-1">
-                <Sparkles className="h-3.5 w-3.5 text-amber-500" />
-                {t.modals.autoEnrichLabel}
-              </span>
-            </label>
+            {/* Options row: Auto enrich & Replace progress */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1">
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={autoEnrich}
+                  onChange={(e) => setAutoEnrich(e.target.checked)}
+                  disabled={isProcessing}
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="flex items-center gap-1">
+                  <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+                  {t.modals.autoEnrichLabel}
+                </span>
+              </label>
+
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-600 dark:text-slate-400">
+                <input
+                  type="checkbox"
+                  checked={replaceProgress}
+                  onChange={(e) => setReplaceProgress(e.target.checked)}
+                  disabled={isProcessing}
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span>{language === 'vi' ? 'Ghi đè tiến độ nếu đã có' : 'Replace learning progress'}</span>
+              </label>
+            </div>
 
             {/* Progress bar */}
             {isProcessing && progress && (
-              <div className="space-y-1.5 rounded-2xl bg-indigo-50/80 p-3 dark:bg-indigo-950/40">
+              <div className="space-y-2 rounded-2xl bg-indigo-50/80 p-3.5 dark:bg-indigo-950/40">
                 <div className="flex items-center justify-between text-xs font-medium text-indigo-700 dark:text-indigo-300">
                   <span className="flex items-center gap-1.5">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     {t.modals.processingWord} <strong>{progress.word}</strong>
                   </span>
-                  <span>{progress.current} / {progress.total}</span>
+                  <div className="flex items-center gap-3">
+                    <span>{progress.current} / {progress.total}</span>
+                    <button
+                      type="button"
+                      onClick={handleCancel}
+                      className="rounded bg-rose-100 dark:bg-rose-950/60 px-2 py-0.5 text-[11px] font-bold text-rose-700 dark:text-rose-300 hover:bg-rose-200 transition-colors"
+                    >
+                      {language === 'vi' ? 'Hủy' : 'Cancel'}
+                    </button>
+                  </div>
                 </div>
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-indigo-200/80 dark:bg-indigo-900">
                   <div
                     className="h-full bg-indigo-600 transition-all duration-300"
-                    style={{ width: `${(progress.current / progress.total) * 100}%` }}
+                    style={{ width: `${(progress.current / Math.max(1, progress.total)) * 100}%` }}
                   />
                 </div>
               </div>
@@ -668,6 +613,17 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
                 )}
               </div>
             )}
+
+            {/* Option to replace progress on JSON restore */}
+            <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-600 dark:text-slate-400">
+              <input
+                type="checkbox"
+                checked={replaceProgress}
+                onChange={(e) => setReplaceProgress(e.target.checked)}
+                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              <span>{language === 'vi' ? 'Ghi đè tiến độ học tập (mặc định giữ nguyên tiến độ cũ)' : 'Replace learning progress (default preserves progress)'}</span>
+            </label>
 
             <button
               type="button"

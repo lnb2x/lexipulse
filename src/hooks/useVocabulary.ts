@@ -1,8 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useCallback, useMemo, useState } from 'react';
 import { db } from '../services/db';
-import { warmSearchCache } from '../services/dictionary';
-import { createInitialReviewMeta } from '../services/sm2';
+import { saveOrUpdateWord, deleteWord as repoDeleteWord } from '../services/vocabRepository';
 import type { FilterOptions, WordItem } from '../types/vocab';
 import { formatLocalDate } from '../utils/dateUtils';
 import { findFuzzyMatches } from '../utils/fuzzySearch';
@@ -165,62 +164,16 @@ export function useVocabulary() {
 
   // Operations
   const addWord = async (word: WordItem): Promise<boolean> => {
-    const normalizedWord = word.word.trim().toLowerCase();
-    if (!normalizedWord) return false;
-
-    const existing = await db.words.where('word').equals(normalizedWord).first();
-    let isNew = false;
-    let savedRecord: WordItem;
-
-    if (existing) {
-      savedRecord = {
-        ...existing,
-        ...word,
-        id: existing.id,
-        word: normalizedWord,
-        updatedAt: Date.now(),
-      };
-      await db.words.put(savedRecord);
-      isNew = false;
-    } else {
-      const finalId =
-        word.id && word.id.trim()
-          ? word.id
-          : typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-            ? `word-${crypto.randomUUID()}`
-            : `word-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-
-      savedRecord = {
-        ...word,
-        id: finalId,
-        word: normalizedWord,
-        status: word.status || 'new',
-        createdAt: word.createdAt && !isNaN(word.createdAt) ? word.createdAt : Date.now(),
-        updatedAt: Date.now(),
-        reviewMeta: word.reviewMeta || createInitialReviewMeta(),
-      };
-      await db.words.put(savedRecord);
-      isNew = true;
-    }
-
-    // Warm cache with normalized record
-    warmSearchCache([savedRecord]);
+    const { isNew } = await saveOrUpdateWord(word, { mergePolicy: 'preserve-progress' });
     return isNew;
   };
 
   const updateWord = async (word: WordItem): Promise<void> => {
-    const normalizedWord = word.word.trim().toLowerCase();
-    const updatedRecord: WordItem = {
-      ...word,
-      word: normalizedWord,
-      updatedAt: Date.now(),
-    };
-    await db.words.put(updatedRecord);
-    warmSearchCache([updatedRecord]);
+    await saveOrUpdateWord(word, { mergePolicy: 'preserve-progress' });
   };
 
   const deleteWord = async (id: string): Promise<void> => {
-    await db.words.delete(id);
+    await repoDeleteWord(id);
   };
 
   const isWordInDeck = useCallback(

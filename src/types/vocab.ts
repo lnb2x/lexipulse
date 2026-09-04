@@ -61,6 +61,9 @@ export interface SpellingSuggestion {
   score?: number;
 }
 
+export type WordSource = 'local' | 'online' | 'ai' | 'manual';
+export type EnrichmentStatus = 'completed' | 'pending' | 'failed' | 'manual';
+
 export interface WordItem {
   id: string;
   word: string;
@@ -79,6 +82,8 @@ export interface WordItem {
   updatedAt: number;
   reviewMeta: ReviewMeta;
   suggestions?: SpellingSuggestion[];
+  source?: WordSource;
+  enrichmentStatus?: EnrichmentStatus;
 }
 
 export interface DailyStats {
