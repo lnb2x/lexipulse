@@ -7,7 +7,10 @@ import { createInitialReviewMeta } from '../../services/sm2';
 import { AudioButton } from '../common/AudioButton';
 import { WordFamilyInteractive } from '../common/WordFamilyInteractive';
 import { parseMultipleMeanings } from '../../utils/definitionUtils';
-import { EditableWordModal } from './EditableWordModal';
+
+const EditableWordModal = React.lazy(() =>
+  import('./EditableWordModal').then((m) => ({ default: m.EditableWordModal }))
+);
 
 interface WordCardProps {
   word: WordItem;
@@ -401,12 +404,16 @@ export const WordCard: React.FC<WordCardProps> = ({
       </div>
 
       {/* Edit Modal */}
-      <EditableWordModal
-        isOpen={isEditModalOpen}
-        word={currentWord}
-        onClose={() => setIsEditModalOpen(false)}
-        onSave={handleSaveFromModal}
-      />
+      {isEditModalOpen && (
+        <React.Suspense fallback={null}>
+          <EditableWordModal
+            isOpen={isEditModalOpen}
+            word={currentWord}
+            onClose={() => setIsEditModalOpen(false)}
+            onSave={handleSaveFromModal}
+          />
+        </React.Suspense>
+      )}
     </div>
   );
 };

@@ -306,11 +306,35 @@ export async function updateWordTags(id: string, tags: string[]): Promise<void> 
 }
 
 /**
+ * Updates an existing word record preserving progress.
+ */
+export async function updateWord(id: string, updates: Partial<WordItem>): Promise<void> {
+  const existing = await db.words.get(id);
+  if (!existing) return;
+  const merged = mergeWordRecords(existing, updates, { mergePolicy: 'preserve-progress' });
+  await db.words.put(merged);
+  warmSearchCache([merged]);
+}
+
+/**
  * Deletes a word by id.
  */
 export async function deleteWord(id: string): Promise<void> {
   await db.words.delete(id);
 }
+
+export const saveWord = saveOrUpdateWord;
+
+export const vocabRepository = {
+  saveWord,
+  saveOrUpdateWord,
+  updateWord,
+  updateWordNotes,
+  updateWordTags,
+  deleteWord,
+  bulkUpsertWords,
+  importDeckFromJson,
+};
 
 export interface ImportDeckOptions {
   replaceProgress?: boolean;
