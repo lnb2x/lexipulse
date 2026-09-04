@@ -8,6 +8,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   aiBaseUrl: '',
   aiModel: 'gemini-2.5-flash',
   geminiApiKey: '',
+  persistApiKey: false,
   speechRate: 0.95,
   speechPitch: 1.0,
   preferredAccent: 'US',
@@ -15,17 +16,25 @@ export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
 };
 
+const SESSION_KEY_STORAGE = 'lexipulse_session_ai_key';
+
 export async function getAppSettings(): Promise<AppSettings> {
   try {
     const item = await db.settingsTable.get('appSettings');
-    if (!item) return DEFAULT_SETTINGS;
-
-    const loaded = { ...DEFAULT_SETTINGS, ...item.value };
+    const loaded: AppSettings = item ? { ...DEFAULT_SETTINGS, ...item.value } : { ...DEFAULT_SETTINGS };
 
     // Backward compatibility: If user had legacy geminiApiKey but no aiApiKey, migrate it
     if (!loaded.aiApiKey && loaded.geminiApiKey) {
       loaded.aiApiKey = loaded.geminiApiKey;
       loaded.aiProvider = 'gemini';
+    }
+
+    // If key is not persisted to disk, look for session-based key
+    if (!loaded.persistApiKey && typeof sessionStorage !== 'undefined') {
+      const sessionKey = sessionStorage.getItem(SESSION_KEY_STORAGE);
+      if (sessionKey) {
+        loaded.aiApiKey = sessionKey;
+      }
     }
 
     return loaded;
@@ -37,7 +46,24 @@ export async function getAppSettings(): Promise<AppSettings> {
 export async function saveAppSettings(settings: Partial<AppSettings>): Promise<AppSettings> {
   const current = await getAppSettings();
   const updated = { ...current, ...settings };
-  await db.settingsTable.put({ key: 'appSettings', value: updated });
+
+  // Handle session vs persistent key
+  if (updated.persistApiKey) {
+    // User explicitly opted in to persistent disk storage
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.removeItem(SESSION_KEY_STORAGE);
+    }
+    await db.settingsTable.put({ key: 'appSettings', value: updated });
+  } else {
+    // Default: Session-only storage in browser memory/sessionStorage
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem(SESSION_KEY_STORAGE, updated.aiApiKey || '');
+    }
+    // Don't write plain-text key to IndexedDB when persistent storage is off
+    const sanitizedForDb = { ...updated, aiApiKey: '', geminiApiKey: '' };
+    await db.settingsTable.put({ key: 'appSettings', value: sanitizedForDb });
+  }
+
   return updated;
 }
 
@@ -51,14 +77,12 @@ export async function getTodayStats(): Promise<DailyStats> {
   const yesterdayStats = await db.dailyStats.get(yesterday);
   const streak = yesterdayStats && yesterdayStats.cardsReviewed > 0 ? yesterdayStats.streak : 0;
 
-  const newStats: DailyStats = {
+  return {
     date: today,
     cardsReviewed: 0,
     streak,
     lastActiveDate: yesterdayStats && yesterdayStats.cardsReviewed > 0 ? yesterdayStats.lastActiveDate : today,
   };
-  await db.dailyStats.put(newStats);
-  return newStats;
 }
 
 export async function recordReviewActivity(): Promise<DailyStats> {

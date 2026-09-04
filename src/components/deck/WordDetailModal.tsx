@@ -7,6 +7,7 @@ import { AudioButton } from '../common/AudioButton';
 import { Badge } from '../common/Badge';
 import { WordFamilyInteractive } from '../common/WordFamilyInteractive';
 import { parseMultipleMeanings } from '../../utils/definitionUtils';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface WordDetailModalProps {
   word: WordItem | null;
@@ -31,6 +32,7 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
 }) => {
   const { language, t } = useLanguage();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const modalRef = useModalA11y({ isOpen: !!word, onClose });
 
   if (!word) return null;
 
@@ -38,12 +40,18 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 overflow-y-auto animate-fade-in">
-      <div className="relative my-8 w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 sm:p-7 shadow-xl dark:border-slate-800 dark:bg-[#111622]">
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="word-detail-title"
+        className="relative my-8 w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 sm:p-7 shadow-xl dark:border-slate-800 dark:bg-[#111622]"
+      >
         {/* Header */}
         <div className="flex items-start justify-between border-b border-slate-100 pb-4 dark:border-slate-800">
           <div>
             <div className="flex flex-wrap items-center gap-2.5">
-              <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+              <h2 id="word-detail-title" className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
                 {word.word}
               </h2>
               <Badge status={word.status} />
@@ -69,7 +77,9 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
           <div className="flex items-center gap-2">
             <AudioButton text={word.word} accent="US" audioUrl={word.phonetics.audioUs} size="sm" />
             <button
+              type="button"
               onClick={onClose}
+              aria-label={language === 'vi' ? 'Đóng chi tiết từ' : 'Close word details'}
               className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-colors"
             >
               <X className="h-5 w-5" />

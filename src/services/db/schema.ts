@@ -22,3 +22,7 @@ export class LexiPulseDatabase extends Dexie {
 }
 
 export const db = new LexiPulseDatabase();
+
+if (typeof window !== 'undefined') {
+  (window as any).__db = db;
+}

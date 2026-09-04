@@ -1,6 +1,7 @@
 import { Command, X } from 'lucide-react';
 import React from 'react';
 import { useLanguage } from '../../context/LanguageContext';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface ShortcutsModalProps {
   isOpen: boolean;
@@ -9,6 +10,8 @@ interface ShortcutsModalProps {
 
 export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose }) => {
   const { language, t } = useLanguage();
+  const modalRef = useModalA11y({ isOpen, onClose });
+
   if (!isOpen) return null;
 
   const shortcuts = language === 'vi' ? [
@@ -33,21 +36,31 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 animate-fade-in">
-      <div className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 sm:p-7 shadow-xl dark:border-slate-800 dark:bg-[#111622]">
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="shortcuts-dialog-title"
+        className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 sm:p-7 shadow-xl dark:border-slate-800 dark:bg-[#111622]"
+      >
         <div className="flex items-center justify-between border-b border-slate-100 pb-4 dark:border-slate-800">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400">
               <Command className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="font-display text-lg font-bold text-slate-900 dark:text-white">{t.modals.shortcutsTitle}</h2>
+              <h2 id="shortcuts-dialog-title" className="font-display text-lg font-bold text-slate-900 dark:text-white">
+                {t.modals.shortcutsTitle}
+              </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 {language === 'vi' ? 'Tăng tốc độ học và ghi nhớ' : 'Boost your study efficiency'}
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
+            aria-label={language === 'vi' ? 'Đóng cửa sổ phím tắt' : 'Close shortcuts modal'}
             className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-colors"
           >
             <X className="h-5 w-5" />

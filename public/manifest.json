@@ -1,0 +1,17 @@
+{
+  "name": "LexiPulse | Smart English Vocabulary",
+  "short_name": "LexiPulse",
+  "description": "High-yield English Vocabulary Learning for TOEIC/IELTS test-takers with SM-2 Spaced Repetition.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b0f17",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

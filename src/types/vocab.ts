@@ -102,6 +102,7 @@ export interface AppSettings {
   aiBaseUrl?: string;
   aiModel?: string;
   geminiApiKey: string; // legacy backward compatibility
+  persistApiKey?: boolean; // Default false: keep in session only; opt-in for persistent storage
   speechRate: number;
   speechPitch: number;
   preferredAccent: 'US' | 'UK';

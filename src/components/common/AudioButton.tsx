@@ -53,6 +53,7 @@ export const AudioButton: React.FC<AudioButtonProps> = ({
       onClick={handlePlay}
       disabled={isPlaying}
       title={`Pronounce ${text} (${accent})`}
+      aria-label={`Pronounce ${text} (${accent})`}
       className={`inline-flex items-center gap-1.5 rounded-lg border transition-all duration-200 active:scale-95 ${
         accent === 'US'
           ? 'border-indigo-200 bg-indigo-50/70 text-indigo-700 hover:bg-indigo-100 hover:border-indigo-300 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-900/60'

@@ -186,7 +186,7 @@ async function fetchWithTimeoutAI(
 /**
  * Robust JSON extraction helper that safely strips markdown code blocks or conversational text.
  */
-function extractJsonFromResponse(rawText: string): any {
+function extractJsonFromResponse(rawText: string): unknown {
   const cleaned = rawText
     .replace(/^```json\s*/i, '')
     .replace(/^```\s*/i, '')
@@ -206,6 +206,102 @@ function extractJsonFromResponse(rawText: string): any {
     }
     throw new Error('No valid JSON object found in response');
   }
+}
+
+/**
+ * Validates and normalizes raw JSON data from AI models against our strict schema.
+ * Replaces any/unknown with typed, sanitised structures.
+ */
+export function validateAndNormalizeAIResponse(data: unknown): AIEnrichmentResult | null {
+  if (!data || typeof data !== 'object') {
+    return null;
+  }
+
+  const obj = data as Record<string, unknown>;
+
+  // Vietnamese definition is mandatory
+  const rawVi = typeof obj.vietnameseDefinition === 'string' ? obj.vietnameseDefinition.trim() : '';
+  if (!rawVi) {
+    return null;
+  }
+
+  // IPA pronunciations
+  const ipaUs = typeof obj.ipaUs === 'string' && obj.ipaUs.trim() ? obj.ipaUs.trim() : undefined;
+  const ipaUk = typeof obj.ipaUk === 'string' && obj.ipaUk.trim() ? obj.ipaUk.trim() : undefined;
+
+  // Collocations
+  const collocations: CollocationItem[] = [];
+  if (Array.isArray(obj.collocations)) {
+    for (const item of obj.collocations) {
+      if (item && typeof item === 'object') {
+        const c = item as Record<string, unknown>;
+        const phrase = typeof c.phrase === 'string' ? c.phrase.trim() : '';
+        const meaningVi = typeof c.meaningVi === 'string' ? c.meaningVi.trim() : '';
+        if (phrase && meaningVi) {
+          collocations.push({ phrase, meaningVi });
+        }
+      }
+    }
+  }
+
+  // Word family
+  const wordFamily: WordFamilyItem[] = [];
+  if (Array.isArray(obj.wordFamily)) {
+    for (const item of obj.wordFamily) {
+      if (item && typeof item === 'object') {
+        const wf = item as Record<string, unknown>;
+        const word = typeof wf.word === 'string' ? wf.word.trim().toLowerCase() : '';
+        const pos = typeof wf.pos === 'string' ? wf.pos.trim().toLowerCase() : 'noun';
+        const meaningVi = typeof wf.meaningVi === 'string' ? wf.meaningVi.trim() : undefined;
+        if (word) {
+          wordFamily.push({ word, pos, meaningVi });
+        }
+      }
+    }
+  }
+
+  // Examples
+  const examples: ExampleItem[] = [];
+  if (Array.isArray(obj.examples)) {
+    for (const item of obj.examples) {
+      if (item && typeof item === 'object') {
+        const ex = item as Record<string, unknown>;
+        const en = typeof ex.en === 'string' ? ex.en.trim() : '';
+        const vi = typeof ex.vi === 'string' ? ex.vi.trim() : '';
+        const rawCtx = typeof ex.context === 'string' ? ex.context : 'general';
+        const context: 'general' | 'toeic' | 'workplace' | 'academic' =
+          rawCtx === 'workplace' || rawCtx === 'toeic' || rawCtx === 'academic' || rawCtx === 'general'
+            ? (rawCtx as 'general' | 'toeic' | 'workplace' | 'academic')
+            : 'general';
+        if (en && vi) {
+          examples.push({ en, vi, context });
+        }
+      }
+    }
+  }
+
+  // Tags
+  const tags: string[] = [];
+  if (Array.isArray(obj.tags)) {
+    for (const t of obj.tags) {
+      if (typeof t === 'string' && t.trim()) {
+        const cleanTag = t.trim().startsWith('#') ? t.trim() : `#${t.trim()}`;
+        if (!tags.includes(cleanTag)) {
+          tags.push(cleanTag);
+        }
+      }
+    }
+  }
+
+  return {
+    ipaUs,
+    ipaUk,
+    vietnameseDefinition: rawVi,
+    collocations,
+    wordFamily,
+    examples,
+    tags: tags.length > 0 ? tags : ['#TOEIC', '#AIEnriched'],
+  };
 }
 
 /**
@@ -499,7 +595,7 @@ Do not include markdown code block fences like \`\`\`json. Return raw JSON stric
 
     if (!rawText) return null;
     const parsed = extractJsonFromResponse(rawText);
-    return parsed;
+    return validateAndNormalizeAIResponse(parsed);
   } catch (err) {
     console.warn(`[AI Enrichment] ${provider} failed for "${word}":`, err);
     return null;

@@ -82,7 +82,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isLoading, deckW
     }
 
     if (q.length < 3) {
-      setOnlineFuzzySuggestions([]);
+      setOnlineFuzzySuggestions((prev) => (prev.length > 0 ? [] : prev));
       return;
     }
 
@@ -303,6 +303,8 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isLoading, deckW
           {query ? (
             <button
               type="button"
+              aria-label={t.lookup.clearHistory || 'Clear'}
+              title={t.lookup.clearHistory || 'Clear'}
               onClick={() => {
                 setQuery('');
                 setIsOpen(false);

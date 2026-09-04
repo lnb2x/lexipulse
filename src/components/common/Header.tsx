@@ -136,6 +136,7 @@ export const Header: React.FC<HeaderProps> = ({
             type="button"
             onClick={toggleLanguage}
             title={language === 'vi' ? 'Chuyển sang Tiếng Anh (English)' : 'Switch to Vietnamese (Tiếng Việt)'}
+            aria-label={language === 'vi' ? 'Chuyển sang Tiếng Anh' : 'Switch to Vietnamese'}
             className="flex h-9 items-center gap-1.5 rounded-xl border border-slate-200/90 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:bg-slate-800/80 transition-colors shadow-subtle"
           >
             <span className="text-xs">{language === 'vi' ? '🇻🇳' : '🇬🇧'}</span>
@@ -147,6 +148,7 @@ export const Header: React.FC<HeaderProps> = ({
             type="button"
             onClick={onOpenShortcuts}
             title={t.nav.shortcuts}
+            aria-label={t.nav.shortcuts}
             className="hidden sm:flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200/90 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-800 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:text-slate-200 transition-colors shadow-subtle"
           >
             <Keyboard className="h-4 w-4" />
@@ -157,6 +159,7 @@ export const Header: React.FC<HeaderProps> = ({
             type="button"
             onClick={onToggleTheme}
             title={theme === 'dark' ? 'Chuyển sang Giao diện Sáng (Light)' : 'Chuyển sang Giao diện Tối (Dark)'}
+            aria-label={theme === 'dark' ? (language === 'vi' ? 'Chuyển sang Giao diện Sáng' : 'Switch to Light Mode') : (language === 'vi' ? 'Chuyển sang Giao diện Tối' : 'Switch to Dark Mode')}
             className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200/90 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-800 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:text-slate-200 transition-colors shadow-subtle"
           >
             {theme === 'dark' ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4 text-slate-600" />}
@@ -167,6 +170,7 @@ export const Header: React.FC<HeaderProps> = ({
             type="button"
             onClick={onOpenSettings}
             title={t.nav.settings}
+            aria-label={t.nav.settings}
             className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200/90 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-800 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:text-slate-200 transition-colors shadow-subtle"
           >
             <Settings className="h-4 w-4" />

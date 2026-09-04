@@ -7,6 +7,7 @@ import { bulkUpsertWords } from '../../services/vocabRepository';
 import { parseBulkImportInput } from '../../utils/importParser';
 import type { WordItem } from '../../types/vocab';
 import { formatLocalDate, parseLocalDateToTimestamp } from '../../utils/dateUtils';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface ImportExportModalProps {
   isOpen: boolean;
@@ -30,6 +31,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   initialTab = 'bulk',
 }) => {
   const { language, t } = useLanguage();
+  const modalRef = useModalA11y({ isOpen, onClose });
   const [activeTab, setActiveTab] = useState<'bulk' | 'export' | 'import'>(initialTab);
   const [copied, setCopied] = useState(false);
 
@@ -236,7 +238,13 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 animate-fade-in">
-      <div className="relative w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 sm:p-7 shadow-xl dark:border-slate-800 dark:bg-[#111622]">
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="import-export-dialog-title"
+        className="relative w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 sm:p-7 shadow-xl dark:border-slate-800 dark:bg-[#111622]"
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 pb-4 dark:border-slate-800">
           <div className="flex items-center gap-2.5">
@@ -244,7 +252,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
               <Layers className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="font-display text-base font-bold text-slate-900 dark:text-white">
+              <h2 id="import-export-dialog-title" className="font-display text-base font-bold text-slate-900 dark:text-white">
                 {t.modals.bulkTitle}
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -253,7 +261,9 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
+            aria-label={language === 'vi' ? 'Đóng cửa sổ nhập xuất' : 'Close import export modal'}
             className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-colors"
           >
             <X className="h-5 w-5" />

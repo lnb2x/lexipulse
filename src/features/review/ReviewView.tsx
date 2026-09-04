@@ -133,6 +133,7 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
                   <button
                     key={m.id}
                     type="button"
+                    aria-label={language === 'vi' ? m.labelVi : m.labelEn}
                     onClick={() => onSwitchReviewMode(m.id)}
                     className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all ${
                       isActive

@@ -160,7 +160,7 @@ export const Flashcard: React.FC<FlashcardProps> = ({
                 {language === 'vi' ? 'Mặt trước' : 'Front Card'}
               </span>
               <div className="flex gap-1">
-                {word.pos.map((p) => (
+                {word.pos?.map((p) => (
                   <span
                     key={p}
                     className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 italic"

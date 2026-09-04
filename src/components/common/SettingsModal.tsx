@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   CheckCircle2,
   Eye,
   EyeOff,
@@ -8,6 +9,7 @@ import {
   Settings,
   Sparkles,
   Volume2,
+  Wifi,
   X,
   XCircle,
 } from 'lucide-react';
@@ -16,6 +18,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { AI_PROVIDERS, testAIConnection } from '../../services/ai';
 import { getAppSettings, resetDatabaseToDefault, saveAppSettings } from '../../services/db';
 import type { AIProvider, AppSettings } from '../../types/vocab';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -31,6 +34,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onResetDeck,
 }) => {
   const { language, setLanguage, t } = useLanguage();
+  const modalRef = useModalA11y({ isOpen, onClose });
   const [settings, setSettings] = useState<AppSettings>({
     aiProvider: 'gemini',
     aiApiKey: '',
@@ -125,7 +129,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 animate-fade-in">
-      <div className="relative w-full max-w-lg max-h-[92vh] flex flex-col rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-[#111622] overflow-hidden">
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-dialog-title"
+        className="relative w-full max-w-lg max-h-[92vh] flex flex-col rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-[#111622] overflow-hidden"
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 p-5 sm:p-6 pb-4 dark:border-slate-800 shrink-0">
           <div className="flex items-center gap-2.5">
@@ -133,9 +143,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <Settings className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="font-display text-lg font-bold text-slate-900 dark:text-white">
-                {t.modals.settingsTitle}
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 id="settings-dialog-title" className="font-display text-lg font-bold text-slate-900 dark:text-white">
+                  {t.modals.settingsTitle}
+                </h2>
+              </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 Configure AI, language, speech & quotas
               </p>
@@ -144,6 +156,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <button
             type="button"
             onClick={onClose}
+            aria-label={language === 'vi' ? 'Đóng cài đặt' : 'Close settings'}
             className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-colors"
           >
             <X className="h-5 w-5" />
@@ -195,9 +208,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <Sparkles className="h-4 w-4" />
                 </div>
                 <div>
-                  <h3 className="text-xs font-bold text-slate-900 dark:text-white">
-                    {t.modals.aiSectionTitle}
-                  </h3>
+                  <div className="flex items-center gap-1.5">
+                    <h3 className="text-xs font-bold text-slate-900 dark:text-white">
+                      {t.modals.aiSectionTitle}
+                    </h3>
+                    <span className="inline-flex items-center gap-1 rounded-full border border-indigo-200/80 bg-indigo-50/80 px-2 py-0.5 text-[9px] font-semibold text-indigo-700 dark:border-indigo-800/80 dark:bg-indigo-950/60 dark:text-indigo-300">
+                      <Wifi className="h-2.5 w-2.5" />
+                      {language === 'vi' ? 'Cần Internet' : 'Requires Internet'}
+                    </span>
+                  </div>
                   <p className="text-[10px] text-slate-500 dark:text-slate-400">
                     {t.modals.storedLocallyNote}
                   </p>
@@ -343,6 +362,41 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 >
                   {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                 </button>
+              </div>
+
+              {/* API Key Storage Policy & Security Notice */}
+              <div className="pt-2 space-y-2">
+                <label className="flex items-start gap-2.5 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={!!settings.persistApiKey}
+                    onChange={(e) => setSettings({ ...settings, persistApiKey: e.target.checked })}
+                    className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <div>
+                    <span className="font-semibold">
+                      {language === 'vi' ? 'Lưu API Key vĩnh viễn trên thiết bị này' : 'Persist API Key permanently on this device'}
+                    </span>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      {language === 'vi'
+                        ? 'Mặc định: Key chỉ lưu trong phiên làm việc (Session Storage). Bật tùy chọn này để lưu vào IndexedDB máy của bạn.'
+                        : 'Default: Key is kept in session storage only. Enabling this stores it persistently in local IndexedDB.'}
+                    </p>
+                  </div>
+                </label>
+
+                {/* Security Warning Box */}
+                <div className="rounded-xl border border-amber-200/80 bg-amber-50/70 p-3 text-[11px] text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                  <p className="font-semibold flex items-center gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                    <span>{language === 'vi' ? 'Cảnh báo an toàn bảo mật API Key' : 'API Key Security Notice'}</span>
+                  </p>
+                  <p className="mt-1 text-amber-800/90 dark:text-amber-300/90 leading-relaxed">
+                    {language === 'vi'
+                      ? 'API Key trong ứng dụng web (Client-side Frontend) có thể bị đọc bởi mã JavaScript hoặc nếu trang gặp tấn công XSS. Không có giải pháp mã hóa phía client nào đảm bảo an toàn tuyệt đối trước môi trường trình duyệt. Khuyến nghị chỉ dùng API key có đặt giới hạn chi tiêu (quota cap) hoặc chạy trên máy cá nhân tin cậy.'
+                      : 'API keys stored in client-side web applications are accessible to JavaScript/XSS scripts. Client-side encryption cannot fully secure secrets in the browser. We recommend using keys with strict usage quotas on trusted personal devices.'}
+                  </p>
+                </div>
               </div>
             </div>
 
