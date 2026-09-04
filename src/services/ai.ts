@@ -112,6 +112,75 @@ export interface AIRequestConfig {
   apiKey: string;
   baseUrl?: string;
   model?: string;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
+
+/**
+ * Concurrency limiter for background AI requests (max 2 concurrent)
+ */
+let activeAIRequests = 0;
+const aiQueue: Array<() => void> = [];
+
+async function acquireAISlot(): Promise<void> {
+  if (activeAIRequests < 2) {
+    activeAIRequests++;
+    return;
+  }
+  return new Promise<void>((resolve) => {
+    aiQueue.push(() => {
+      activeAIRequests++;
+      resolve();
+    });
+  });
+}
+
+function releaseAISlot(): void {
+  activeAIRequests--;
+  if (aiQueue.length > 0) {
+    const next = aiQueue.shift();
+    next?.();
+  }
+}
+
+/**
+ * Fetch helper with timeout and combined AbortSignal for AI requests
+ */
+async function fetchWithTimeoutAI(
+  url: string,
+  options: RequestInit = {},
+  timeoutMs = 8000,
+  externalSignal?: AbortSignal
+): Promise<Response> {
+  if (externalSignal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort(new DOMException(`AI request timeout of ${timeoutMs}ms exceeded`, 'TimeoutError'));
+  }, timeoutMs);
+
+  const onExternalAbort = () => {
+    controller.abort(externalSignal?.reason || new DOMException('Aborted by user', 'AbortError'));
+  };
+
+  if (externalSignal) {
+    externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+  }
+
+  try {
+    const res = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    return res;
+  } finally {
+    clearTimeout(timer);
+    if (externalSignal) {
+      externalSignal.removeEventListener('abort', onExternalAbort);
+    }
+  }
 }
 
 /**
@@ -172,14 +241,19 @@ export async function testAIConnection(
 
     if (provider === 'gemini') {
       const endpoint = `${baseUrl}/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: testPrompt }] }],
-          generationConfig: { responseMimeType: 'application/json' },
-        }),
-      });
+      const res = await fetchWithTimeoutAI(
+        endpoint,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: testPrompt }] }],
+            generationConfig: { responseMimeType: 'application/json' },
+          }),
+        },
+        config.timeoutMs || 7000,
+        config.signal
+      );
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
@@ -192,20 +266,25 @@ export async function testAIConnection(
       if (!text) throw new Error('Không nhận được phản hồi từ Gemini.');
     } else if (provider === 'claude') {
       const endpoint = `${baseUrl}/messages`;
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
+      const res = await fetchWithTimeoutAI(
+        endpoint,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true',
+          },
+          body: JSON.stringify({
+            model,
+            max_tokens: 100,
+            messages: [{ role: 'user', content: testPrompt }],
+          }),
         },
-        body: JSON.stringify({
-          model,
-          max_tokens: 100,
-          messages: [{ role: 'user', content: testPrompt }],
-        }),
-      });
+        config.timeoutMs || 7000,
+        config.signal
+      );
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
@@ -233,22 +312,27 @@ export async function testAIConnection(
         headers['X-Title'] = 'LexiPulse English Vocabulary';
       }
 
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          model,
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a test assistant. Always reply strictly in raw JSON without formatting.',
-            },
-            { role: 'user', content: testPrompt },
-          ],
-          temperature: 0.1,
-          max_tokens: 80,
-        }),
-      });
+      const res = await fetchWithTimeoutAI(
+        endpoint,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            model,
+            messages: [
+              {
+                role: 'system',
+                content: 'You are a test assistant. Always reply strictly in raw JSON without formatting.',
+              },
+              { role: 'user', content: testPrompt },
+            ],
+            temperature: 0.1,
+            max_tokens: 80,
+          }),
+        },
+        config.timeoutMs || 7000,
+        config.signal
+      );
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
@@ -325,38 +409,49 @@ Respond ONLY with a valid JSON object matching this exact TypeScript structure:
 }
 Do not include markdown code block fences like \`\`\`json. Return raw JSON strictly.`;
 
+  await acquireAISlot();
   try {
     let rawText = '';
 
     if (provider === 'gemini') {
       const endpoint = `${baseUrl}/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: 'application/json' },
-        }),
-      });
+      const res = await fetchWithTimeoutAI(
+        endpoint,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: 'application/json' },
+          }),
+        },
+        config.timeoutMs || 8000,
+        config.signal
+      );
       if (!res.ok) return null;
       const data = await res.json();
       rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     } else if (provider === 'claude') {
       const endpoint = `${baseUrl}/messages`;
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
+      const res = await fetchWithTimeoutAI(
+        endpoint,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true',
+          },
+          body: JSON.stringify({
+            model,
+            max_tokens: 1024,
+            messages: [{ role: 'user', content: prompt }],
+          }),
         },
-        body: JSON.stringify({
-          model,
-          max_tokens: 1024,
-          messages: [{ role: 'user', content: prompt }],
-        }),
-      });
+        config.timeoutMs || 8000,
+        config.signal
+      );
       if (!res.ok) return null;
       const data = await res.json();
       rawText = data.content?.[0]?.text || '';
@@ -377,21 +472,26 @@ Do not include markdown code block fences like \`\`\`json. Return raw JSON stric
         headers['X-Title'] = 'LexiPulse English Vocabulary';
       }
 
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          model,
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a professional linguist and TOEIC teacher. Always respond strictly in valid JSON without markdown code block fences.',
-            },
-            { role: 'user', content: prompt },
-          ],
-          temperature: 0.3,
-        }),
-      });
+      const res = await fetchWithTimeoutAI(
+        endpoint,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            model,
+            messages: [
+              {
+                role: 'system',
+                content: 'You are a professional linguist and TOEIC teacher. Always respond strictly in valid JSON without markdown code block fences.',
+              },
+              { role: 'user', content: prompt },
+            ],
+            temperature: 0.3,
+          }),
+        },
+        config.timeoutMs || 8000,
+        config.signal
+      );
       if (!res.ok) return null;
       const data = await res.json();
       rawText = data.choices?.[0]?.message?.content || '';
@@ -403,5 +503,7 @@ Do not include markdown code block fences like \`\`\`json. Return raw JSON stric
   } catch (err) {
     console.warn(`[AI Enrichment] ${provider} failed for "${word}":`, err);
     return null;
+  } finally {
+    releaseAISlot();
   }
 }

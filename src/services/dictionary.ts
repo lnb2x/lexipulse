@@ -17,8 +17,67 @@ export class WordNotFoundError extends Error {
 }
 
 
-// In-memory cache for ultra-fast (0ms) repeat lookups
-const MEMORY_CACHE = new Map<string, WordItem>();
+export interface LookupOptions {
+  signal?: AbortSignal;
+  onEnriched?: (word: WordItem) => void;
+}
+
+export class LRUCache<K, V> {
+  private capacity: number;
+  private map: Map<K, V>;
+
+  constructor(capacity = 500) {
+    this.capacity = capacity;
+    this.map = new Map<K, V>();
+  }
+
+  get(key: K): V | undefined {
+    if (!this.map.has(key)) return undefined;
+    const value = this.map.get(key)!;
+    this.map.delete(key);
+    this.map.set(key, value);
+    return value;
+  }
+
+  set(key: K, value: V): void {
+    if (this.map.has(key)) {
+      this.map.delete(key);
+    } else if (this.map.size >= this.capacity) {
+      const oldest = this.map.keys().next().value;
+      if (oldest !== undefined) {
+        this.map.delete(oldest);
+      }
+    }
+    this.map.set(key, value);
+  }
+
+  has(key: K): boolean {
+    return this.map.has(key);
+  }
+
+  delete(key: K): boolean {
+    return this.map.delete(key);
+  }
+
+  clear(): void {
+    this.map.clear();
+  }
+
+  get size(): number {
+    return this.map.size;
+  }
+}
+
+export function normalizeWordKey(rawWord: string): string {
+  return (rawWord || '').trim().toLowerCase();
+}
+
+// Bounded LRU Cache for words (max 500 items)
+export const WORD_LRU_CACHE = new LRUCache<string, WordItem>(500);
+export const MEMORY_CACHE = WORD_LRU_CACHE;
+
+// In-flight lookup deduplication map
+const IN_FLIGHT_LOOKUPS = new Map<string, Promise<WordItem>>();
 
 // Built-in offline high-frequency dictionary for top TOEIC/IELTS words
 export const LOCAL_KNOWLEDGE_BASE: Record<
@@ -613,18 +672,39 @@ export const LOCAL_KNOWLEDGE_BASE: Record<
 };
 
 /**
- * Fast fetch with timeout to prevent hanging UI
+ * Fast fetch with timeout and external AbortSignal to prevent hanging UI
  */
-async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 2500): Promise<Response> {
+export async function fetchWithTimeout(
+  url: string,
+  options: RequestInit = {},
+  timeoutMs = 2500,
+  externalSignal?: AbortSignal
+): Promise<Response> {
+  if (externalSignal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
+
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timer = setTimeout(() => {
+    controller.abort(new DOMException(`Request timeout of ${timeoutMs}ms exceeded`, 'TimeoutError'));
+  }, timeoutMs);
+
+  const onExternalAbort = () => {
+    controller.abort(externalSignal?.reason || new DOMException('Aborted by user', 'AbortError'));
+  };
+
+  if (externalSignal) {
+    externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+  }
+
   try {
     const res = await fetch(url, { ...options, signal: controller.signal });
-    clearTimeout(timer);
     return res;
-  } catch (err) {
+  } finally {
     clearTimeout(timer);
-    throw err;
+    if (externalSignal) {
+      externalSignal.removeEventListener('abort', onExternalAbort);
+    }
   }
 }
 
@@ -649,10 +729,49 @@ interface OpenVnDictResult {
 }
 
 /**
-/**
- * In-memory translation cache to guarantee 0ms response for repeated translations
+ * Bounded translation cache with TTL (24h) to guarantee 0ms response for repeated translations
  */
-const translationCache = new Map<string, string>();
+interface CachedTranslation {
+  result: string;
+  expires: number;
+}
+export const TRANSLATION_CACHE = new LRUCache<string, CachedTranslation>(500);
+const IN_FLIGHT_TRANSLATIONS = new Map<string, Promise<string>>();
+
+// Circuit breaker for translation endpoints
+interface CircuitBreakerState {
+  failures: number;
+  nextAllowedTime: number;
+  disabled?: boolean;
+}
+const translationCircuitBreakers: Record<string, CircuitBreakerState> = {
+  viteProxy: { failures: 0, nextAllowedTime: 0 },
+  googleMobile: { failures: 0, nextAllowedTime: 0 },
+  lingva: { failures: 0, nextAllowedTime: 0 },
+};
+
+function recordEndpointFailure(endpoint: string) {
+  const cb = translationCircuitBreakers[endpoint];
+  if (!cb) return;
+  cb.failures++;
+  if (cb.failures >= 2) {
+    cb.nextAllowedTime = Date.now() + 60_000; // Open circuit for 60 seconds
+  }
+}
+
+function recordEndpointSuccess(endpoint: string) {
+  const cb = translationCircuitBreakers[endpoint];
+  if (!cb) return;
+  cb.failures = 0;
+  cb.nextAllowedTime = 0;
+}
+
+function isEndpointAvailable(endpoint: string): boolean {
+  const cb = translationCircuitBreakers[endpoint];
+  if (!cb) return true;
+  if (cb.disabled) return false;
+  return Date.now() >= cb.nextAllowedTime;
+}
 
 function cleanHtmlAndEntities(str: string): string {
   return str
@@ -763,7 +882,11 @@ function parseOpenVnJson(json: any, query: string, form: string): OpenVnDictResu
  * Supports lemma stemming for -ing, -ed, -s words (e.g. funding -> fund)
  * Optimized to race/parallelize queries so total latency is < 300ms.
  */
-async function fetchOpenVnEnDictData(word: string, timeoutMs = 1500): Promise<OpenVnDictResult | null> {
+async function fetchOpenVnEnDictData(
+  word: string,
+  timeoutMs = 1500,
+  externalSignal?: AbortSignal
+): Promise<OpenVnDictResult | null> {
   const query = word.trim().toLowerCase();
 
   const fetchSingle = async (f: string): Promise<OpenVnDictResult | null> => {
@@ -771,7 +894,8 @@ async function fetchOpenVnEnDictData(word: string, timeoutMs = 1500): Promise<Op
       const res = await fetchWithTimeout(
         `https://raw.githubusercontent.com/samuraitruong/open-vn-en-dict/master/data/${encodeURIComponent(f)}.json`,
         {},
-        timeoutMs
+        timeoutMs,
+        externalSignal
       );
       if (!res.ok) return null;
       const json = await res.json();
@@ -814,13 +938,18 @@ async function fetchOpenVnEnDictData(word: string, timeoutMs = 1500): Promise<Op
 /**
  * MediaWiki CORS-enabled query to extract Vietnamese translation from Wiktionary
  */
-async function fetchWiktionaryVi(word: string, timeoutMs = 1200): Promise<string[]> {
+export async function fetchWiktionaryVi(
+  word: string,
+  timeoutMs = 1200,
+  externalSignal?: AbortSignal
+): Promise<string[]> {
   try {
     const encoded = encodeURIComponent(word.trim().toLowerCase());
     const res = await fetchWithTimeout(
       `https://en.wiktionary.org/w/api.php?action=parse&page=${encoded}&prop=wikitext&format=json&origin=*`,
       { headers: { 'User-Agent': 'LexiPulse/1.0' } },
-      timeoutMs
+      timeoutMs,
+      externalSignal
     );
     if (!res.ok) return [];
     const data = await res.json();
@@ -833,95 +962,166 @@ async function fetchWiktionaryVi(word: string, timeoutMs = 1200): Promise<string
 }
 
 /**
- * Ultra-fast Google Translate single API (via Vite local proxy or direct) with in-memory caching
+ * Optimized Vietnamese translation with bounded LRU cache, TTL, in-flight dedup,
+ * circuit breaker, shared deadline, and AbortSignal support.
  */
-export async function translateToVietnamese(text: string, timeoutMs = 1800): Promise<string> {
+export async function translateToVietnamese(
+  text: string,
+  timeoutMs = 1800,
+  signal?: AbortSignal
+): Promise<string> {
   const clean = text?.trim();
   if (!clean) return '';
-  if (translationCache.has(clean)) {
-    return translationCache.get(clean)!;
+
+  if (signal?.aborted) {
+    return '';
   }
 
-  // 1. Try Vite dev translation endpoint first (/api/translate)
-  try {
-    const isLong = clean.length > 80 || clean.includes('\n');
-    const res = await fetchWithTimeout(
-      isLong ? '/api/translate' : `/api/translate?q=${encodeURIComponent(clean)}`,
-      isLong
-        ? {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: clean }),
+  // Check LRU cache with TTL (24 hours)
+  const cached = TRANSLATION_CACHE.get(clean);
+  if (cached && cached.expires > Date.now()) {
+    return cached.result;
+  }
+
+  // Deduplicate in-flight requests for identical text
+  if (IN_FLIGHT_TRANSLATIONS.has(clean)) {
+    return IN_FLIGHT_TRANSLATIONS.get(clean)!;
+  }
+
+  const translationPromise = (async (): Promise<string> => {
+    const deadline = Date.now() + timeoutMs;
+    const TTL = 24 * 60 * 60 * 1000;
+
+    // Detect if Vite proxy endpoint is available (only in dev mode)
+    const isViteDev =
+      typeof window !== 'undefined' &&
+      typeof import.meta !== 'undefined' &&
+      import.meta.env?.DEV;
+
+    if (!isViteDev) {
+      translationCircuitBreakers.viteProxy.disabled = true;
+    }
+
+    // 1. Try Vite local dev proxy (/api/translate) if available and healthy
+    if (isEndpointAvailable('viteProxy')) {
+      const rem = Math.max(100, deadline - Date.now());
+      try {
+        const isLong = clean.length > 80 || clean.includes('\n');
+        const res = await fetchWithTimeout(
+          isLong ? '/api/translate' : `/api/translate?q=${encodeURIComponent(clean)}`,
+          isLong
+            ? {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: clean }),
+              }
+            : {},
+          Math.min(rem, 600),
+          signal
+        );
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.text) {
+            const result = data.text.trim();
+            recordEndpointSuccess('viteProxy');
+            TRANSLATION_CACHE.set(clean, { result, expires: Date.now() + TTL });
+            return result;
           }
-        : {},
-      timeoutMs
-    );
-    if (res.ok) {
-      const data = await res.json();
-      if (data.text) {
-        const result = data.text.trim();
-        translationCache.set(clean, result);
-        return result;
+        } else if (res.status === 404) {
+          translationCircuitBreakers.viteProxy.disabled = true;
+        } else {
+          recordEndpointFailure('viteProxy');
+        }
+      } catch {
+        recordEndpointFailure('viteProxy');
       }
     }
-  } catch {
-    // fallback
-  }
 
-  // 2. Direct Google Translate mobile endpoint
-  try {
-    const res = await fetchWithTimeout(
-      `https://translate.google.com/m?sl=en&tl=vi&q=${encodeURIComponent(clean)}`,
-      {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        },
-      },
-      timeoutMs
-    );
-    if (res.ok) {
-      const html = await res.text();
-      const match = html.match(/<div class="result-container">([\s\S]*?)<\/div>/i);
-      if (match && match[1]) {
-        const result = cleanHtmlAndEntities(match[1]);
-        if (result) {
-          translationCache.set(clean, result);
-          return result;
+    // 2. Direct Google Translate mobile endpoint
+    if (isEndpointAvailable('googleMobile')) {
+      const rem = Math.max(100, deadline - Date.now());
+      if (rem > 120 && !signal?.aborted) {
+        try {
+          const res = await fetchWithTimeout(
+            `https://translate.google.com/m?sl=en&tl=vi&q=${encodeURIComponent(clean)}`,
+            {
+              headers: {
+                'User-Agent':
+                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              },
+            },
+            Math.min(rem, 900),
+            signal
+          );
+          if (res.ok) {
+            const html = await res.text();
+            const match = html.match(/<div class="result-container">([\s\S]*?)<\/div>/i);
+            if (match && match[1]) {
+              const result = cleanHtmlAndEntities(match[1]);
+              if (result) {
+                recordEndpointSuccess('googleMobile');
+                TRANSLATION_CACHE.set(clean, { result, expires: Date.now() + TTL });
+                return result;
+              }
+            }
+          } else {
+            recordEndpointFailure('googleMobile');
+          }
+        } catch {
+          recordEndpointFailure('googleMobile');
         }
       }
     }
-  } catch {
-    // fallback
-  }
 
-  // 3. Lingva public instance
-  try {
-    const res = await fetchWithTimeout(
-      `https://translate.plausibility.cloud/api/v1/en/vi/${encodeURIComponent(clean)}`,
-      {},
-      timeoutMs
-    );
-    if (res.ok) {
-      const data = await res.json();
-      if (data.translation) {
-        const result = data.translation.trim();
-        translationCache.set(clean, result);
-        return result;
+    // 3. Lingva public instance (fallback)
+    if (isEndpointAvailable('lingva')) {
+      const rem = Math.max(100, deadline - Date.now());
+      if (rem > 150 && !signal?.aborted) {
+        try {
+          const res = await fetchWithTimeout(
+            `https://translate.plausibility.cloud/api/v1/en/vi/${encodeURIComponent(clean)}`,
+            {},
+            Math.min(rem, 900),
+            signal
+          );
+          if (res.ok) {
+            const data = await res.json();
+            if (data.translation) {
+              const result = data.translation.trim();
+              recordEndpointSuccess('lingva');
+              TRANSLATION_CACHE.set(clean, { result, expires: Date.now() + TTL });
+              return result;
+            }
+          } else {
+            recordEndpointFailure('lingva');
+          }
+        } catch {
+          recordEndpointFailure('lingva');
+        }
       }
     }
-  } catch {
-    // fallback
-  }
 
-  return '';
+    return '';
+  })();
+
+  IN_FLIGHT_TRANSLATIONS.set(clean, translationPromise);
+  try {
+    return await translationPromise;
+  } finally {
+    IN_FLIGHT_TRANSLATIONS.delete(clean);
+  }
 }
 
 
 /**
  * Datamuse API query for accurate IPA, parts of speech, and English definitions (80ms)
  */
-async function fetchDatamuseInfo(word: string, timeoutMs = 1500): Promise<{
+async function fetchDatamuseInfo(
+  word: string,
+  timeoutMs = 1500,
+  externalSignal?: AbortSignal
+): Promise<{
   matchedWord: string;
   isExact: boolean;
   ipa: string;
@@ -932,7 +1132,8 @@ async function fetchDatamuseInfo(word: string, timeoutMs = 1500): Promise<{
     const res = await fetchWithTimeout(
       `https://api.datamuse.com/words?sp=${encodeURIComponent(word)}&md=rdp&ipa=1&max=1`,
       {},
-      timeoutMs
+      timeoutMs,
+      externalSignal
     );
     if (!res.ok) return null;
     const array = await res.json();
@@ -1078,129 +1279,159 @@ async function resolvePhraseIpa(phrase: string): Promise<string> {
   return `/${combined}/`;
 }
 
+const STATIC_KB_CANDIDATES = Object.entries(LOCAL_KNOWLEDGE_BASE).map(([word, data]) => ({
+  word,
+  meaningVi: data.vi,
+  pos: data.pos?.[0] || 'word',
+  source: 'builtin' as const,
+}));
+
+const SUGGESTION_CACHE = new LRUCache<string, { results: SpellingSuggestion[]; expires: number }>(300);
+const IN_FLIGHT_SUGGESTIONS = new Map<string, Promise<SpellingSuggestion[]>>();
+
 /**
- * Intelligent Spelling Suggestions & Typo Correction
- * Searches:
- * 1. User's local deck words with fuzzy distance
- * 2. High-frequency built-in TOEIC knowledge base
- * 3. Online Datamuse suggestions / sounds-like API
+ * Intelligent Spelling Suggestions & Typo Correction with LRU caching, TTL and AbortSignal
  */
 export async function getSpellingSuggestions(
   rawQuery: string,
-  deckWords: WordItem[] = []
+  deckWords: WordItem[] = [],
+  signal?: AbortSignal
 ): Promise<SpellingSuggestion[]> {
   const q = rawQuery.trim().toLowerCase();
-  if (!q || q.length < 2) return [];
+  if (!q || q.length < 2 || signal?.aborted) return [];
 
-  const results: SpellingSuggestion[] = [];
-  const seenWords = new Set<string>([q]);
-
-  // 1. Check user's Deck words with fuzzy matching
-  const deckCandidates = deckWords.map((w) => ({
-    word: w.word,
-    meaningVi: w.vietnameseDefinition,
-    pos: w.pos?.[0] || 'word',
-    source: 'deck' as const,
-  }));
-  const deckFuzzy = findFuzzyMatches(q, deckCandidates, (item) => item.word, 0.62, 3);
-  for (const match of deckFuzzy) {
-    if (!seenWords.has(match.key)) {
-      seenWords.add(match.key);
-      results.push({
-        word: match.item.word,
-        meaningVi: match.item.meaningVi,
-        pos: match.item.pos,
-        source: 'deck',
-        score: match.similarity,
-      });
-    }
+  // Check cache (TTL 5 minutes)
+  const cached = SUGGESTION_CACHE.get(q);
+  if (cached && cached.expires > Date.now()) {
+    return cached.results;
   }
 
-  // 2. Check Built-in Knowledge Base with fuzzy matching
-  const kbEntries = Object.entries(LOCAL_KNOWLEDGE_BASE).map(([word, data]) => ({
-    word,
-    meaningVi: data.vi,
-    pos: data.pos?.[0] || 'word',
-    source: 'builtin' as const,
-  }));
-  const kbFuzzy = findFuzzyMatches(q, kbEntries, (item) => item.word, 0.62, 3);
-  for (const match of kbFuzzy) {
-    if (!seenWords.has(match.key)) {
-      seenWords.add(match.key);
-      results.push({
-        word: match.item.word,
-        meaningVi: match.item.meaningVi,
-        pos: match.item.pos,
-        source: 'builtin',
-        score: match.similarity,
-      });
-    }
+  if (IN_FLIGHT_SUGGESTIONS.has(q)) {
+    return IN_FLIGHT_SUGGESTIONS.get(q)!;
   }
 
-  // 3. Online Datamuse suggestions & spelling
-  try {
-    const [sugRes, spRes] = await Promise.all([
-      fetchWithTimeout(`https://api.datamuse.com/sug?s=${encodeURIComponent(q)}&max=6`, {}, 1200),
-      fetchWithTimeout(`https://api.datamuse.com/words?sp=${encodeURIComponent(q)}&max=6`, {}, 1200),
-    ]);
+  const suggestionPromise = (async (): Promise<SpellingSuggestion[]> => {
+    const results: SpellingSuggestion[] = [];
+    const seenWords = new Set<string>([q]);
 
-    const onlineCandidates: string[] = [];
-
-    if (sugRes.ok) {
-      const arr = await sugRes.json();
-      if (Array.isArray(arr)) {
-        for (const item of arr) {
-          if (item.word && typeof item.word === 'string') {
-            const w = item.word.trim().toLowerCase();
-            if (!seenWords.has(w) && !w.includes(' ') && w.length >= 2) {
-              onlineCandidates.push(w);
-            }
-          }
+    // 1. Check user's Deck words with fuzzy matching
+    if (deckWords.length > 0) {
+      const deckCandidates = deckWords.map((w) => ({
+        word: w.word,
+        meaningVi: w.vietnameseDefinition,
+        pos: w.pos?.[0] || 'word',
+        source: 'deck' as const,
+      }));
+      const deckFuzzy = findFuzzyMatches(q, deckCandidates, (item) => item.word, 0.62, 3);
+      for (const match of deckFuzzy) {
+        if (!seenWords.has(match.key)) {
+          seenWords.add(match.key);
+          results.push({
+            word: match.item.word,
+            meaningVi: match.item.meaningVi,
+            pos: match.item.pos,
+            source: 'deck',
+            score: match.similarity,
+          });
         }
       }
     }
 
-    if (spRes.ok) {
-      const arr = await spRes.json();
-      if (Array.isArray(arr)) {
-        for (const item of arr) {
-          if (item.word && typeof item.word === 'string') {
-            const w = item.word.trim().toLowerCase();
-            if (!seenWords.has(w) && !w.includes(' ') && w.length >= 2) {
-              onlineCandidates.push(w);
-            }
-          }
-        }
-      }
-    }
-
-    for (const w of onlineCandidates) {
-      if (!seenWords.has(w)) {
-        seenWords.add(w);
-        const kbMatch = LOCAL_KNOWLEDGE_BASE[w];
-        const deckMatch = deckWords.find((dw) => dw.word.toLowerCase() === w);
-        const sim = stringSimilarity(q, w);
+    // 2. Check pre-computed Built-in Knowledge Base with fuzzy matching
+    const kbFuzzy = findFuzzyMatches(q, STATIC_KB_CANDIDATES, (item) => item.word, 0.62, 3);
+    for (const match of kbFuzzy) {
+      if (!seenWords.has(match.key)) {
+        seenWords.add(match.key);
         results.push({
-          word: w,
-          meaningVi: kbMatch?.vi || deckMatch?.vietnameseDefinition || '',
-          pos: kbMatch?.pos?.[0] || deckMatch?.pos?.[0] || 'word',
-          source: deckMatch ? 'deck' : kbMatch ? 'builtin' : 'dictionary',
-          score: sim,
+          word: match.item.word,
+          meaningVi: match.item.meaningVi,
+          pos: match.item.pos,
+          source: 'builtin',
+          score: match.similarity,
         });
       }
-      if (results.length >= 6) break;
     }
-  } catch {
-    // ignore network timeouts
-  }
 
-  return results.sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 5);
+    // 3. Online Datamuse suggestions & spelling
+    if (!signal?.aborted) {
+      try {
+        const [sugRes, spRes] = await Promise.all([
+          fetchWithTimeout(`https://api.datamuse.com/sug?s=${encodeURIComponent(q)}&max=6`, {}, 800, signal),
+          fetchWithTimeout(`https://api.datamuse.com/words?sp=${encodeURIComponent(q)}&max=6`, {}, 800, signal),
+        ]);
+
+        const onlineCandidates: string[] = [];
+
+        if (sugRes.ok) {
+          const arr = await sugRes.json();
+          if (Array.isArray(arr)) {
+            for (const item of arr) {
+              if (item.word && typeof item.word === 'string') {
+                const w = item.word.trim().toLowerCase();
+                if (!seenWords.has(w) && !w.includes(' ') && w.length >= 2) {
+                  onlineCandidates.push(w);
+                }
+              }
+            }
+          }
+        }
+
+        if (spRes.ok) {
+          const arr = await spRes.json();
+          if (Array.isArray(arr)) {
+            for (const item of arr) {
+              if (item.word && typeof item.word === 'string') {
+                const w = item.word.trim().toLowerCase();
+                if (!seenWords.has(w) && !w.includes(' ') && w.length >= 2) {
+                  onlineCandidates.push(w);
+                }
+              }
+            }
+          }
+        }
+
+        for (const w of onlineCandidates) {
+          if (!seenWords.has(w)) {
+            seenWords.add(w);
+            const kbMatch = LOCAL_KNOWLEDGE_BASE[w];
+            const deckMatch = deckWords.find((dw) => dw.word.toLowerCase() === w);
+            const sim = stringSimilarity(q, w);
+            results.push({
+              word: w,
+              meaningVi: kbMatch?.vi || deckMatch?.vietnameseDefinition || '',
+              pos: kbMatch?.pos?.[0] || deckMatch?.pos?.[0] || 'word',
+              source: deckMatch ? 'deck' : kbMatch ? 'builtin' : 'dictionary',
+              score: sim,
+            });
+          }
+          if (results.length >= 6) break;
+        }
+      } catch {
+        // ignore network timeouts
+      }
+    }
+
+    const sorted = results.sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 5);
+    SUGGESTION_CACHE.set(q, { results: sorted, expires: Date.now() + 5 * 60 * 1000 });
+    return sorted;
+  })();
+
+  IN_FLIGHT_SUGGESTIONS.set(q, suggestionPromise);
+  try {
+    return await suggestionPromise;
+  } finally {
+    IN_FLIGHT_SUGGESTIONS.delete(q);
+  }
 }
 
 /**
  * Wiktionary REST API for rich definitions and real natural examples
  */
-async function fetchWiktionaryData(word: string, timeoutMs = 1200): Promise<{
+async function fetchWiktionaryData(
+  word: string,
+  timeoutMs = 1200,
+  externalSignal?: AbortSignal
+): Promise<{
   posList: string[];
   definitions: Array<{ pos: string; definition: string; examples: string[] }>;
 } | null> {
@@ -1208,7 +1439,8 @@ async function fetchWiktionaryData(word: string, timeoutMs = 1200): Promise<{
     const res = await fetchWithTimeout(
       `https://en.wiktionary.org/api/rest_v1/page/definition/${encodeURIComponent(word)}`,
       { headers: { 'User-Agent': 'LexiPulse/1.0' } },
-      timeoutMs
+      timeoutMs,
+      externalSignal
     );
     if (!res.ok) return null;
     const data = await res.json();
@@ -1251,7 +1483,14 @@ async function fetchWiktionaryData(word: string, timeoutMs = 1200): Promise<{
  * Real derived word family members from Datamuse (80ms)
  * For phrases, decomposes individual words into real forms
  */
-async function fetchDatamuseWordFamily(word: string, posList: string[], timeoutMs = 1500): Promise<WordFamilyItem[]> {
+async function fetchDatamuseWordFamily(
+  word: string,
+  posList: string[],
+  timeoutMs = 1500,
+  externalSignal?: AbortSignal
+): Promise<WordFamilyItem[]> {
+  if (externalSignal?.aborted) return [{ word: word.toLowerCase(), pos: posList[0] || 'noun' }];
+
   // If multi-word phrase, extract real roots for constituent words
   if (word.includes(' ')) {
     const tokens = word.split(/\s+/).filter((t) => t.length > 2);
@@ -1259,12 +1498,14 @@ async function fetchDatamuseWordFamily(word: string, posList: string[], timeoutM
     const seen = new Set<string>();
 
     for (const token of tokens) {
+      if (externalSignal?.aborted) break;
       try {
         const prefix = token.endsWith('ing') ? token.slice(0, -3) : token.replace(/e$/, '');
         const res = await fetchWithTimeout(
           `https://api.datamuse.com/words?sp=${encodeURIComponent(prefix)}*&md=p&max=4`,
           {},
-          1000
+          1000,
+          externalSignal
         );
         if (res.ok) {
           const array = await res.json();
@@ -1302,7 +1543,8 @@ async function fetchDatamuseWordFamily(word: string, posList: string[], timeoutM
     const res = await fetchWithTimeout(
       `https://api.datamuse.com/words?sp=${encodeURIComponent(prefix)}*&md=p&max=12`,
       {},
-      timeoutMs
+      timeoutMs,
+      externalSignal
     );
     const posMap: Record<string, string> = { n: 'noun', v: 'verb', adj: 'adjective', adv: 'adverb' };
     const result: WordFamilyItem[] = [];
@@ -1333,7 +1575,14 @@ async function fetchDatamuseWordFamily(word: string, posList: string[], timeoutM
 /**
  * Collocations from Datamuse
  */
-async function fetchDatamuseCollocations(word: string, mainPos: string, timeoutMs = 1500): Promise<string[]> {
+async function fetchDatamuseCollocations(
+  word: string,
+  mainPos: string,
+  timeoutMs = 1500,
+  externalSignal?: AbortSignal
+): Promise<string[]> {
+  if (externalSignal?.aborted) return [`master the ${word}`, `practical ${word}`, `key ${word}`];
+
   if (word.includes(' ')) {
     return [`secure ${word}`, `require ${word}`, `provide ${word}`];
   }
@@ -1344,7 +1593,8 @@ async function fetchDatamuseCollocations(word: string, mainPos: string, timeoutM
       const res = await fetchWithTimeout(
         `https://api.datamuse.com/words?rel_jjb=${encodeURIComponent(word)}&max=5`,
         {},
-        timeoutMs
+        timeoutMs,
+        externalSignal
       );
       if (res.ok) {
         const array = await res.json();
@@ -1362,7 +1612,7 @@ async function fetchDatamuseCollocations(word: string, mainPos: string, timeoutM
     }
 
     if (phrases.length === 0) {
-      phrases.push(`master the ${word}`, `practical ${word}`, `key ${word}`);
+      phrases.push(`master the ${word}`, `practical ${word}`, `key ${word}` );
     }
     return phrases.slice(0, 3);
   } catch {
@@ -1373,387 +1623,472 @@ async function fetchDatamuseCollocations(word: string, mainPos: string, timeoutM
 
 
 /**
- * Intelligent High-Speed Lookup Pipeline:
- * Tier 0: In-memory LRU cache (<0.1ms)
- * Tier 1: Local IndexedDB database check (<2ms)
- * Tier 2: Built-in high-yield TOEIC knowledge base (<0.5ms)
- * Tier 3: Parallelized Multi-Source Pipeline (open-vn-en-dict + Datamuse + Wiktionary + Google)
+ * Concurrency limiter for background enrichments (max 2 concurrent)
  */
-export async function lookupWord(rawWord: string): Promise<WordItem> {
-  const query = rawWord.trim().toLowerCase();
+let activeEnrichmentTasks = 0;
+const enrichmentQueue: Array<() => void> = [];
+
+async function acquireEnrichmentSlot(): Promise<void> {
+  if (activeEnrichmentTasks < 2) {
+    activeEnrichmentTasks++;
+    return;
+  }
+  return new Promise<void>((resolve) => {
+    enrichmentQueue.push(() => {
+      activeEnrichmentTasks++;
+      resolve();
+    });
+  });
+}
+
+function releaseEnrichmentSlot(): void {
+  activeEnrichmentTasks--;
+  if (enrichmentQueue.length > 0) {
+    const next = enrichmentQueue.shift();
+    next?.();
+  }
+}
+
+/**
+ * Background enrichment: collocations, examples, word family and AI
+ */
+async function scheduleBackgroundEnrichment(
+  baseWord: WordItem,
+  signal?: AbortSignal,
+  onEnriched?: (word: WordItem) => void
+): Promise<void> {
+  if (!onEnriched || signal?.aborted) return;
+  const query = normalizeWordKey(baseWord.word);
+
+  // Run in background without blocking caller
+  setTimeout(async () => {
+    if (signal?.aborted) return;
+    await acquireEnrichmentSlot();
+    try {
+      if (signal?.aborted) return;
+      const mainPos = baseWord.pos[0] || 'noun';
+      const isPhrase = query.includes(' ');
+      const articleMatch = query.match(/^(a|an|the|to)\s+([a-z0-9-]+)$/i);
+      const targetForDict = !isPhrase ? query : (articleMatch ? articleMatch[2].toLowerCase() : query);
+
+      // 1. Concurrently fetch rich collocations & word family
+      const [wfRaw, colRaw] = await Promise.allSettled([
+        fetchDatamuseWordFamily(targetForDict, baseWord.pos, 1200, signal),
+        fetchDatamuseCollocations(targetForDict, mainPos, 1200, signal),
+      ]);
+
+      let richCollocations = [...baseWord.collocations];
+      let richWordFamily = [...baseWord.wordFamily];
+      let richExamples = [...baseWord.examples];
+      let richVietnameseDef = baseWord.vietnameseDefinition;
+      let richUsIpa = baseWord.phonetics.us;
+      let richUkIpa = baseWord.phonetics.uk;
+      let tags = [...baseWord.tags];
+
+      if (wfRaw.status === 'fulfilled' && wfRaw.value?.length > 0) {
+        richWordFamily = wfRaw.value;
+      }
+
+      if (colRaw.status === 'fulfilled' && colRaw.value?.length > 0 && richCollocations.length <= 2) {
+        const batchPhrases = colRaw.value;
+        const transRaw = await translateToVietnamese(batchPhrases.join('\n---BREAK---\n'), 1000, signal);
+        const transParts = transRaw ? transRaw.split(/\n?---BREAK---\n?/).map((s) => s.trim()) : [];
+        richCollocations = batchPhrases.map((phrase, i) => ({
+          phrase,
+          meaningVi: transParts[i] || 'cụm từ thông dụng',
+        }));
+      }
+
+      // 2. AI Enrichment if configured
+      try {
+        const settings = await getAppSettings();
+        const apiKey = settings.aiApiKey || settings.geminiApiKey;
+        if (settings.aiProvider === 'custom' || (apiKey && apiKey.trim().length >= 5)) {
+          const aiData = await enrichWordWithAI(query, mainPos, {
+            provider: settings.aiProvider || 'gemini',
+            apiKey: (apiKey || '').trim(),
+            baseUrl: settings.aiBaseUrl,
+            model: settings.aiModel,
+            signal,
+            timeoutMs: 8000,
+          });
+
+          if (aiData) {
+            if (aiData.ipaUs) richUsIpa = aiData.ipaUs;
+            if (aiData.ipaUk) richUkIpa = aiData.ipaUk;
+            if (!richUkIpa && richUsIpa) richUkIpa = richUsIpa;
+            if (aiData.vietnameseDefinition) richVietnameseDef = aiData.vietnameseDefinition;
+            if (aiData.collocations?.length) richCollocations = aiData.collocations;
+            if (aiData.wordFamily?.length) richWordFamily = aiData.wordFamily;
+            if (aiData.examples?.length) richExamples = aiData.examples;
+            if (aiData.tags?.length) tags = aiData.tags;
+          }
+        }
+      } catch {
+        // AI failure is non-fatal
+      }
+
+      if (signal?.aborted) return;
+
+      const enrichedWord: WordItem = {
+        ...baseWord,
+        phonetics: {
+          ...baseWord.phonetics,
+          us: richUsIpa || baseWord.phonetics.us,
+          uk: richUkIpa || baseWord.phonetics.uk,
+        },
+        vietnameseDefinition: richVietnameseDef,
+        collocations: richCollocations,
+        wordFamily: richWordFamily,
+        examples: richExamples,
+        tags,
+        updatedAt: Date.now(),
+      };
+
+      // Update LRU Cache
+      WORD_LRU_CACHE.set(query, enrichedWord);
+
+      // Sync to IndexedDB if word was already saved to deck by user
+      try {
+        const existingInDb = await db.words.where('word').equals(query).first();
+        if (existingInDb) {
+          // CRITICAL: Merge ONLY auto-generated fields; DO NOT overwrite id, createdAt, status, reviewMeta, or user tags!
+          const merged: WordItem = {
+            ...existingInDb,
+            phonetics: {
+              ...existingInDb.phonetics,
+              us: existingInDb.phonetics.us || enrichedWord.phonetics.us,
+              uk: existingInDb.phonetics.uk || enrichedWord.phonetics.uk,
+            },
+            collocations: existingInDb.collocations.length > 0 ? existingInDb.collocations : enrichedWord.collocations,
+            wordFamily: existingInDb.wordFamily.length > 0 ? existingInDb.wordFamily : enrichedWord.wordFamily,
+            examples: existingInDb.examples.length > 0 ? existingInDb.examples : enrichedWord.examples,
+            updatedAt: Date.now(),
+          };
+          await db.words.put(merged);
+        }
+      } catch (dbErr) {
+        console.warn('Background enrichment DB sync skipped:', dbErr);
+      }
+
+      if (!signal?.aborted) {
+        onEnriched(enrichedWord);
+      }
+    } catch (err) {
+      console.warn('Background enrichment error:', err);
+    } finally {
+      releaseEnrichmentSlot();
+    }
+  }, 10);
+}
+
+/**
+ * Intelligent Two-Stage High-Speed Lookup Pipeline:
+ * Fast Stage:
+ *   Tier 0: LRU Memory Cache (<0.1ms)
+ *   Tier 1: Local IndexedDB database check (<2ms)
+ *   Tier 2: Built-in high-yield TOEIC knowledge base (<0.5ms)
+ *   Tier 3: Parallelized Essential Multi-Source Query (<800ms, Promise.allSettled)
+ * Background Stage:
+ *   Non-blocking enrichment for rich collocations, examples, word family and AI.
+ */
+export async function lookupWord(rawWord: string, options?: LookupOptions): Promise<WordItem> {
+  const query = normalizeWordKey(rawWord);
   if (!query) {
     throw new Error('Please enter a word to search');
   }
 
-  // Tier 0: Check in-memory cache
-  if (MEMORY_CACHE.has(query)) {
-    return MEMORY_CACHE.get(query)!;
+  const signal = options?.signal;
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
   }
 
-  // Tier 1: Check Local IndexedDB database (saved or seed words)
-  try {
-    const existingInDb = await db.words.where('word').equals(query).first();
-    if (existingInDb) {
-      MEMORY_CACHE.set(query, existingInDb);
-      return existingInDb;
+  // Tier 0: Check in-memory LRU cache (<0.1ms)
+  const cachedWord = WORD_LRU_CACHE.get(query);
+  if (cachedWord) {
+    if (options?.onEnriched) {
+      scheduleBackgroundEnrichment(cachedWord, signal, options.onEnriched);
     }
-  } catch (dbErr) {
-    console.warn('IndexedDB fast lookup skipped:', dbErr);
+    return cachedWord;
   }
 
-  // Tier 2: Check Built-in Offline Knowledge Base
-  let localMatch = LOCAL_KNOWLEDGE_BASE[query];
-  if (!localMatch) {
-    const articleMatch = query.match(/^(a|an|the|to)\s+([a-z0-9-]+)$/i);
-    if (articleMatch) {
-      const core = articleMatch[2].toLowerCase();
-      if (LOCAL_KNOWLEDGE_BASE[core]) {
-        localMatch = LOCAL_KNOWLEDGE_BASE[core];
+  // Check In-Flight Lookups (deduplicate simultaneous requests for same word)
+  if (IN_FLIGHT_LOOKUPS.has(query)) {
+    const inFlightPromise = IN_FLIGHT_LOOKUPS.get(query)!;
+    if (options?.onEnriched) {
+      inFlightPromise
+        .then((w) => {
+          scheduleBackgroundEnrichment(w, signal, options.onEnriched);
+        })
+        .catch(() => {});
+    }
+    return inFlightPromise;
+  }
+
+  const lookupPromise = (async (): Promise<WordItem> => {
+    // Tier 1: Check Local IndexedDB database (<2ms)
+    try {
+      const existingInDb = await db.words.where('word').equals(query).first();
+      if (existingInDb) {
+        WORD_LRU_CACHE.set(query, existingInDb);
+        if (options?.onEnriched) {
+          scheduleBackgroundEnrichment(existingInDb, signal, options.onEnriched);
+        }
+        return existingInDb;
+      }
+    } catch (dbErr) {
+      console.warn('IndexedDB fast lookup skipped:', dbErr);
+    }
+
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
+    // Tier 2: Check Built-in Offline Knowledge Base (<0.5ms)
+    let localMatch = LOCAL_KNOWLEDGE_BASE[query];
+    if (!localMatch) {
+      const articleMatch = query.match(/^(a|an|the|to)\s+([a-z0-9-]+)$/i);
+      if (articleMatch) {
+        const core = articleMatch[2].toLowerCase();
+        if (LOCAL_KNOWLEDGE_BASE[core]) {
+          localMatch = LOCAL_KNOWLEDGE_BASE[core];
+        }
       }
     }
-  }
 
-  if (localMatch) {
+    if (localMatch) {
+      const now = Date.now();
+      const wordItem: WordItem = {
+        id: `word-${now}-${Math.random().toString(36).slice(2, 7)}`,
+        word: query,
+        phonetics: {
+          us: localMatch.usIpa,
+          uk: localMatch.ukIpa,
+          audioUs: `https://translate.google.com/translate_tts?ie=UTF-8&tl=en-US&client=tw-ob&q=${encodeURIComponent(query)}`,
+          audioUk: `https://translate.google.com/translate_tts?ie=UTF-8&tl=en-GB&client=tw-ob&q=${encodeURIComponent(query)}`,
+        },
+        pos: localMatch.pos,
+        vietnameseDefinition: localMatch.vi,
+        englishDefinition: localMatch.enDef,
+        meanings: [
+          {
+            pos: localMatch.pos[0] || 'noun',
+            englishDefinition: localMatch.enDef,
+            vietnameseDefinition: localMatch.vi,
+            synonyms: [],
+          },
+        ],
+        collocations: localMatch.collocations,
+        wordFamily: localMatch.wordFamily,
+        examples: localMatch.examples,
+        tags: localMatch.tags,
+        status: 'new',
+        createdAt: now,
+        updatedAt: now,
+        reviewMeta: createInitialReviewMeta(),
+      };
+
+      WORD_LRU_CACHE.set(query, wordItem);
+      if (options?.onEnriched) {
+        scheduleBackgroundEnrichment(wordItem, signal, options.onEnriched);
+      }
+      return wordItem;
+    }
+
+    const isPhrase = query.includes(' ');
+    const articleMatch = query.match(/^(a|an|the|to)\s+([a-z0-9-]+)$/i);
+    const coreWord = articleMatch ? articleMatch[2].toLowerCase() : '';
+    const targetForDict = !isPhrase ? query : coreWord;
+
+    // Tier 3: Parallelized Fast Essential Sources (<800ms) with Promise.allSettled
+    const [openVnRes, datamuseRes, wikiRes, directTransRes, phraseIpaRes] = await Promise.allSettled([
+      targetForDict ? fetchOpenVnEnDictData(targetForDict, 800, signal) : Promise.resolve(null),
+      targetForDict ? fetchDatamuseInfo(targetForDict, 800, signal) : Promise.resolve(null),
+      fetchWiktionaryData(targetForDict || query, 800, signal),
+      translateToVietnamese(query, 800, signal),
+      isPhrase ? resolvePhraseIpa(query) : Promise.resolve(''),
+    ]);
+
+    const openVnData = openVnRes.status === 'fulfilled' ? openVnRes.value : null;
+    const datamuseInfo = datamuseRes.status === 'fulfilled' ? datamuseRes.value : null;
+    const wikiInfo = wikiRes.status === 'fulfilled' ? wikiRes.value : null;
+    const directTrans = directTransRes.status === 'fulfilled' ? directTransRes.value : '';
+    const phraseIpa = phraseIpaRes.status === 'fulfilled' ? phraseIpaRes.value : '';
+
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
+    // Combine POS tags
+    const posSet = new Set<string>();
+    if (openVnData?.posList) {
+      for (const p of openVnData.posList) posSet.add(p);
+    }
+    if (datamuseInfo?.posList) {
+      for (const p of datamuseInfo.posList) posSet.add(p);
+    }
+    if (wikiInfo?.posList) {
+      for (const p of wikiInfo.posList) posSet.add(p);
+    }
+    if (posSet.size === 0) {
+      posSet.add(isPhrase ? 'phrase' : 'noun');
+    }
+    const posList = Array.from(posSet);
+    const mainPos = posList[0];
+
+    // Phonetics
+    let ipa = '';
+    if (isPhrase) {
+      ipa = phraseIpa || '';
+    } else {
+      ipa = openVnData?.ipa || datamuseInfo?.ipa || '';
+    }
+
+    // English definition & meanings
+    let englishDef = '';
+    const parsedMeanings: MeaningItem[] = [];
+    if (wikiInfo?.definitions && wikiInfo.definitions.length > 0) {
+      englishDef = wikiInfo.definitions[0].definition;
+      for (const d of wikiInfo.definitions.slice(0, 4)) {
+        parsedMeanings.push({
+          pos: d.pos,
+          englishDefinition: d.definition,
+          vietnameseDefinition: '',
+          example: d.examples[0],
+        });
+      }
+    } else if (datamuseInfo?.defs && datamuseInfo.defs.length > 0) {
+      englishDef = datamuseInfo.defs[0].def;
+      for (const d of datamuseInfo.defs.slice(0, 4)) {
+        parsedMeanings.push({
+          pos: d.pos,
+          englishDefinition: d.def,
+          vietnameseDefinition: '',
+        });
+      }
+    }
+    if (!englishDef) {
+      if (isPhrase && directTrans) {
+        englishDef = `Idiom/collocation: "${query}" (${directTrans})`;
+      } else {
+        englishDef = `Definition for "${query}"`;
+      }
+    }
+
+    // Check if word is not recognized in standard dictionaries and is likely a typo
+    const hasReliableDef =
+      (openVnData?.vietnameseDef && openVnData.vietnameseDef.length > 0) ||
+      (wikiInfo?.definitions && wikiInfo.definitions.length > 0) ||
+      (datamuseInfo?.defs && datamuseInfo.defs.length > 0 && datamuseInfo.isExact);
+
+    if (!isPhrase && !hasReliableDef) {
+      const suggestions = await getSpellingSuggestions(query, [], signal);
+      if (suggestions.length > 0) {
+        throw new WordNotFoundError(
+          query,
+          suggestions,
+          `No definitions found for "${query}". Did you mean "${suggestions[0].word}"?`
+        );
+      } else if (!directTrans || directTrans.toLowerCase() === query) {
+        throw new WordNotFoundError(
+          query,
+          [],
+          `No definitions found for "${query}". Try checking the spelling!`
+        );
+      }
+    }
+
+    // Synthesize Vietnamese Definition
+    let vietnameseDef = '';
+    if (openVnData?.vietnameseDef) {
+      vietnameseDef = openVnData.vietnameseDef;
+      if (directTrans && directTrans.length >= 2 && !vietnameseDef.toLowerCase().includes(directTrans.toLowerCase())) {
+        if (vietnameseDef.startsWith('(')) {
+          vietnameseDef = vietnameseDef.replace(/^(\([^)]+\))\s*/, `$1 ${directTrans}, `);
+        } else {
+          vietnameseDef = `${directTrans}, ${vietnameseDef}`;
+        }
+      }
+    } else if (directTrans) {
+      vietnameseDef = directTrans;
+    } else {
+      vietnameseDef = `Từ vựng "${query}"`;
+    }
+
+    // Fast collocations & examples (use openVnData if available, otherwise fast local templates)
+    let collocations: CollocationItem[] = [];
+    if (openVnData?.collocations && openVnData.collocations.length >= 2) {
+      collocations = openVnData.collocations.slice(0, 4);
+    } else {
+      collocations = [
+        { phrase: `master the ${query}`, meaningVi: `nắm vững ${vietnameseDef}` },
+        { phrase: `practical ${query}`, meaningVi: `${vietnameseDef} thực tế` },
+      ];
+    }
+
+    let examples: ExampleItem[] = [];
+    if (openVnData?.examples && openVnData.examples.length >= 2) {
+      examples = openVnData.examples.slice(0, 2);
+    } else {
+      examples = [
+        {
+          en: `Understanding how to use "${query}" is essential in everyday communication.`,
+          vi: `Hiểu cách sử dụng "${query}" là điều cần thiết trong giao tiếp hàng ngày.`,
+          context: 'general',
+        },
+        {
+          en: `The management discussed how to apply "${query}" effectively during the project review.`,
+          vi: `Ban quản lý đã thảo luận cách áp dụng "${query}" hiệu quả trong đợt đánh giá dự án.`,
+          context: 'toeic',
+        },
+      ];
+    }
+
+    const wordFamily: WordFamilyItem[] = [{ word: query, pos: mainPos }];
+
     const now = Date.now();
-    const wordItem: WordItem = {
+    const basicWordItem: WordItem = {
       id: `word-${now}-${Math.random().toString(36).slice(2, 7)}`,
       word: query,
       phonetics: {
-        us: localMatch.usIpa,
-        uk: localMatch.ukIpa,
+        us: ipa,
+        uk: ipa,
         audioUs: `https://translate.google.com/translate_tts?ie=UTF-8&tl=en-US&client=tw-ob&q=${encodeURIComponent(query)}`,
         audioUk: `https://translate.google.com/translate_tts?ie=UTF-8&tl=en-GB&client=tw-ob&q=${encodeURIComponent(query)}`,
       },
-      pos: localMatch.pos,
-      vietnameseDefinition: localMatch.vi,
-      englishDefinition: localMatch.enDef,
-      meanings: [
+      pos: posList,
+      vietnameseDefinition: vietnameseDef,
+      englishDefinition: englishDef,
+      meanings: parsedMeanings.length > 0 ? parsedMeanings : [
         {
-          pos: localMatch.pos[0] || 'noun',
-          englishDefinition: localMatch.enDef,
-          vietnameseDefinition: localMatch.vi,
-          synonyms: [],
+          pos: mainPos,
+          englishDefinition: englishDef,
+          vietnameseDefinition: vietnameseDef,
         },
       ],
-      collocations: localMatch.collocations,
-      wordFamily: localMatch.wordFamily,
-      examples: localMatch.examples,
-      tags: localMatch.tags,
+      collocations,
+      wordFamily,
+      examples,
+      tags: ['#TOEIC', '#Vocabulary'],
       status: 'new',
       createdAt: now,
       updatedAt: now,
       reviewMeta: createInitialReviewMeta(),
     };
 
-    MEMORY_CACHE.set(query, wordItem);
-    return wordItem;
-  }
+    // Cache basic word immediately
+    WORD_LRU_CACHE.set(query, basicWordItem);
 
-  const isPhrase = query.includes(' ');
-  const articleMatch = query.match(/^(a|an|the|to)\s+([a-z0-9-]+)$/i);
-  const coreWord = articleMatch ? articleMatch[2].toLowerCase() : '';
-  const targetForDict = !isPhrase ? query : coreWord;
-
-  // Tier 3: Parallelized High-Speed Multi-Source Pipeline (<400ms)
-  const [
-    openVnData,
-    datamuseInfo,
-    wikiInfo,
-    wiktionaryVi,
-    wordFamilyRaw,
-    collocationsRaw,
-    directTrans,
-    phraseIpa,
-  ] = await Promise.all([
-    targetForDict ? fetchOpenVnEnDictData(targetForDict, 2500) : Promise.resolve(null),
-    targetForDict ? fetchDatamuseInfo(targetForDict, 1500) : Promise.resolve(null),
-    fetchWiktionaryData(targetForDict || query, 1200),
-    targetForDict ? fetchWiktionaryVi(targetForDict, 1500) : Promise.resolve([]),
-    fetchDatamuseWordFamily(targetForDict || query, ['noun'], 1500),
-    fetchDatamuseCollocations(targetForDict || query, 'noun', 1500),
-    translateToVietnamese(query, 1800),
-    isPhrase ? resolvePhraseIpa(query) : Promise.resolve(''),
-  ]);
-
-  // Combine POS tags
-  const posSet = new Set<string>();
-  if (openVnData?.posList) {
-    for (const p of openVnData.posList) posSet.add(p);
-  }
-  if (datamuseInfo?.posList) {
-    for (const p of datamuseInfo.posList) posSet.add(p);
-  }
-  if (wikiInfo?.posList) {
-    for (const p of wikiInfo.posList) posSet.add(p);
-  }
-  if (posSet.size === 0) {
-    posSet.add(isPhrase ? 'phrase' : 'noun');
-  }
-  const posList = Array.from(posSet);
-  const mainPos = posList[0];
-
-  // Phonetics (prefer openVnData or datamuse for single words, phraseIpa for phrases)
-  let ipa = '';
-  if (isPhrase) {
-    ipa = phraseIpa || '';
-  } else {
-    ipa = openVnData?.ipa || datamuseInfo?.ipa || '';
-  }
-
-  // English definition & meanings
-  let englishDef = '';
-  const parsedMeanings: MeaningItem[] = [];
-  if (wikiInfo?.definitions && wikiInfo.definitions.length > 0) {
-    englishDef = wikiInfo.definitions[0].definition;
-    for (const d of wikiInfo.definitions.slice(0, 4)) {
-      parsedMeanings.push({
-        pos: d.pos,
-        englishDefinition: d.definition,
-        vietnameseDefinition: '',
-        example: d.examples[0],
-      });
-    }
-  } else if (datamuseInfo?.defs && datamuseInfo.defs.length > 0) {
-    englishDef = datamuseInfo.defs[0].def;
-    for (const d of datamuseInfo.defs.slice(0, 4)) {
-      parsedMeanings.push({
-        pos: d.pos,
-        englishDefinition: d.def,
-        vietnameseDefinition: '',
-      });
-    }
-  }
-  if (!englishDef) {
-    if (isPhrase && directTrans) {
-      englishDef = `Idiom/collocation: "${query}" (${directTrans})`;
-    } else {
-      englishDef = `Definition for "${query}"`;
-    }
-  }
-
-  // Check if word is not recognized in standard dictionaries and is likely a typo
-  const hasReliableDef =
-    (openVnData?.vietnameseDef && openVnData.vietnameseDef.length > 0) ||
-    (wikiInfo?.definitions && wikiInfo.definitions.length > 0) ||
-    (datamuseInfo?.defs && datamuseInfo.defs.length > 0 && datamuseInfo.isExact);
-
-  if (!isPhrase && !hasReliableDef) {
-    const suggestions = await getSpellingSuggestions(query);
-    if (suggestions.length > 0) {
-      throw new WordNotFoundError(
-        query,
-        suggestions,
-        `No definitions found for "${query}". Did you mean "${suggestions[0].word}"?`
-      );
-    } else if (!directTrans || directTrans.toLowerCase() === query) {
-      throw new WordNotFoundError(
-        query,
-        [],
-        `No definitions found for "${query}". Try checking the spelling!`
-      );
-    }
-  }
-
-  // Synthesize Vietnamese Definition (Multi-Tier Robustness)
-  let vietnameseDef = '';
-  if (openVnData?.vietnameseDef) {
-    vietnameseDef = openVnData.vietnameseDef;
-    // If modern direct translation (e.g. "cơ sở") is concise and not present in old dictionary, prepend it as primary meaning
-    if (directTrans && directTrans.length >= 2 && !vietnameseDef.toLowerCase().includes(directTrans.toLowerCase())) {
-      if (vietnameseDef.startsWith('(')) {
-        vietnameseDef = vietnameseDef.replace(/^(\([^)]+\))\s*/, `$1 ${directTrans}, `);
-      } else {
-        vietnameseDef = `${directTrans}, ${vietnameseDef}`;
-      }
-    }
-  } else if (directTrans) {
-    vietnameseDef = directTrans;
-  } else if (wiktionaryVi.length > 0) {
-    vietnameseDef = wiktionaryVi.slice(0, 4).join(', ');
-  } else {
-    // If still empty, try translating query directly
-    const fallbackTrans = await translateToVietnamese(query, 1500);
-    vietnameseDef = fallbackTrans || `Từ vựng "${query}"`;
-  }
-
-  // Synthesize Collocations
-  let collocations: CollocationItem[] = [];
-  if (openVnData?.collocations && openVnData.collocations.length >= 2) {
-    collocations = openVnData.collocations.slice(0, 4);
-  } else if (isPhrase) {
-    const firstWord = query.split(' ')[0].toLowerCase();
-    const isVerbStart = ['secure', 'cut', 'provide', 'seek', 'obtain', 'request', 'conduct', 'take', 'make', 'do', 'have', 'reach', 'manage', 'reduce', 'improve', 'increase'].includes(firstWord);
-
-    collocations = isVerbStart
-      ? [
-          { phrase: `plan to ${query}`, meaningVi: `lên kế hoạch để ${vietnameseDef}` },
-          { phrase: `successfully ${query}`, meaningVi: `${vietnameseDef} thành công` },
-          { phrase: `effort to ${query}`, meaningVi: `nỗ lực ${vietnameseDef}` },
-          { phrase: `fail to ${query}`, meaningVi: `không thể ${vietnameseDef}` },
-        ]
-      : [
-          { phrase: `require ${query}`, meaningVi: `yêu cầu ${vietnameseDef}` },
-          { phrase: `provide ${query}`, meaningVi: `cung cấp ${vietnameseDef}` },
-          { phrase: `seek ${query}`, meaningVi: `tìm kiếm ${vietnameseDef}` },
-          { phrase: `manage ${query}`, meaningVi: `quản lý ${vietnameseDef}` },
-        ];
-  }
-
-  // Synthesize Contextual Examples
-  let examples: ExampleItem[] = [];
-  if (openVnData?.examples && openVnData.examples.length >= 2) {
-    examples = openVnData.examples.slice(0, 2);
-  } else if (isPhrase) {
-    const firstWord = query.split(' ')[0].toLowerCase();
-    const isVerbStart = ['secure', 'cut', 'provide', 'seek', 'obtain', 'request', 'conduct', 'take', 'make', 'do', 'have', 'reach', 'manage', 'reduce', 'improve', 'increase'].includes(firstWord);
-
-    examples = isVerbStart
-      ? [
-          {
-            en: `The committee agreed that we must ${query} before the end of this quarter.`,
-            vi: `Hội đồng đã nhất trí rằng chúng ta cần ${vietnameseDef} trước khi kết thúc quý này.`,
-            context: 'toeic',
-          },
-          {
-            en: `Our primary corporate objective this year is to ${query} effectively.`,
-            vi: `Mục tiêu hàng đầu của doanh nghiệp trong năm nay là ${vietnameseDef} một cách hiệu quả.`,
-            context: 'general',
-          },
-        ]
-      : [
-          {
-            en: `The management team convened to discuss the importance of ${query} for the upcoming project.`,
-            vi: `Ban quản lý đã họp lại để thảo luận về tầm quan trọng của ${vietnameseDef} cho dự án sắp tới.`,
-            context: 'toeic',
-          },
-          {
-            en: `The initiative will proceed smoothly once ${query} has been formally established.`,
-            vi: `Kế hoạch sẽ tiến triển thuận lợi sau khi ${vietnameseDef} được chính thức thiết lập.`,
-            context: 'general',
-          },
-        ];
-  }
-
-  // If translations needed for single words (collocations or examples), execute concurrently
-  if (!isPhrase && (collocations.length === 0 || examples.length === 0)) {
-    const batchPhrases = collocationsRaw.length > 0 ? collocationsRaw : [`master the ${query}`, `practical ${query}`, `key ${query}`];
-    
-    const wikiExamples: string[] = [];
-    if (wikiInfo?.definitions) {
-      for (const d of wikiInfo.definitions) {
-        for (const ex of d.examples) {
-          if (ex && !wikiExamples.includes(ex)) wikiExamples.push(ex);
-        }
-      }
-    }
-    const genExampleEn = wikiExamples[0] || `Understanding how to use "${query}" is essential in everyday communication.`;
-    const toeicExampleEn = wikiExamples[1] || `The management discussed how to apply "${query}" effectively during the project review.`;
-
-    const [collocTransRaw, exTransRaw] = await Promise.all([
-      collocations.length === 0 ? translateToVietnamese(batchPhrases.join('\n---BREAK---\n'), 1200) : Promise.resolve(''),
-      examples.length === 0 ? translateToVietnamese(`${genExampleEn}\n---BREAK---\n${toeicExampleEn}`, 1200) : Promise.resolve(''),
-    ]);
-
-    if (collocations.length === 0) {
-      let translatedColloc: string[] = [];
-      if (collocTransRaw) {
-        translatedColloc = collocTransRaw.split(/\n?---BREAK---\n?/).map((s) => s.trim());
-      }
-      collocations = batchPhrases.map((phrase, i) => ({
-        phrase,
-        meaningVi: translatedColloc[i] || 'cụm từ thông dụng',
-      }));
+    // Schedule background enrichment if caller requested
+    if (options?.onEnriched) {
+      scheduleBackgroundEnrichment(basicWordItem, signal, options.onEnriched);
     }
 
-    if (examples.length === 0) {
-      let transEx1 = '';
-      let transEx2 = '';
-      if (exTransRaw) {
-        const parts = exTransRaw.split(/\n?---BREAK---\n?/).map((s) => s.trim());
-        transEx1 = parts[0] || '';
-        transEx2 = parts[1] || '';
-      }
-      examples = [
-        {
-          en: genExampleEn,
-          vi: transEx1 || 'Ví dụ minh họa cách sử dụng từ vựng.',
-          context: 'general',
-        },
-        {
-          en: toeicExampleEn,
-          vi: transEx2 || 'Ví dụ trong môi trường làm việc và đề thi TOEIC.',
-          context: 'toeic',
-        },
-      ];
-    }
-  }
+    return basicWordItem;
+  })();
 
-  // Word Family
-  const wordFamily = wordFamilyRaw.length > 0
-    ? wordFamilyRaw
-    : [{ word: query, pos: mainPos }];
-
-  let finalIpaUs = ipa;
-  let finalIpaUk = ipa;
-
-  // Optional AI enrichment if user configured key (Gemini, OpenAI, Claude, DeepSeek, Groq, OpenRouter, Custom)
-  let aiData: any = null;
+  IN_FLIGHT_LOOKUPS.set(query, lookupPromise);
   try {
-    const settings = await getAppSettings();
-    const apiKey = settings.aiApiKey || settings.geminiApiKey;
-    if (settings.aiProvider === 'custom' || (apiKey && apiKey.trim().length >= 5)) {
-      aiData = await enrichWordWithAI(query, mainPos, {
-        provider: settings.aiProvider || 'gemini',
-        apiKey: (apiKey || '').trim(),
-        baseUrl: settings.aiBaseUrl,
-        model: settings.aiModel,
-      });
-      if (aiData?.ipaUs) finalIpaUs = aiData.ipaUs;
-      if (aiData?.ipaUk) finalIpaUk = aiData.ipaUk;
-      if (!finalIpaUk && finalIpaUs) finalIpaUk = finalIpaUs;
-      if (aiData?.vietnameseDefinition) vietnameseDef = aiData.vietnameseDefinition;
-      if (aiData?.collocations?.length) collocations.splice(0, collocations.length, ...aiData.collocations);
-      if (aiData?.wordFamily?.length) wordFamily.splice(0, wordFamily.length, ...aiData.wordFamily);
-      if (aiData?.examples?.length) examples.splice(0, examples.length, ...aiData.examples);
-    }
-  } catch {
-    // ignore
+    return await lookupPromise;
+  } finally {
+    IN_FLIGHT_LOOKUPS.delete(query);
   }
-
-  const now = Date.now();
-  const wordItem: WordItem = {
-    id: `word-${now}-${Math.random().toString(36).slice(2, 7)}`,
-    word: query,
-    phonetics: {
-      us: finalIpaUs,
-      uk: finalIpaUk || finalIpaUs,
-      audioUs: `https://translate.google.com/translate_tts?ie=UTF-8&tl=en-US&client=tw-ob&q=${encodeURIComponent(query)}`,
-      audioUk: `https://translate.google.com/translate_tts?ie=UTF-8&tl=en-GB&client=tw-ob&q=${encodeURIComponent(query)}`,
-    },
-    pos: posList,
-    vietnameseDefinition: vietnameseDef,
-    englishDefinition: englishDef,
-    meanings: parsedMeanings.length > 0 ? parsedMeanings : [
-      {
-        pos: mainPos,
-        englishDefinition: englishDef,
-        vietnameseDefinition: vietnameseDef,
-      },
-    ],
-    collocations,
-    wordFamily,
-    examples,
-    tags: aiData?.tags || ['#TOEIC', '#Vocabulary'],
-    status: 'new',
-    createdAt: now,
-    updatedAt: now,
-    reviewMeta: createInitialReviewMeta(),
-  };
-
-  // Cache in memory for 0ms repeat searches
-  MEMORY_CACHE.set(query, wordItem);
-
-  return wordItem;
 }
 
 /**
@@ -1761,8 +2096,8 @@ export async function lookupWord(rawWord: string): Promise<WordItem> {
  */
 export function warmSearchCache(words: WordItem[]) {
   for (const w of words) {
-    if (w.word) {
-      MEMORY_CACHE.set(w.word.toLowerCase().trim(), w);
+    if (w?.word) {
+      WORD_LRU_CACHE.set(normalizeWordKey(w.word), w);
     }
   }
 }

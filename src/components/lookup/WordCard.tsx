@@ -31,6 +31,7 @@ export const WordCard: React.FC<WordCardProps> = ({
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [newTagInput, setNewTagInput] = useState('');
   const [isSaved, setIsSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Sync state when word prop changes
   React.useEffect(() => {
@@ -59,16 +60,22 @@ export const WordCard: React.FC<WordCardProps> = ({
   };
 
   const handleSave = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
     try {
       await onSaveToDeck(currentWord);
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 2000);
     } catch {
       // toast shown in parent
+    } finally {
+      setIsSaving(false);
     }
   };
 
   const handleSaveFromModal = async (updated: WordItem) => {
+    if (isSaving) return;
+    setIsSaving(true);
     try {
       setCurrentWord(updated);
       await onSaveToDeck(updated);
@@ -76,6 +83,8 @@ export const WordCard: React.FC<WordCardProps> = ({
       setTimeout(() => setIsSaved(false), 2000);
     } catch {
       // toast shown in parent
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -195,13 +204,19 @@ export const WordCard: React.FC<WordCardProps> = ({
           <button
             type="button"
             onClick={handleSave}
-            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold text-white shadow-sm transition-all active:scale-95 ${
+            disabled={isSaving}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold text-white shadow-sm transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed ${
               isSaved || isAlreadyInDeck
                 ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/20'
                 : 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20'
             }`}
           >
-            {isSaved ? (
+            {isSaving ? (
+              <>
+                <Bookmark className="h-4 w-4 animate-spin" />
+                <span>{language === 'vi' ? 'Đang lưu...' : 'Saving...'}</span>
+              </>
+            ) : isSaved ? (
               <>
                 <BookmarkCheck className="h-4 w-4" />
                 <span>{language === 'vi' ? 'Đã lưu vào Deck!' : 'Saved to Deck!'}</span>

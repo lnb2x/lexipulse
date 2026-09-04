@@ -1,5 +1,5 @@
 import { ArrowLeft, ArrowRight, BookOpen, Check, Headphones, HelpCircle, Layers, Lightbulb, ListChecks, Loader2, Search, Sparkles, X, Zap } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Header } from './components/common/Header';
 import { SettingsModal } from './components/common/SettingsModal';
 import { ShortcutsModal } from './components/common/ShortcutsModal';
@@ -124,6 +124,12 @@ export function App() {
     isCompleted: false,
   });
 
+  // Latest request wins tracking
+  const searchAbortControllerRef = useRef<AbortController | null>(null);
+  const searchIdRef = useRef<number>(0);
+  const hasSetInitialWord = useRef(false);
+  const hasWarmedCache = useRef(false);
+
   // Initialize DB on first launch
   useEffect(() => {
     initializeDatabase().then(() => {
@@ -131,15 +137,21 @@ export function App() {
     });
   }, [refresh]);
 
-  // Load a default featured word on initial load for lookup and pre-warm search cache
+  // Set initial default word only once when deck loads
   useEffect(() => {
-    if (allWords.length > 0) {
-      warmSearchCache(allWords);
-      if (!lookupResult) {
-        setLookupResult(allWords[0]);
-      }
+    if (!hasSetInitialWord.current && allWords.length > 0) {
+      hasSetInitialWord.current = true;
+      setLookupResult((prev) => prev ?? allWords[0]);
     }
-  }, [allWords, lookupResult]);
+  }, [allWords]);
+
+  // Warm search cache only once on initial deck load (not on every search or word change!)
+  useEffect(() => {
+    if (!hasWarmedCache.current && allWords.length > 0) {
+      hasWarmedCache.current = true;
+      warmSearchCache(allWords);
+    }
+  }, [allWords]);
 
   // Global Keyboard shortcuts
   useEffect(() => {
@@ -168,19 +180,76 @@ export function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Handle Lookup submission
-  const handleSearch = async (query: string) => {
+  // Handle Lookup submission with two-stage enrichment, cancellation & latest request wins
+  const handleSearch = useCallback(async (query: string) => {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+
+    // Abort previous search request
+    if (searchAbortControllerRef.current) {
+      searchAbortControllerRef.current.abort();
+    }
+    const abortController = new AbortController();
+    searchAbortControllerRef.current = abortController;
+
+    const currentSearchId = ++searchIdRef.current;
+
     setIsSearching(true);
     setSearchError(null);
     setSearchTypoInfo(null);
+
     try {
-      const result = await lookupWord(query);
+      const result = await lookupWord(trimmed, {
+        signal: abortController.signal,
+        onEnriched: (enrichedWord) => {
+          // Check if this search is still active and user is still viewing this exact word
+          if (
+            currentSearchId === searchIdRef.current &&
+            !abortController.signal.aborted
+          ) {
+            setLookupResult((prev) => {
+              if (!prev || prev.word.toLowerCase() !== enrichedWord.word.toLowerCase()) {
+                return prev;
+              }
+              // Safely merge background enrichment without overwriting user changes, tags, id, reviewMeta
+              return {
+                ...prev,
+                phonetics: {
+                  us: (prev.phonetics.us && prev.phonetics.us !== `/${prev.word}/`) ? prev.phonetics.us : enrichedWord.phonetics.us,
+                  uk: (prev.phonetics.uk && prev.phonetics.uk !== `/${prev.word}/`) ? prev.phonetics.uk : enrichedWord.phonetics.uk,
+                  audioUs: prev.phonetics.audioUs || enrichedWord.phonetics.audioUs,
+                  audioUk: prev.phonetics.audioUk || enrichedWord.phonetics.audioUk,
+                },
+                collocations: prev.collocations.length > 0 ? prev.collocations : enrichedWord.collocations,
+                wordFamily: prev.wordFamily.length > 0 ? prev.wordFamily : enrichedWord.wordFamily,
+                examples: prev.examples.length > 0 ? prev.examples : enrichedWord.examples,
+                meanings: (prev.meanings && prev.meanings.length > 1) ? prev.meanings : (enrichedWord.meanings || prev.meanings),
+                vietnameseDefinition: prev.vietnameseDefinition || enrichedWord.vietnameseDefinition,
+                englishDefinition: prev.englishDefinition || enrichedWord.englishDefinition,
+              };
+            });
+          }
+        },
+      });
+
+      // Latest request wins check
+      if (currentSearchId !== searchIdRef.current || abortController.signal.aborted) {
+        return;
+      }
+
       if (result) {
         setLookupResult(result);
       } else {
-        setSearchError(`No definitions found for "${query}". Try another word!`);
+        setSearchError(`No definitions found for "${trimmed}". Try another word!`);
       }
-    } catch (err) {
+    } catch (err: unknown) {
+      if ((err as Error)?.name === 'AbortError' || abortController.signal.aborted) {
+        return;
+      }
+      if (currentSearchId !== searchIdRef.current) {
+        return;
+      }
+
       if (err instanceof WordNotFoundError) {
         setSearchTypoInfo({
           query: err.query,
@@ -195,12 +264,14 @@ export function App() {
         );
       }
     } finally {
-      setIsSearching(false);
+      if (currentSearchId === searchIdRef.current) {
+        setIsSearching(false);
+      }
     }
-  };
+  }, [language]);
 
   // Handle Saving to Deck
-  const handleSaveToDeck = async (wordToSave: WordItem) => {
+  const handleSaveToDeck = useCallback(async (wordToSave: WordItem) => {
     try {
       const isUpdate = isWordInDeck(wordToSave.word);
       await addWord(wordToSave);
@@ -217,8 +288,9 @@ export function App() {
           : `Failed to save word: ${err instanceof Error ? err.message : 'Please try again'}`,
         'error'
       );
+      throw err;
     }
-  };
+  }, [addWord, isWordInDeck, language]);
 
   // Start Review Session
   const handleStartReviewSession = (mode: ReviewMode, cardsToReview: WordItem[]) => {

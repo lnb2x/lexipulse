@@ -8,10 +8,10 @@ import { formatLocalDate } from '../utils/dateUtils';
 import { findFuzzyMatches } from '../utils/fuzzySearch';
 
 export function useVocabulary() {
-  const [revision, setRevision] = useState(0);
+  const [, setForceTrigger] = useState(0);
 
   const refresh = useCallback(() => {
-    setRevision((r) => r + 1);
+    setForceTrigger((r) => r + 1);
   }, []);
 
   const [filterOptions, setFilterOptions] = useState<FilterOptions>({
@@ -22,10 +22,21 @@ export function useVocabulary() {
     sortDirection: 'asc',
   });
 
-  // Query all words reactively from Dexie with revision dependency
+  // Query all words reactively from Dexie (Dexie automatically detects table writes without revision hack)
   const allWords = useLiveQuery(async () => {
     return await db.words.toArray();
-  }, [revision]) || [];
+  }, []) || [];
+
+  // Memoized Set for instant O(1) deck membership checks
+  const deckWordSet = useMemo(() => {
+    const set = new Set<string>();
+    for (const w of allWords) {
+      if (w?.word) {
+        set.add(w.word.toLowerCase().trim());
+      }
+    }
+    return set;
+  }, [allWords]);
 
   // Extract all unique tags with count
   const allTags = useMemo(() => {
@@ -159,23 +170,27 @@ export function useVocabulary() {
 
     const existing = await db.words.where('word').equals(normalizedWord).first();
     let isNew = false;
+    let savedRecord: WordItem;
 
     if (existing) {
-      await db.words.put({
+      savedRecord = {
         ...existing,
         ...word,
         id: existing.id,
         word: normalizedWord,
         updatedAt: Date.now(),
-      });
+      };
+      await db.words.put(savedRecord);
       isNew = false;
     } else {
-      let finalId = word.id;
-      if (!finalId || (await db.words.get(finalId))) {
-        finalId = `word-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      }
+      const finalId =
+        word.id && word.id.trim()
+          ? word.id
+          : typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? `word-${crypto.randomUUID()}`
+            : `word-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
-      await db.words.put({
+      savedRecord = {
         ...word,
         id: finalId,
         word: normalizedWord,
@@ -183,34 +198,38 @@ export function useVocabulary() {
         createdAt: word.createdAt && !isNaN(word.createdAt) ? word.createdAt : Date.now(),
         updatedAt: Date.now(),
         reviewMeta: word.reviewMeta || createInitialReviewMeta(),
-      });
+      };
+      await db.words.put(savedRecord);
       isNew = true;
     }
 
-    warmSearchCache([word]);
-    refresh();
+    // Warm cache with normalized record
+    warmSearchCache([savedRecord]);
     return isNew;
   };
 
   const updateWord = async (word: WordItem): Promise<void> => {
     const normalizedWord = word.word.trim().toLowerCase();
-    await db.words.put({
+    const updatedRecord: WordItem = {
       ...word,
       word: normalizedWord,
       updatedAt: Date.now(),
-    });
-    warmSearchCache([word]);
-    refresh();
+    };
+    await db.words.put(updatedRecord);
+    warmSearchCache([updatedRecord]);
   };
 
   const deleteWord = async (id: string): Promise<void> => {
     await db.words.delete(id);
-    refresh();
   };
 
-  const isWordInDeck = (word: string): boolean => {
-    return allWords.some((w) => w.word.toLowerCase() === word.trim().toLowerCase());
-  };
+  const isWordInDeck = useCallback(
+    (word: string): boolean => {
+      if (!word) return false;
+      return deckWordSet.has(word.toLowerCase().trim());
+    },
+    [deckWordSet]
+  );
 
   return {
     allWords,

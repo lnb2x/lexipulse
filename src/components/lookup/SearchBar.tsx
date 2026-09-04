@@ -1,5 +1,5 @@
 import { Clock, History, Lightbulb, Loader2, Search, Sparkles, X } from 'lucide-react';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useDeferredValue } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
 import type { WordItem, SpellingSuggestion } from '../../types/vocab';
 import { LOCAL_KNOWLEDGE_BASE, getSpellingSuggestions } from '../../services/dictionary';
@@ -15,9 +15,25 @@ const QUICK_RECOMMENDATIONS = ['negotiate', 'feasible', 'implement', 'compliance
 
 const SEARCH_HISTORY_KEY = 'lexipulse_recent_searches';
 
+interface KbItem {
+  word: string;
+  meaningVi: string;
+  pos: string;
+  source: 'builtin';
+}
+
+// Pre-computed static knowledge base items so we don't map Object.entries on every keystroke
+const STATIC_LOCAL_KB_ITEMS: KbItem[] = Object.entries(LOCAL_KNOWLEDGE_BASE).map(([word, val]) => ({
+  word,
+  meaningVi: val.vi,
+  pos: val.pos?.[0] || 'word',
+  source: 'builtin' as const,
+}));
+
 export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isLoading, deckWords = [] }) => {
   const { t } = useLanguage();
   const [query, setQuery] = useState('');
+  const deferredQuery = useDeferredValue(query);
   const [isOpen, setIsOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [onlineFuzzySuggestions, setOnlineFuzzySuggestions] = useState<SpellingSuggestion[]>([]);
@@ -31,6 +47,17 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isLoading, deckW
   });
 
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const activeQueryRef = useRef<string>('');
+
+  // Pre-indexed deck map for O(1) word lookup instead of linear find/some
+  const deckWordMap = useMemo(() => {
+    const map = new Map<string, WordItem>();
+    for (const w of deckWords) {
+      map.set(w.word.trim().toLowerCase(), w);
+    }
+    return map;
+  }, [deckWords]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -43,30 +70,42 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isLoading, deckW
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Debounced online spelling suggestions
+  // Debounced online spelling suggestions with AbortController cancellation
   useEffect(() => {
     const q = query.trim().toLowerCase();
+    activeQueryRef.current = q;
+
+    // Abort previous in-flight Datamuse request immediately
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
     if (q.length < 3) {
       setOnlineFuzzySuggestions([]);
       return;
     }
 
-    let isMounted = true;
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     const timer = setTimeout(async () => {
       try {
-        const results = await getSpellingSuggestions(q, deckWords);
-        if (isMounted) {
+        const results = await getSpellingSuggestions(q, deckWords, controller.signal);
+        // Only update if this request wasn't aborted and matches current active query
+        if (!controller.signal.aborted && activeQueryRef.current === q) {
           // Exclude exact matches that are identical to the query
           setOnlineFuzzySuggestions(results.filter((s) => s.word.toLowerCase() !== q));
         }
-      } catch {
+      } catch (err: unknown) {
+        if ((err as Error)?.name === 'AbortError') return;
         // ignore network error
       }
-    }, 200);
+    }, 180);
 
     return () => {
-      isMounted = false;
       clearTimeout(timer);
+      controller.abort();
     };
   }, [query, deckWords]);
 
@@ -94,14 +133,15 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isLoading, deckW
     }
   };
 
-  // 1. Exact substring matches
+  // 1. Exact substring matches using deferredQuery (never blocks keystrokes)
   const exactSuggestions = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
     if (!q) return [];
 
     const map = new Map<string, { word: string; meaningVi: string; pos: string; source: 'deck' | 'builtin' }>();
 
-    // Deck words match
+    // Deck words match (cap early to avoid huge scans)
+    let deckMatchCount = 0;
     for (const w of deckWords) {
       const wLower = w.word.toLowerCase();
       if (wLower.includes(q)) {
@@ -111,18 +151,16 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isLoading, deckW
           pos: w.pos?.[0] || 'word',
           source: 'deck',
         });
+        deckMatchCount++;
+        if (deckMatchCount >= 15) break;
       }
     }
 
-    // Built-in vocabulary match
-    for (const [key, data] of Object.entries(LOCAL_KNOWLEDGE_BASE)) {
-      if (key.toLowerCase().includes(q) && !map.has(key)) {
-        map.set(key, {
-          word: key,
-          meaningVi: data.vi,
-          pos: data.pos?.[0] || 'word',
-          source: 'builtin',
-        });
+    // Built-in vocabulary match from pre-built static items
+    for (const item of STATIC_LOCAL_KB_ITEMS) {
+      const key = item.word.toLowerCase();
+      if (key.includes(q) && !map.has(key)) {
+        map.set(key, item);
       }
     }
 
@@ -135,11 +173,11 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isLoading, deckW
         return a.word.localeCompare(b.word);
       })
       .slice(0, 5);
-  }, [query, deckWords]);
+  }, [deferredQuery, deckWords]);
 
   // 2. Fuzzy / Did-you-mean suggestions (combines instant local + online Datamuse)
   const combinedFuzzySuggestions = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
     if (q.length < 3) return [];
 
     const exactWords = new Set(exactSuggestions.map((s) => s.word.toLowerCase()));
@@ -147,14 +185,8 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isLoading, deckW
 
     const map = new Map<string, SpellingSuggestion>();
 
-    // Local instant fuzzy from LOCAL_KNOWLEDGE_BASE
-    const localKbItems = Object.entries(LOCAL_KNOWLEDGE_BASE).map(([word, val]) => ({
-      word,
-      meaningVi: val.vi,
-      pos: val.pos?.[0] || 'word',
-      source: 'builtin' as const,
-    }));
-    const localKbMatches = findFuzzyMatches(q, localKbItems, (x) => x.word, 0.65, 4);
+    // Local instant fuzzy from pre-computed static items (no recreation!)
+    const localKbMatches = findFuzzyMatches(q, STATIC_LOCAL_KB_ITEMS, (x) => x.word, 0.65, 4);
     for (const match of localKbMatches) {
       const wLower = match.item.word.toLowerCase();
       if (!exactWords.has(wLower)) {
@@ -183,12 +215,11 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isLoading, deckW
       }
     }
 
-    // Merge online fuzzy suggestions
+    // Merge online fuzzy suggestions with O(1) deck lookup
     for (const s of onlineFuzzySuggestions) {
       const wLower = s.word.toLowerCase();
       if (!exactWords.has(wLower) && !map.has(wLower)) {
-        // If in deck, upgrade source to deck
-        const inDeck = deckWords.find((dw) => dw.word.toLowerCase() === wLower);
+        const inDeck = deckWordMap.get(wLower);
         map.set(wLower, {
           ...s,
           source: inDeck ? 'deck' : s.source,
@@ -201,7 +232,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isLoading, deckW
     return Array.from(map.values())
       .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
       .slice(0, 4);
-  }, [query, exactSuggestions, deckWords, onlineFuzzySuggestions]);
+  }, [deferredQuery, exactSuggestions, deckWords, deckWordMap, onlineFuzzySuggestions]);
 
   // Combined list for keyboard navigation
   const allSelectableWords = useMemo(() => {
