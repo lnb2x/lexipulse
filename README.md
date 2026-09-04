@@ -107,7 +107,7 @@ Không bị giới hạn trong một nhà cung cấp duy nhất, LexiPulse cho p
 ## 📂 Cấu trúc thư mục (Project Structure)
 
 ```text
-voc/
+lexipulse/
 ├── src/
 │   ├── components/
 │   │   ├── common/              # Các component dùng chung
