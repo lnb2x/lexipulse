@@ -161,7 +161,7 @@ export const WordFamilyInteractive: React.FC<WordFamilyInteractiveProps> = ({
                   ? `${wf.word} (${posInfo.label}) - ${t.lookup.currentWordBadge}${meaning ? ` : ${meaning}` : ''}`
                   : `${t.lookup.lookupWordFamily}: "${wf.word}" (${posInfo.label})${meaning ? ` - ${meaning}` : ''}`
               }
-              className={`group relative flex items-center gap-1.5 rounded-xl border transition-all duration-200 cursor-pointer select-none ${
+              className={`group relative flex items-center gap-1.5 rounded-xl border transition-all duration-200 cursor-pointer select-none max-w-full ${
                 compact ? 'px-2 py-1 text-xs' : 'px-2.5 py-1.5 text-xs'
               } ${
                 isCurrent
@@ -171,14 +171,14 @@ export const WordFamilyInteractive: React.FC<WordFamilyInteractiveProps> = ({
             >
               {/* Part of Speech Mini Badge */}
               <span
-                className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${posInfo.bg}`}
+                className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider shrink-0 ${posInfo.bg}`}
               >
                 {compact ? posInfo.short : posInfo.label}
               </span>
 
               {/* Word Text */}
               <span
-                className={`font-medium ${
+                className={`font-medium shrink-0 ${
                   isCurrent
                     ? 'text-indigo-900 dark:text-indigo-200 font-bold'
                     : 'text-slate-900 group-hover:text-indigo-600 dark:text-slate-100 dark:group-hover:text-indigo-300'
@@ -189,7 +189,7 @@ export const WordFamilyInteractive: React.FC<WordFamilyInteractiveProps> = ({
 
               {/* Vietnamese Meaning Preview */}
               {meaning && (
-                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-normal max-w-[140px] truncate hidden sm:inline">
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-normal truncate min-w-0 shrink max-w-[90px] sm:max-w-[120px] md:max-w-[85px] lg:max-w-[130px] hidden sm:inline">
                   • {meaning}
                 </span>
               )}
@@ -197,7 +197,7 @@ export const WordFamilyInteractive: React.FC<WordFamilyInteractiveProps> = ({
               {/* In-Deck Indicator Badge */}
               {isInDeck && (
                 <span
-                  className="flex items-center gap-0.5 rounded-md bg-emerald-100/80 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
+                  className="flex items-center gap-0.5 rounded-md bg-emerald-100/80 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 shrink-0"
                   title={language === 'vi' ? 'Đã lưu trong Deck' : 'Saved in Deck'}
                 >
                   <BookmarkCheck className="h-2.5 w-2.5" />
@@ -212,7 +212,7 @@ export const WordFamilyInteractive: React.FC<WordFamilyInteractiveProps> = ({
                   onClick={(e) => handleQuickAdd(e, wf.word)}
                   disabled={addingWord === wf.word}
                   title={language === 'vi' ? `Thêm "${wf.word}" vào Deck` : `Add "${wf.word}" to Deck`}
-                  className="ml-0.5 flex items-center gap-0.5 rounded-md border border-indigo-200 bg-indigo-50/90 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300 dark:hover:bg-indigo-900/60 transition-all active:scale-95"
+                  className="ml-0.5 flex items-center gap-0.5 rounded-md border border-indigo-200 bg-indigo-50/90 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300 dark:hover:bg-indigo-900/60 transition-all active:scale-95 shrink-0"
                 >
                   {addingWord === wf.word ? (
                     <Loader2 className="h-2.5 w-2.5 animate-spin" />
@@ -229,7 +229,7 @@ export const WordFamilyInteractive: React.FC<WordFamilyInteractiveProps> = ({
                 onClick={(e) => handlePlayAudio(e, wf.word)}
                 disabled={isAudioPlaying}
                 title={`${t.lookup.pronounceWordFamily} "${wf.word}"`}
-                className={`ml-0.5 rounded-md p-1 transition-all hover:scale-110 active:scale-95 ${
+                className={`ml-0.5 rounded-md p-1 transition-all hover:scale-110 active:scale-95 shrink-0 ${
                   isAudioPlaying
                     ? 'bg-indigo-100 text-indigo-700 animate-pulse dark:bg-indigo-900 dark:text-indigo-300'
                     : 'text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-700 dark:hover:text-indigo-400'
@@ -241,7 +241,7 @@ export const WordFamilyInteractive: React.FC<WordFamilyInteractiveProps> = ({
               {/* Quick Search Arrow indicator */}
               {!isCurrent && (
                 <span
-                  className="text-slate-300 opacity-0 group-hover:opacity-100 group-hover:text-indigo-500 transition-all duration-150"
+                  className="text-slate-300 opacity-0 group-hover:opacity-100 group-hover:text-indigo-500 transition-all duration-150 shrink-0"
                   title={`${t.lookup.lookupWordFamily}: "${wf.word}"`}
                 >
                   <ExternalLink className="h-3 w-3" />

@@ -6,6 +6,7 @@ import type { ReviewRating, WordItem } from '../../types/vocab';
 import { AudioButton } from '../common/AudioButton';
 import { Badge } from '../common/Badge';
 import { WordFamilyInteractive } from '../common/WordFamilyInteractive';
+import { parseMultipleMeanings } from '../../utils/definitionUtils';
 
 interface FlashcardProps {
   word: WordItem;
@@ -108,7 +109,7 @@ export const Flashcard: React.FC<FlashcardProps> = ({
             </button>
           )}
 
-          <span className="font-semibold text-slate-700 dark:text-slate-200 px-1">
+          <span className="font-bold text-slate-800 dark:text-slate-200 px-1 font-mono">
             {language === 'vi'
               ? `Thẻ ${currentIndex + 1} / ${totalCards}`
               : `Card ${currentIndex + 1} of ${totalCards}`}
@@ -133,7 +134,7 @@ export const Flashcard: React.FC<FlashcardProps> = ({
 
         <div className="flex items-center gap-2">
           <Badge status={word.status} size="sm" />
-          <span className="text-[11px] font-mono text-slate-400">
+          <span className="text-[11px] font-mono font-medium text-slate-400 dark:text-slate-500">
             {language === 'vi' ? 'Chu kỳ' : 'Interval'}: {formatInterval(word.reviewMeta.interval)}
           </span>
         </div>
@@ -143,26 +144,26 @@ export const Flashcard: React.FC<FlashcardProps> = ({
       <div className="perspective-1000 w-full min-h-[380px] sm:min-h-[420px]">
         <div
           onClick={() => setIsFlipped(!isFlipped)}
-          className={`relative w-full h-full min-h-[380px] sm:min-h-[420px] rounded-3xl border border-slate-200/80 bg-white p-8 shadow-xl shadow-slate-100/70 transition-all duration-500 transform-style-3d cursor-pointer select-none dark:border-slate-800 dark:bg-[#111622] dark:shadow-none ${
-            isFlipped ? 'rotate-y-180' : ''
+          className={`relative w-full h-full min-h-[380px] sm:min-h-[420px] rounded-2xl border border-slate-200 bg-white p-7 shadow-sm transition-all duration-500 transform-style-3d cursor-pointer select-none dark:border-slate-800 dark:bg-[#111622] ${
+            isFlipped ? 'rotate-y-180' : 'hover:border-slate-300 dark:hover:border-slate-700'
           }`}
         >
           {/* FRONT SIDE */}
           <div
-            className={`absolute inset-0 flex flex-col justify-between p-8 backface-hidden ${
+            className={`absolute inset-0 flex flex-col justify-between p-7 backface-hidden ${
               isFlipped ? 'pointer-events-none' : ''
             }`}
           >
             {/* Top row */}
             <div className="flex items-center justify-between text-xs text-slate-400">
-              <span className="font-semibold uppercase tracking-wider text-indigo-500">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
                 {language === 'vi' ? 'Mặt trước' : 'Front Card'}
               </span>
               <div className="flex gap-1">
                 {word.pos.map((p) => (
                   <span
                     key={p}
-                    className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300 italic"
+                    className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 italic"
                   >
                     {p}
                   </span>
@@ -196,12 +197,13 @@ export const Flashcard: React.FC<FlashcardProps> = ({
             </div>
 
             {/* Bottom hint */}
-            <div className="flex items-center justify-between border-t border-slate-100 pt-4 text-xs text-slate-400 dark:border-slate-800">
-              <span className="flex items-center gap-1.5">
+            <div className="flex items-center justify-between border-t border-slate-100 pt-3.5 text-xs text-slate-400 dark:border-slate-800">
+              <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
                 <RotateCw className="h-3.5 w-3.5 text-indigo-500" />
-                {t.review.flipPrompt}
+                <span>{t.review.flipPrompt}</span>
+                <kbd className="kbd-shortcut hidden sm:inline-block">Space</kbd>
               </span>
-              <span className="text-slate-400 italic">
+              <span className="text-slate-400 text-[11px] font-medium">
                 {word.tags.slice(0, 2).join(' ')}
               </span>
             </div>
@@ -209,35 +211,56 @@ export const Flashcard: React.FC<FlashcardProps> = ({
 
           {/* BACK SIDE */}
           <div
-            className={`absolute inset-0 flex flex-col justify-between p-8 backface-hidden rotate-y-180 overflow-y-auto ${
+            className={`absolute inset-0 flex flex-col justify-between p-7 backface-hidden rotate-y-180 overflow-y-auto ${
               !isFlipped ? 'pointer-events-none' : ''
             }`}
           >
             {/* Top row */}
             <div className="flex items-center justify-between text-xs text-slate-400 border-b border-slate-100 pb-3 dark:border-slate-800">
               <div className="flex items-center gap-2">
-                <span className="font-display text-xl font-bold text-slate-900 dark:text-white">
+                <span className="font-display text-lg font-bold text-slate-900 dark:text-white">
                   {word.word}
                 </span>
                 <AudioButton text={word.word} size="sm" showLabel={false} />
               </div>
-              <span className="font-semibold uppercase tracking-wider text-emerald-500">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
                 {language === 'vi' ? 'Mặt sau (Đáp án)' : 'Back Card'}
               </span>
             </div>
 
             {/* Content */}
-            <div className="my-auto space-y-4 py-2">
+            <div className="my-auto space-y-3.5 py-2">
               {/* Core Meaning */}
-              <div className="rounded-2xl border border-emerald-200/80 bg-emerald-50/50 p-4 text-left dark:border-emerald-900/40 dark:bg-emerald-950/20">
+              <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/50 p-4 text-left dark:border-emerald-900/40 dark:bg-emerald-950/20">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
-                  Định nghĩa
+                  {language === 'vi' ? 'Định nghĩa' : 'Definition'}
                 </span>
-                <p className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
-                  {word.vietnameseDefinition}
-                </p>
+                {(() => {
+                  const senses = parseMultipleMeanings(word.vietnameseDefinition);
+                  if (senses.length > 1) {
+                    return (
+                      <div className="mt-2 space-y-1.5">
+                        {senses.map((sense) => (
+                          <div key={sense.index} className="flex items-start gap-2">
+                            <span className="inline-flex items-center justify-center w-4 h-4 rounded-md bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 text-[11px] font-bold shrink-0 mt-0.5 shadow-xs">
+                              {sense.index}
+                            </span>
+                            <p className="text-sm sm:text-base font-bold text-slate-900 dark:text-white leading-snug">
+                              {sense.text}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  }
+                  return (
+                    <p className="mt-1 text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+                      {word.vietnameseDefinition}
+                    </p>
+                  );
+                })()}
                 {word.englishDefinition && (
-                  <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">
+                  <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-400 leading-relaxed border-t border-emerald-200/60 pt-1.5 dark:border-emerald-900/40">
                     {word.englishDefinition}
                   </p>
                 )}
@@ -245,14 +268,14 @@ export const Flashcard: React.FC<FlashcardProps> = ({
 
               {/* Collocations */}
               {word.collocations.length > 0 && (
-                <div className="rounded-xl bg-slate-50 p-3 text-left dark:bg-slate-800/40">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3 text-left dark:border-slate-800 dark:bg-slate-900/50">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     High-yield Collocations
                   </span>
                   <div className="mt-1.5 flex flex-wrap gap-2 text-xs">
                     {word.collocations.slice(0, 3).map((c, i) => (
                       <span key={i} className="text-slate-700 dark:text-slate-300">
-                        <strong className="text-indigo-600 dark:text-indigo-400">{c.phrase}</strong> ({c.meaningVi})
+                        <strong className="text-indigo-600 dark:text-indigo-400 font-semibold">{c.phrase}</strong> ({c.meaningVi})
                       </span>
                     ))}
                   </div>
@@ -261,14 +284,14 @@ export const Flashcard: React.FC<FlashcardProps> = ({
 
               {/* Workplace / TOEIC Example */}
               {workplaceEx && (
-                <div className="rounded-xl border border-slate-200/70 p-3 text-left dark:border-slate-800">
+                <div className="rounded-xl border border-slate-200/80 p-3 text-left dark:border-slate-800 bg-white/40 dark:bg-slate-900/30">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
                       Workplace Context
                     </span>
                     <AudioButton text={workplaceEx.en} size="sm" showLabel={false} />
                   </div>
-                  <p className="mt-1 text-xs text-slate-800 dark:text-slate-200">
+                  <p className="mt-1 text-xs text-slate-800 dark:text-slate-200 leading-relaxed">
                     {renderHighlightedExample(workplaceEx.en, word.word)}
                   </p>
                   <p className="mt-0.5 text-[11px] text-slate-500 italic">
@@ -279,8 +302,8 @@ export const Flashcard: React.FC<FlashcardProps> = ({
 
               {/* Word Family */}
               {word.wordFamily && word.wordFamily.length > 0 && (
-                <div className="rounded-xl border border-slate-200/70 p-3 text-left dark:border-slate-800">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1.5">
+                <div className="rounded-xl border border-slate-200/80 p-3 text-left dark:border-slate-800">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1.5">
                     {t.lookup.wordFamily}
                   </span>
                   <WordFamilyInteractive
@@ -295,38 +318,38 @@ export const Flashcard: React.FC<FlashcardProps> = ({
 
             {/* Bottom Flip Reminder */}
             <div className="text-center text-[11px] text-slate-400 border-t border-slate-100 pt-2 dark:border-slate-800">
-              Grade your recall below or press numbers <kbd className="rounded bg-slate-100 px-1 text-[10px] dark:bg-slate-800">1</kbd>, <kbd className="rounded bg-slate-100 px-1 text-[10px] dark:bg-slate-800">2</kbd>, <kbd className="rounded bg-slate-100 px-1 text-[10px] dark:bg-slate-800">3</kbd>
+              Grade your recall below or press numbers <kbd className="kbd-shortcut">1</kbd>, <kbd className="kbd-shortcut">2</kbd>, <kbd className="kbd-shortcut">3</kbd>
             </div>
           </div>
         </div>
       </div>
 
       {/* Self-grading Action Controls (Module C.1) */}
-      <div className="grid grid-cols-3 gap-3 pt-2">
+      <div className="grid grid-cols-3 gap-3 pt-1">
         {/* Rating 1: Again */}
         <button
           type="button"
           onClick={() => onGrade(1)}
-          className="flex flex-col items-center justify-center rounded-2xl border border-rose-200 bg-rose-50/70 p-3.5 text-rose-700 transition-all hover:bg-rose-100 hover:border-rose-300 active:scale-95 shadow-sm dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300"
+          className="flex flex-col items-center justify-center rounded-xl border border-rose-200 bg-rose-50/60 p-3 text-rose-700 transition-all hover:bg-rose-100/70 hover:border-rose-300 active:scale-[0.98] shadow-sm dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300"
         >
-          <div className="flex items-center gap-1.5 font-bold text-sm">
+          <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm">
             <span>{t.review.againRating}</span>
-            <kbd className="rounded bg-rose-200/80 px-1.5 py-0.5 text-[10px] font-mono dark:bg-rose-800/80">1</kbd>
+            <kbd className="rounded bg-rose-200/80 px-1.5 py-0.5 text-[10px] font-mono dark:bg-rose-800/80 font-bold">1</kbd>
           </div>
-          <span className="text-[11px] opacity-80 mt-0.5">1 {language === 'vi' ? 'ngày' : 'day'}</span>
+          <span className="text-[11px] opacity-75 mt-0.5 font-medium">1 {language === 'vi' ? 'ngày' : 'day'}</span>
         </button>
 
         {/* Rating 2: Good */}
         <button
           type="button"
           onClick={() => onGrade(2)}
-          className="flex flex-col items-center justify-center rounded-2xl border border-indigo-200 bg-indigo-50/70 p-3.5 text-indigo-700 transition-all hover:bg-indigo-100 hover:border-indigo-300 active:scale-95 shadow-sm dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-300"
+          className="flex flex-col items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50/60 p-3 text-indigo-700 transition-all hover:bg-indigo-100/70 hover:border-indigo-300 active:scale-[0.98] shadow-sm dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:text-indigo-300"
         >
-          <div className="flex items-center gap-1.5 font-bold text-sm">
+          <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm">
             <span>{t.review.goodRating}</span>
-            <kbd className="rounded bg-indigo-200/80 px-1.5 py-0.5 text-[10px] font-mono dark:bg-indigo-800/80">2</kbd>
+            <kbd className="rounded bg-indigo-200/80 px-1.5 py-0.5 text-[10px] font-mono dark:bg-indigo-800/80 font-bold">2</kbd>
           </div>
-          <span className="text-[11px] opacity-80 mt-0.5">
+          <span className="text-[11px] opacity-75 mt-0.5 font-medium">
             {word.reviewMeta.repetition === 0 ? (language === 'vi' ? '1 ngày' : '1 day') : (language === 'vi' ? '3+ ngày' : '3+ days')}
           </span>
         </button>
@@ -335,13 +358,13 @@ export const Flashcard: React.FC<FlashcardProps> = ({
         <button
           type="button"
           onClick={() => onGrade(3)}
-          className="flex flex-col items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50/70 p-3.5 text-emerald-700 transition-all hover:bg-emerald-100 hover:border-emerald-300 active:scale-95 shadow-sm dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300"
+          className="flex flex-col items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 text-emerald-700 transition-all hover:bg-emerald-100/70 hover:border-emerald-300 active:scale-[0.98] shadow-sm dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300"
         >
-          <div className="flex items-center gap-1.5 font-bold text-sm">
+          <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm">
             <span>{t.review.easyRating}</span>
-            <kbd className="rounded bg-emerald-200/80 px-1.5 py-0.5 text-[10px] font-mono dark:bg-emerald-800/80">3</kbd>
+            <kbd className="rounded bg-emerald-200/80 px-1.5 py-0.5 text-[10px] font-mono dark:bg-emerald-800/80 font-bold">3</kbd>
           </div>
-          <span className="text-[11px] opacity-80 mt-0.5">
+          <span className="text-[11px] opacity-75 mt-0.5 font-medium">
             {word.reviewMeta.repetition === 0 ? (language === 'vi' ? '2 ngày' : '2 days') : (language === 'vi' ? '7+ ngày' : '7+ days')}
           </span>
         </button>

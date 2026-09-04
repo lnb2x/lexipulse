@@ -212,7 +212,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
       }
 
       // Strip leading bullet numbers like "1. ", "2) ", "- "
-      rawWord = rawWord.replace(/^[\d]+[\.\)]\s*/, '').replace(/^[-*•]\s*/, '').trim();
+      rawWord = rawWord.replace(/^[\d]+[.)]\s*/, '').replace(/^[-*•]\s*/, '').trim();
 
       if (!rawWord) continue;
       setProgress({ current: i + 1, total: rawLines.length, word: rawWord });
@@ -312,16 +312,16 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
-      <div className="relative w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 animate-fade-in">
+      <div className="relative w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 sm:p-7 shadow-xl dark:border-slate-800 dark:bg-[#111622]">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 pb-4 dark:border-slate-800">
           <div className="flex items-center gap-2.5">
-            <div className="rounded-xl bg-indigo-50 p-2 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400">
               <Layers className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
+              <h2 className="font-display text-base font-bold text-slate-900 dark:text-white">
                 {t.modals.bulkTitle}
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -331,21 +331,21 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-colors"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
         {/* Navigation Tabs */}
-        <div className="mt-4 flex rounded-2xl border border-slate-200 bg-slate-100/80 p-1 dark:border-slate-800 dark:bg-slate-800/80">
+        <div className="mt-4 flex rounded-xl border border-slate-200 bg-slate-100/80 p-1 dark:border-slate-800 dark:bg-slate-800/80">
           <button
             type="button"
             onClick={() => {
               setActiveTab('bulk');
               setBulkSuccessMsg(null);
             }}
-            className={`flex-1 rounded-xl py-2 text-xs font-semibold transition-all ${
+            className={`flex-1 rounded-lg py-2 text-xs font-semibold transition-all ${
               activeTab === 'bulk'
                 ? 'bg-white text-indigo-600 shadow-sm dark:bg-slate-900 dark:text-indigo-400'
                 : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
@@ -359,7 +359,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
               setActiveTab('export');
               setBulkSuccessMsg(null);
             }}
-            className={`flex-1 rounded-xl py-2 text-xs font-semibold transition-all ${
+            className={`flex-1 rounded-lg py-2 text-xs font-semibold transition-all ${
               activeTab === 'export'
                 ? 'bg-white text-indigo-600 shadow-sm dark:bg-slate-900 dark:text-indigo-400'
                 : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
@@ -373,7 +373,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
               setActiveTab('import');
               setBulkSuccessMsg(null);
             }}
-            className={`flex-1 rounded-xl py-2 text-xs font-semibold transition-all ${
+            className={`flex-1 rounded-lg py-2 text-xs font-semibold transition-all ${
               activeTab === 'import'
                 ? 'bg-white text-indigo-600 shadow-sm dark:bg-slate-900 dark:text-indigo-400'
                 : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'

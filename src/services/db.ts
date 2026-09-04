@@ -27,6 +27,10 @@ export class LexiPulseDatabase extends Dexie {
 export const db = new LexiPulseDatabase();
 
 const DEFAULT_SETTINGS: AppSettings = {
+  aiProvider: 'gemini',
+  aiApiKey: '',
+  aiBaseUrl: '',
+  aiModel: 'gemini-2.5-flash',
   geminiApiKey: '',
   speechRate: 0.95,
   speechPitch: 1.0,
@@ -38,7 +42,17 @@ const DEFAULT_SETTINGS: AppSettings = {
 export async function getAppSettings(): Promise<AppSettings> {
   try {
     const item = await db.settingsTable.get('appSettings');
-    return item ? { ...DEFAULT_SETTINGS, ...item.value } : DEFAULT_SETTINGS;
+    if (!item) return DEFAULT_SETTINGS;
+
+    const loaded = { ...DEFAULT_SETTINGS, ...item.value };
+
+    // Seamless migration: If user had legacy geminiApiKey but no aiApiKey, migrate it
+    if (!loaded.aiApiKey && loaded.geminiApiKey) {
+      loaded.aiApiKey = loaded.geminiApiKey;
+      loaded.aiProvider = 'gemini';
+    }
+
+    return loaded;
   } catch {
     return DEFAULT_SETTINGS;
   }

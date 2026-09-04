@@ -82,18 +82,18 @@ export const DeckHeader: React.FC<DeckHeaderProps> = ({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3.5">
       {/* Search & Action Row */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
         {/* Search bar */}
         <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 dark:text-slate-500" />
           <input
             type="text"
             value={localSearch}
             onChange={handleSearchChange}
             placeholder={t.deck.searchPlaceholder}
-            className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-9 text-sm text-slate-900 placeholder-slate-400 shadow-sm focus:border-indigo-500 focus:outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 dark:placeholder-slate-500"
+            className="w-full rounded-xl border border-slate-200/90 bg-white py-2 pl-10 pr-9 text-xs sm:text-sm text-slate-900 placeholder-slate-400 shadow-subtle focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-800 dark:bg-[#121824] dark:text-slate-100 dark:placeholder-slate-500"
           />
           {localSearch && (
             <button
@@ -103,12 +103,12 @@ export const DeckHeader: React.FC<DeckHeaderProps> = ({
               }}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
             >
-              <X className="h-4 w-4" />
+              <X className="h-3.5 w-3.5" />
             </button>
           )}
         </div>
 
-        {/* Action Buttons: Sort, Date Filter, Bulk Add, Export/Backup */}
+        {/* Action Controls Toolbar */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Sort Dropdown */}
           <div className="relative flex items-center">
@@ -116,7 +116,7 @@ export const DeckHeader: React.FC<DeckHeaderProps> = ({
             <select
               value={filterOptions.sortBy}
               onChange={handleSortChange}
-              className="rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-xs font-medium text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300"
+              className="rounded-xl border border-slate-200/90 bg-white py-2 pl-8 pr-3 text-xs font-medium text-slate-700 shadow-subtle focus:border-indigo-500 focus:outline-none dark:border-slate-800 dark:bg-[#121824] dark:text-slate-300 cursor-pointer"
             >
               <option value="urgency">{t.deck.sortUrgency}</option>
               <option value="date_added">{t.deck.sortDateAdded}</option>
@@ -131,10 +131,10 @@ export const DeckHeader: React.FC<DeckHeaderProps> = ({
             <select
               value={filterOptions.createdDate || 'all'}
               onChange={handleDateChange}
-              className={`rounded-xl border py-2 pl-9 pr-7 text-xs font-semibold shadow-sm focus:border-indigo-500 focus:outline-none transition-colors ${
+              className={`rounded-xl border py-2 pl-8 pr-7 text-xs font-medium shadow-subtle focus:border-indigo-500 focus:outline-none transition-colors cursor-pointer ${
                 filterOptions.createdDate
                   ? 'border-indigo-300 bg-indigo-50/80 text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300'
-                  : 'border-slate-200 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300'
+                  : 'border-slate-200/90 bg-white text-slate-700 dark:border-slate-800 dark:bg-[#121824] dark:text-slate-300'
               }`}
             >
               <option value="all">{t.deck.allDates}</option>
@@ -161,7 +161,7 @@ export const DeckHeader: React.FC<DeckHeaderProps> = ({
             <button
               type="button"
               onClick={onAddNewWord}
-              className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white shadow-md shadow-indigo-600/20 hover:bg-indigo-500 active:scale-95"
+              className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-500 active:scale-95 transition-all"
             >
               <Plus className="h-3.5 w-3.5" />
               <span>{language === 'vi' ? 'Thêm từ mới' : 'Add Word'}</span>
@@ -172,7 +172,7 @@ export const DeckHeader: React.FC<DeckHeaderProps> = ({
           <button
             type="button"
             onClick={() => onOpenImportExport('bulk')}
-            className="flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3.5 py-2 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300 dark:hover:bg-indigo-900/60 active:scale-95"
+            className="flex items-center gap-1.5 rounded-xl border border-indigo-200/80 bg-indigo-50/70 px-3 py-2 text-xs font-semibold text-indigo-700 hover:bg-indigo-100/70 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-900/50 active:scale-95 transition-all"
           >
             <span>{t.deck.bulkAddBtn}</span>
           </button>
@@ -183,7 +183,7 @@ export const DeckHeader: React.FC<DeckHeaderProps> = ({
               type="button"
               onClick={onQuickExportXlsx}
               title={language === 'vi' ? 'Xuất danh sách từ hiện tại ra Excel (.xlsx)' : 'Export current words to Excel (.xlsx)'}
-              className="flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-semibold text-emerald-700 shadow-sm hover:bg-emerald-100 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/60 transition-all active:scale-95"
+              className="flex items-center gap-1.5 rounded-xl border border-emerald-200/80 bg-emerald-50/70 px-3 py-2 text-xs font-semibold text-emerald-700 shadow-subtle hover:bg-emerald-100/70 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/50 transition-all active:scale-95"
             >
               <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
               <span className="hidden sm:inline">{language === 'vi' ? 'Xuất Excel' : 'Export Excel'}</span>
@@ -194,7 +194,7 @@ export const DeckHeader: React.FC<DeckHeaderProps> = ({
           <button
             type="button"
             onClick={() => onOpenImportExport('export')}
-            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+            className="flex items-center gap-1.5 rounded-xl border border-slate-200/90 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-subtle hover:bg-slate-50 dark:border-slate-800 dark:bg-[#121824] dark:text-slate-300 dark:hover:bg-slate-800/80 transition-all"
           >
             <Database className="h-3.5 w-3.5 text-indigo-500" />
             <span className="hidden sm:inline">{t.deck.exportBackupBtn}</span>
@@ -204,7 +204,7 @@ export const DeckHeader: React.FC<DeckHeaderProps> = ({
 
       {/* Filter Tabs: Status & Quick Export if Date Selected */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-slate-100/80 p-1 dark:border-slate-800 dark:bg-slate-900/60">
+        <div className="flex flex-wrap items-center gap-1 rounded-xl border border-slate-200/80 bg-slate-100/80 p-1 dark:border-slate-800 dark:bg-slate-900/80">
           {(
             [
               { id: 'all', label: t.deck.allCardsTab },
@@ -218,9 +218,9 @@ export const DeckHeader: React.FC<DeckHeaderProps> = ({
               key={tab.id}
               type="button"
               onClick={() => handleStatusChange(tab.id)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
+              className={`rounded-lg px-3 py-1 text-xs font-semibold transition-all ${
                 filterOptions.status === tab.id
-                  ? 'bg-white text-indigo-600 shadow-sm dark:bg-slate-800 dark:text-indigo-400'
+                  ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-800 dark:text-white'
                   : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
               }`}
             >
@@ -232,7 +232,7 @@ export const DeckHeader: React.FC<DeckHeaderProps> = ({
         {/* Date Filter Status & Quick Export Button */}
         <div className="flex items-center gap-2">
           {filterOptions.createdDate && (
-            <div className="flex items-center gap-1.5 rounded-lg bg-indigo-50 py-1 px-2.5 text-xs font-medium text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
+            <div className="flex items-center gap-1.5 rounded-lg bg-indigo-50/80 py-1 px-2.5 text-xs font-medium text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900/50">
               <Calendar className="h-3.5 w-3.5 text-indigo-500" />
               <span>{language === 'vi' ? 'Ngày' : 'Date'}: {filterOptions.createdDate}</span>
               {onReviewDateWords && (
@@ -284,8 +284,8 @@ export const DeckHeader: React.FC<DeckHeaderProps> = ({
 
       {/* Tags Carousel / Pills */}
       {allTags.length > 0 && (
-        <div className="flex items-center gap-1.5 overflow-x-auto py-1 text-xs">
-          <Tag className="h-3.5 w-3.5 text-slate-400 shrink-0 mr-1" />
+        <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 text-xs">
+          <Tag className="h-3.5 w-3.5 text-slate-400 shrink-0 mr-0.5" />
           {allTags.map(({ tag, count }) => {
             const isSelected = filterOptions.tags.includes(tag);
             return (

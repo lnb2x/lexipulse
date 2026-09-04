@@ -10,6 +10,7 @@ export default {
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         display: ['Outfit', 'Inter', 'sans-serif'],
+        mono: ['JetBrains Mono', 'monospace'],
       },
       colors: {
         brand: {
@@ -36,25 +37,26 @@ export default {
           700: '#047857',
           800: '#065f46',
           900: '#064e3b',
-        }
+        },
       },
       boxShadow: {
-        'glow-emerald': '0 0 20px -5px rgba(16, 185, 129, 0.4)',
-        'glow-indigo': '0 0 20px -5px rgba(99, 102, 241, 0.4)',
-        'card-dark': '0 10px 30px -10px rgba(0, 0, 0, 0.5)',
+        'subtle': '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+        'card': '0 1px 3px 0 rgba(0, 0, 0, 0.08), 0 1px 2px -1px rgba(0, 0, 0, 0.08)',
+        'elevated': '0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.08)',
+        'dropdown': '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
       },
       animation: {
         'pulse-subtle': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-        'fade-in': 'fadeIn 0.25s ease-out forwards',
-        'slide-up': 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+        'fade-in': 'fadeIn 0.18s ease-out forwards',
+        'slide-up': 'slideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards',
       },
       keyframes: {
         fadeIn: {
-          '0%': { opacity: '0', transform: 'scale(0.98)' },
+          '0%': { opacity: '0', transform: 'scale(0.99)' },
           '100%': { opacity: '1', transform: 'scale(1)' },
         },
         slideUp: {
-          '0%': { opacity: '0', transform: 'translateY(12px)' },
+          '0%': { opacity: '0', transform: 'translateY(8px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         }
       }

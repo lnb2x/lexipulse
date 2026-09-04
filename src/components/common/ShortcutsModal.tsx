@@ -32,15 +32,15 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
-      <div className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 animate-fade-in">
+      <div className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 sm:p-7 shadow-xl dark:border-slate-800 dark:bg-[#111622]">
         <div className="flex items-center justify-between border-b border-slate-100 pb-4 dark:border-slate-800">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-500 dark:bg-indigo-500/20">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400">
               <Command className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">{t.modals.shortcutsTitle}</h2>
+              <h2 className="font-display text-lg font-bold text-slate-900 dark:text-white">{t.modals.shortcutsTitle}</h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 {language === 'vi' ? 'Tăng tốc độ học và ghi nhớ' : 'Boost your study efficiency'}
               </p>
@@ -48,7 +48,7 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-colors"
           >
             <X className="h-5 w-5" />
           </button>
@@ -56,9 +56,9 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
 
         <div className="mt-4 divide-y divide-slate-100 dark:divide-slate-800">
           {shortcuts.map((s, idx) => (
-            <div key={idx} className="flex items-center justify-between py-2.5 text-sm">
-              <span className="text-slate-600 dark:text-slate-300">{s.description}</span>
-              <kbd className="min-w-[28px] rounded-lg border border-slate-200 bg-slate-100 px-2 py-1 text-center font-mono text-xs font-semibold text-slate-800 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+            <div key={idx} className="flex items-center justify-between py-2.5 text-xs sm:text-sm">
+              <span className="text-slate-600 dark:text-slate-300 font-medium">{s.description}</span>
+              <kbd className="kbd-shortcut font-semibold">
                 {s.key}
               </kbd>
             </div>
@@ -69,7 +69,7 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+            className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-500 active:scale-[0.99] transition-all"
           >
             {language === 'vi' ? 'Đã hiểu' : 'Got it'}
           </button>

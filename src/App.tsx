@@ -1,4 +1,4 @@
-import { ArrowLeft, BookOpen, Check, HelpCircle, Layers, Loader2, Search, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, Check, Headphones, HelpCircle, Layers, Lightbulb, ListChecks, Loader2, Search, Sparkles, X, Zap } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Header } from './components/common/Header';
 import { SettingsModal } from './components/common/SettingsModal';
@@ -14,18 +14,21 @@ import { EditableWordModal } from './components/lookup/EditableWordModal';
 import { SearchBar } from './components/lookup/SearchBar';
 import { WordCard } from './components/lookup/WordCard';
 import { Flashcard } from './components/review/Flashcard';
+import { ReviewChoice } from './components/review/ReviewChoice';
 import { ReviewComplete } from './components/review/ReviewComplete';
 import { ReviewDashboard } from './components/review/ReviewDashboard';
+import { ReviewListening } from './components/review/ReviewListening';
+import { ReviewMatch } from './components/review/ReviewMatch';
 import { ReviewQuiz } from './components/review/ReviewQuiz';
 import { useLanguage } from './context/LanguageContext';
 import { useSpacedRepetition } from './hooks/useSpacedRepetition';
 import { useTheme } from './hooks/useTheme';
 import { useVocabulary } from './hooks/useVocabulary';
 import { db, exportDeckToCsv, exportDeckToXlsx, initializeDatabase } from './services/db';
-import { lookupWord, warmSearchCache } from './services/dictionary';
+import { WordNotFoundError, lookupWord, warmSearchCache } from './services/dictionary';
 import { createInitialReviewMeta } from './services/sm2';
 import { formatLocalDate } from './utils/dateUtils';
-import type { ClozeQuestion, ReviewRating, WordItem } from './types/vocab';
+import type { ClozeQuestion, ReviewMode, ReviewRating, SpellingSuggestion, WordItem } from './types/vocab';
 
 
 interface Toast {
@@ -64,6 +67,7 @@ export function App() {
   const {
     words,
     allWords,
+    isFuzzyMatch,
     loading: deckLoading,
     filterOptions,
     setFilterOptions,
@@ -96,11 +100,15 @@ export function App() {
   const [lookupResult, setLookupResult] = useState<WordItem | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchTypoInfo, setSearchTypoInfo] = useState<{
+    query: string;
+    suggestions: SpellingSuggestion[];
+  } | null>(null);
 
   // Active Review Session State
   const [reviewState, setReviewState] = useState<{
     inProgress: boolean;
-    mode: 'flashcards' | 'cloze';
+    mode: ReviewMode;
     cards: WordItem[];
     currentIndex: number;
     clozeQuestions: ClozeQuestion[];
@@ -164,6 +172,7 @@ export function App() {
   const handleSearch = async (query: string) => {
     setIsSearching(true);
     setSearchError(null);
+    setSearchTypoInfo(null);
     try {
       const result = await lookupWord(query);
       if (result) {
@@ -171,8 +180,20 @@ export function App() {
       } else {
         setSearchError(`No definitions found for "${query}". Try another word!`);
       }
-    } catch {
-      setSearchError('Error searching word. Please check your network connection.');
+    } catch (err) {
+      if (err instanceof WordNotFoundError) {
+        setSearchTypoInfo({
+          query: err.query,
+          suggestions: err.suggestions,
+        });
+        setLookupResult(null);
+      } else {
+        setSearchError(
+          language === 'vi'
+            ? 'Lỗi khi tra cứu từ. Vui lòng kiểm tra kết nối mạng.'
+            : 'Error searching word. Please check your network connection.'
+        );
+      }
     } finally {
       setIsSearching(false);
     }
@@ -200,7 +221,7 @@ export function App() {
   };
 
   // Start Review Session
-  const handleStartReviewSession = (mode: 'flashcards' | 'cloze', cardsToReview: WordItem[]) => {
+  const handleStartReviewSession = (mode: ReviewMode, cardsToReview: WordItem[]) => {
     if (cardsToReview.length === 0) return;
 
     let clozeQuestions: ClozeQuestion[] = [];
@@ -220,7 +241,7 @@ export function App() {
   };
 
   // Handle switching review mode on the fly
-  const handleSwitchReviewMode = (newMode: 'flashcards' | 'cloze') => {
+  const handleSwitchReviewMode = (newMode: ReviewMode) => {
     if (reviewState.mode === newMode) return;
     let questions = reviewState.clozeQuestions;
     if (newMode === 'cloze' && questions.length === 0) {
@@ -231,10 +252,19 @@ export function App() {
       mode: newMode,
       clozeQuestions: questions,
     }));
+
+    const modeLabels: Record<ReviewMode, { vi: string; en: string }> = {
+      flashcards: { vi: 'Thẻ Flashcard', en: 'Flashcards' },
+      cloze: { vi: 'Điền từ ngữ cảnh', en: 'Cloze Quiz' },
+      listen: { vi: 'Chính tả phát âm', en: 'Listening Dictation' },
+      choice: { vi: 'Trắc nghiệm 4 đáp án', en: 'Multiple Choice' },
+      match: { vi: 'Nối từ siêu tốc', en: 'Speed Match' },
+    };
+
     showToast(
       language === 'vi'
-        ? `Đã chuyển chế độ: ${newMode === 'flashcards' ? 'Thẻ Flashcard' : 'Trắc nghiệm (Quiz)'}`
-        : `Switched mode: ${newMode === 'flashcards' ? 'Flashcards' : 'Quiz'}`,
+        ? `Đã chuyển chế độ: ${modeLabels[newMode]?.vi || newMode}`
+        : `Switched mode: ${modeLabels[newMode]?.en || newMode}`,
       'info'
     );
   };
@@ -267,21 +297,21 @@ export function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 transition-colors duration-200 dark:bg-[#080B11] dark:text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-50 text-slate-900 transition-colors duration-200 dark:bg-[#0b0f19] dark:text-slate-100 flex flex-col font-sans">
       {/* Toast notifications */}
       <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none">
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`pointer-events-auto flex items-center gap-2 rounded-2xl px-4 py-3 text-xs font-semibold shadow-xl backdrop-blur-md animate-slide-up ${
+            className={`pointer-events-auto flex items-center gap-2 rounded-xl px-4 py-3 text-xs font-semibold shadow-lg backdrop-blur-md animate-slide-up border ${
               t.type === 'success'
-                ? 'bg-emerald-600 text-white shadow-emerald-600/20'
+                ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-900/20'
                 : t.type === 'error'
-                ? 'bg-rose-600 text-white shadow-rose-600/20'
-                : 'bg-indigo-600 text-white shadow-indigo-600/20'
+                ? 'bg-rose-600 text-white border-rose-500 shadow-rose-900/20'
+                : 'bg-indigo-600 text-white border-indigo-500 shadow-indigo-900/20'
             }`}
           >
-            <Check className="h-4 w-4" />
+            <Check className="h-4 w-4 shrink-0" />
             <span>{t.message}</span>
           </div>
         ))}
@@ -304,20 +334,20 @@ export function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 mx-auto w-full max-w-6xl px-4 sm:px-6 py-6 sm:py-8">
+      <main className="flex-1 mx-auto w-full max-w-5xl px-4 sm:px-6 py-6 sm:py-8">
         {/* TAB 1: LOOKUP */}
         {activeTab === 'lookup' && (
-          <div className="space-y-8 animate-fade-in">
+          <div className="space-y-7 animate-fade-in">
             {/* Hero Text */}
             <div className="text-center max-w-xl mx-auto space-y-2">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300">
-                <Sparkles className="h-3.5 w-3.5" />
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200/80 bg-indigo-50/80 px-3 py-1 text-xs font-semibold text-indigo-700 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-300">
+                <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
                 {language === 'vi' ? 'Công cụ tra từ thông minh' : 'Intelligent Linguistic Engine'}
               </span>
-              <h2 className="font-display text-3xl sm:text-4xl font-black tracking-tight text-slate-900 dark:text-white">
+              <h2 className="font-display text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 dark:text-white">
                 {t.lookup.title}
               </h2>
-              <p className="text-sm text-slate-500 dark:text-slate-400">
+              <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
                 {t.lookup.subtitle}
               </p>
             </div>
@@ -327,8 +357,98 @@ export function App() {
 
             {/* Error state */}
             {searchError && (
-              <div className="max-w-md mx-auto rounded-2xl bg-rose-50 p-4 text-center text-xs font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+              <div className="max-w-md mx-auto rounded-xl border border-rose-200/80 bg-rose-50/80 p-3.5 text-center text-xs font-semibold text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300">
                 {searchError}
+              </div>
+            )}
+
+            {/* Typo / Spelling Correction Prompt */}
+            {searchTypoInfo && (
+              <div className="max-w-2xl mx-auto rounded-2xl border border-amber-200/80 bg-amber-50/70 p-5 shadow-sm dark:border-amber-900/60 dark:bg-amber-950/20 space-y-4 animate-fade-in">
+                {/* Header Notice */}
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-white shadow-sm">
+                    <Lightbulb className="h-4 w-4" />
+                  </div>
+                  <div className="space-y-0.5">
+                    <h3 className="text-sm font-bold text-amber-950 dark:text-amber-100">
+                      {t.lookup.noExactMatchFor} <span className="underline decoration-amber-400 decoration-wavy underline-offset-4">"{searchTypoInfo.query}"</span>
+                    </h3>
+                    <p className="text-xs text-amber-800/80 dark:text-amber-300/80">
+                      {searchTypoInfo.suggestions.length > 0
+                        ? t.lookup.didYouMean
+                        : (language === 'vi' ? 'Hãy kiểm tra lại chính tả hoặc thử một từ khóa khác.' : 'Please check your spelling or try another keyword.')}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Primary Recommendation Action Card */}
+                {searchTypoInfo.suggestions.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="group relative flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-amber-200/90 bg-white/95 p-4 shadow-sm transition-all hover:border-indigo-300 dark:border-amber-900/70 dark:bg-slate-900/90">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-base font-bold text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                            {searchTypoInfo.suggestions[0].word}
+                          </span>
+                          {searchTypoInfo.suggestions[0].pos && (
+                            <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/60 dark:text-amber-300">
+                              {searchTypoInfo.suggestions[0].pos}
+                            </span>
+                          )}
+                          {isWordInDeck(searchTypoInfo.suggestions[0].word) && (
+                            <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/50 dark:text-emerald-300">
+                              {t.lookup.inDeckBadge}
+                            </span>
+                          )}
+                        </div>
+                        {searchTypoInfo.suggestions[0].meaningVi && (
+                          <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2">
+                            {searchTypoInfo.suggestions[0].meaningVi}
+                          </p>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSearch(searchTypoInfo.suggestions[0].word)}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-500 active:scale-95 transition-all shrink-0"
+                      >
+                        <span>{language === 'vi' ? `Tra cứu "${searchTypoInfo.suggestions[0].word}"` : `Lookup "${searchTypoInfo.suggestions[0].word}"`}</span>
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+
+                    {/* Secondary Suggestions (Chips) */}
+                    {searchTypoInfo.suggestions.length > 1 && (
+                      <div className="space-y-1.5 pt-1">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-amber-800/80 dark:text-amber-400/80">
+                          {t.lookup.spellingSuggestions}:
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {searchTypoInfo.suggestions.slice(1, 5).map((s) => (
+                            <button
+                              key={s.word}
+                              type="button"
+                              onClick={() => handleSearch(s.word)}
+                              className="group inline-flex items-center gap-1.5 rounded-lg border border-amber-200/80 bg-white/90 px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-all hover:border-indigo-300 hover:text-indigo-600 dark:border-amber-900/60 dark:bg-slate-900/80 dark:text-slate-300 dark:hover:border-indigo-600 dark:hover:text-indigo-400"
+                            >
+                              <span className="font-semibold text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400">{s.word}</span>
+                              {s.pos && (
+                                <span className="text-[10px] text-slate-400">({s.pos})</span>
+                              )}
+                              {s.meaningVi && (
+                                <span className="text-[11px] text-slate-500 dark:text-slate-400 max-w-[120px] truncate">
+                                  — {s.meaningVi}
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -444,34 +564,61 @@ export function App() {
               }}
             />
 
+            {/* Fuzzy Deck Search Notice */}
+            {isFuzzyMatch && filterOptions.search.trim() && words.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200/80 bg-amber-50/70 p-3.5 text-amber-900 shadow-sm dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200 animate-fade-in">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-600 dark:bg-amber-900/50 dark:text-amber-400">
+                    <Lightbulb className="h-3.5 w-3.5" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold">
+                      {t.deck.fuzzyNotice.replace('{query}', filterOptions.search)}
+                    </p>
+                    <p className="text-[11px] text-amber-700/80 dark:text-amber-300/80">
+                      {t.deck.didYouMeanInDeck} {words.slice(0, 3).map((w) => w.word).join(', ')}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFilterOptions((prev) => ({ ...prev, search: '' }))}
+                  className="inline-flex items-center gap-1 rounded-lg border border-amber-200 bg-white px-2.5 py-1 text-xs font-semibold text-amber-800 shadow-sm hover:bg-amber-50 dark:border-amber-900/80 dark:bg-slate-900 dark:text-amber-200 dark:hover:bg-amber-950/50 transition-colors"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  <span>{t.deck.clearSearch}</span>
+                </button>
+              </div>
+            )}
+
             {/* Word List */}
             {deckLoading ? (
               <div className="flex flex-col items-center justify-center py-16 text-slate-400">
-                <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
-                <p className="mt-2 text-xs">
+                <Loader2 className="h-7 w-7 animate-spin text-indigo-500" />
+                <p className="mt-2 text-xs font-medium">
                   {language === 'vi' ? 'Đang tải danh sách từ vựng...' : 'Loading vocabulary deck...'}
                 </p>
               </div>
             ) : words.length === 0 ? (
-              <div className="rounded-3xl border border-dashed border-slate-200 p-12 text-center dark:border-slate-800">
-                <BookOpen className="mx-auto h-10 w-10 text-slate-300 dark:text-slate-600" />
-                <h3 className="mt-3 text-base font-bold text-slate-800 dark:text-slate-200">
+              <div className="rounded-2xl border-2 border-dashed border-slate-200 p-12 text-center dark:border-slate-800 bg-white/40 dark:bg-slate-900/20">
+                <BookOpen className="mx-auto h-9 w-9 text-slate-300 dark:text-slate-600" />
+                <h3 className="mt-3 font-display text-base font-bold text-slate-800 dark:text-slate-200">
                   {t.deck.emptyDeckTitle}
                 </h3>
-                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
                   {t.deck.emptyDeckDesc}
                 </p>
                 <button
                   type="button"
                   onClick={() => setActiveTab('lookup')}
-                  className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500"
+                  className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-500 active:scale-[0.99] transition-all"
                 >
                   <Search className="h-3.5 w-3.5" />
-                  {t.deck.exploreLookupBtn}
+                  <span>{t.deck.exploreLookupBtn}</span>
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-3">
+              <div className="grid grid-cols-1 gap-2.5">
                 {words.map((word: WordItem) => (
                   <WordListItem
                     key={word.id}
@@ -513,43 +660,48 @@ export function App() {
                     <button
                       type="button"
                       onClick={() => setReviewState((prev) => ({ ...prev, inProgress: false }))}
-                      className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 shadow-sm transition-colors"
                     >
                       <ArrowLeft className="h-3.5 w-3.5" />
                       <span>{language === 'vi' ? 'Quay lại Hub Ôn tập' : 'Back to Review Hub'}</span>
                     </button>
 
                     {/* Quick Mode Switcher */}
-                    <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-100/80 p-1 dark:border-slate-800 dark:bg-slate-900/60 shadow-sm">
-                      <button
-                        type="button"
-                        onClick={() => handleSwitchReviewMode('flashcards')}
-                        className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
-                          reviewState.mode === 'flashcards'
-                            ? 'bg-white text-indigo-600 shadow-sm dark:bg-slate-800 dark:text-indigo-400'
-                            : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
-                        }`}
-                      >
-                        <Layers className="h-3.5 w-3.5" />
-                        <span>{language === 'vi' ? 'Thẻ Flashcard' : 'Flashcards'}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSwitchReviewMode('cloze')}
-                        className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
-                          reviewState.mode === 'cloze'
-                            ? 'bg-white text-indigo-600 shadow-sm dark:bg-slate-800 dark:text-indigo-400'
-                            : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
-                        }`}
-                      >
-                        <HelpCircle className="h-3.5 w-3.5" />
-                        <span>{language === 'vi' ? 'Trắc nghiệm (Quiz)' : 'Quiz (Cloze)'}</span>
-                      </button>
+                    <div className="flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-slate-100/80 p-1 dark:border-slate-800 dark:bg-slate-900/60 shadow-sm">
+                      {(
+                        [
+                          { id: 'flashcards', labelVi: 'Flashcard', labelEn: 'Flashcards', icon: Layers },
+                          { id: 'cloze', labelVi: 'Điền từ', labelEn: 'Cloze', icon: HelpCircle },
+                          { id: 'listen', labelVi: 'Nghe chép', labelEn: 'Dictation', icon: Headphones },
+                          { id: 'choice', labelVi: '4 Đáp án', labelEn: 'Choice', icon: ListChecks },
+                          { id: 'match', labelVi: 'Nối từ', labelEn: 'Match', icon: Zap },
+                        ] as const
+                      ).map((m) => {
+                        const Icon = m.icon;
+                        const isActive = reviewState.mode === m.id;
+                        return (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => handleSwitchReviewMode(m.id)}
+                            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all ${
+                              isActive
+                                ? 'bg-white text-indigo-600 shadow-sm dark:bg-slate-800 dark:text-indigo-400'
+                                : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
+                            }`}
+                          >
+                            <Icon className="h-3.5 w-3.5" />
+                            <span className="hidden sm:inline">
+                              {language === 'vi' ? m.labelVi : m.labelEn}
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
                   {/* Active Review Mode Content */}
-                  {reviewState.mode === 'flashcards' ? (
+                  {reviewState.mode === 'flashcards' && (
                     <Flashcard
                       word={reviewState.cards[reviewState.currentIndex]}
                       currentIndex={reviewState.currentIndex}
@@ -574,7 +726,9 @@ export function App() {
                           : undefined
                       }
                     />
-                  ) : (
+                  )}
+
+                  {reviewState.mode === 'cloze' &&
                     reviewState.clozeQuestions[reviewState.currentIndex] && (
                       <ReviewQuiz
                         question={reviewState.clozeQuestions[reviewState.currentIndex]}
@@ -582,7 +736,59 @@ export function App() {
                         totalQuestions={reviewState.clozeQuestions.length}
                         onAnswer={handleGradeReview}
                       />
-                    )
+                    )}
+
+                  {reviewState.mode === 'listen' &&
+                    reviewState.cards[reviewState.currentIndex] && (
+                      <ReviewListening
+                        word={reviewState.cards[reviewState.currentIndex]}
+                        currentIndex={reviewState.currentIndex}
+                        totalCards={reviewState.cards.length}
+                        onAnswer={handleGradeReview}
+                        onPrevCard={
+                          reviewState.currentIndex > 0
+                            ? () =>
+                                setReviewState((prev) => ({
+                                  ...prev,
+                                  currentIndex: prev.currentIndex - 1,
+                                }))
+                            : undefined
+                        }
+                        onNextCard={
+                          reviewState.currentIndex < reviewState.cards.length - 1
+                            ? () =>
+                                setReviewState((prev) => ({
+                                  ...prev,
+                                  currentIndex: prev.currentIndex + 1,
+                                }))
+                            : undefined
+                        }
+                      />
+                    )}
+
+                  {reviewState.mode === 'choice' &&
+                    reviewState.cards[reviewState.currentIndex] && (
+                      <ReviewChoice
+                        word={reviewState.cards[reviewState.currentIndex]}
+                        allWords={allWords}
+                        currentIndex={reviewState.currentIndex}
+                        totalCards={reviewState.cards.length}
+                        onAnswer={handleGradeReview}
+                      />
+                    )}
+
+                  {reviewState.mode === 'match' && (
+                    <ReviewMatch
+                      cards={reviewState.cards}
+                      onCompleteSession={(history) => {
+                        setReviewState((prev) => ({
+                          ...prev,
+                          sessionHistory: history,
+                          isCompleted: true,
+                        }));
+                      }}
+                      onGradeSingleWord={submitRating}
+                    />
                   )}
                 </div>
               )

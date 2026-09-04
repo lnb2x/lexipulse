@@ -198,7 +198,7 @@ export const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
         if (midDay && midDay.month !== lastMonth) {
           lastMonth = midDay.month;
           // Format month name (e.g. Jan, Feb, Mar, Sep, ...)
-          const dateForMonth = new Date(2026, midDay.month, 1);
+          const dateForMonth = new Date(curr.getFullYear(), midDay.month, 1);
           monthLabel = dateForMonth.toLocaleDateString(language === 'vi' ? 'vi-VN' : 'en-US', {
             month: 'short',
           });
@@ -228,22 +228,22 @@ export const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
   const getCellColorClass = (cell: DayCell | null) => {
     if (!cell) return 'invisible';
     if (cell.isFuture) {
-      return 'bg-slate-100/60 dark:bg-[#161b22]/40 border border-slate-200/40 dark:border-[#30363d]/30 opacity-40 cursor-default';
+      return 'bg-slate-100/50 dark:bg-slate-900/30 border border-slate-200/30 dark:border-slate-800/30 opacity-30 cursor-default';
     }
 
     const { level } = cell.activity;
     switch (level) {
       case 1:
-        return 'bg-[#9be9a8] dark:bg-[#0e4429] border border-[#7bc96f]/50 dark:border-[#0e4429] hover:ring-2 hover:ring-emerald-400';
+        return 'bg-[#9be9a8] dark:bg-[#0e4429] border border-[#7bc96f]/40 dark:border-[#0e4429] hover:ring-2 hover:ring-emerald-400';
       case 2:
-        return 'bg-[#40c463] dark:bg-[#006d32] border border-[#30a14e]/50 dark:border-[#006d32] hover:ring-2 hover:ring-emerald-400';
+        return 'bg-[#40c463] dark:bg-[#006d32] border border-[#30a14e]/40 dark:border-[#006d32] hover:ring-2 hover:ring-emerald-400';
       case 3:
-        return 'bg-[#30a14e] dark:bg-[#26a641] border border-[#216e39]/50 dark:border-[#26a641] hover:ring-2 hover:ring-emerald-300';
+        return 'bg-[#30a14e] dark:bg-[#26a641] border border-[#216e39]/40 dark:border-[#26a641] hover:ring-2 hover:ring-emerald-300';
       case 4:
-        return 'bg-[#216e39] dark:bg-[#39d353] border border-[#195328]/50 dark:border-[#39d353] hover:ring-2 hover:ring-emerald-200';
+        return 'bg-[#216e39] dark:bg-[#39d353] border border-[#195328]/40 dark:border-[#39d353] hover:ring-2 hover:ring-emerald-200';
       case 0:
       default:
-        return 'bg-[#ebedf0] dark:bg-[#161b22] border border-slate-200/80 dark:border-[#30363d]/60 hover:border-slate-400 dark:hover:border-slate-500';
+        return 'bg-[#ebedf0] dark:bg-[#161b22] border border-slate-200/70 dark:border-[#30363d]/50 hover:border-slate-400 dark:hover:border-slate-500';
     }
   };
 
@@ -274,13 +274,13 @@ export const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
   }, [isRollingLastYear, totalContributions, selectedYear, t]);
 
   return (
-    <div ref={containerRef} className="relative w-full">
+    <div ref={containerRef} className="relative w-full rounded-2xl border border-slate-200/90 bg-white p-4 sm:p-5 shadow-card dark:border-slate-800 dark:bg-[#121824]">
       <div className="flex flex-col lg:flex-row items-start gap-4">
         {/* Main Contribution Box */}
-        <div className="flex-1 w-full space-y-2">
+        <div className="flex-1 w-full space-y-3">
           {/* Header with Title and Settings */}
-          <div className="flex items-center justify-between px-1">
-            <div className="flex items-center gap-2.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
                 <BookPlus className="h-4 w-4" />
               </div>
@@ -377,7 +377,7 @@ export const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
           </div>
 
           {/* GitHub-style Heatmap Box */}
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-4 dark:border-[#30363d] dark:bg-[#0d1117] shadow-sm overflow-hidden">
+          <div className="rounded-xl border border-slate-200/70 bg-slate-50/50 p-3.5 dark:border-slate-800/80 dark:bg-[#0c1017]/70 overflow-hidden">
             {/* Scrollable Container for Heatmap on narrow viewports */}
             <div className="overflow-x-auto pb-2 scrollbar-thin">
               <div className="min-w-[720px]">
@@ -543,10 +543,10 @@ export const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
                   setSelectedYear(year);
                   setSelectedDayDetail(null);
                 }}
-                className={`text-center rounded-xl text-xs font-bold transition-all ${
+                className={`text-center rounded-lg text-xs font-semibold transition-all ${
                   isSelected
-                    ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-600/25 px-4 py-2'
-                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/60 px-4 py-2'
+                    ? 'bg-emerald-600 text-white shadow-sm px-3.5 py-1.5'
+                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/60 px-3.5 py-1.5'
                 }`}
               >
                 {year}

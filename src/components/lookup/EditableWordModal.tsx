@@ -137,11 +137,11 @@ export const EditableWordModal: React.FC<EditableWordModalProps> = ({
   const isCreating = isNew || !word.word;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto animate-fade-in">
-      <div className="relative my-8 w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 overflow-y-auto animate-fade-in">
+      <div className="relative my-8 w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 sm:p-7 shadow-xl dark:border-slate-800 dark:bg-[#111622]">
         <div className="flex items-center justify-between border-b border-slate-100 pb-4 dark:border-slate-800">
           <div>
-            <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+            <h2 className="font-display text-lg font-bold text-slate-900 dark:text-white">
               {isCreating
                 ? (language === 'vi' ? 'Thêm từ vựng mới vào Deck' : 'Add New Word to Deck')
                 : (
@@ -151,7 +151,7 @@ export const EditableWordModal: React.FC<EditableWordModalProps> = ({
                   </>
                 )}
             </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               {language === 'vi'
                 ? 'Tùy chỉnh từ vựng, định nghĩa, collocations, ví dụ, ngày thêm và thẻ phân loại.'
                 : 'Customize word, definitions, collocations, examples, date added, and tags.'}
@@ -159,7 +159,7 @@ export const EditableWordModal: React.FC<EditableWordModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-colors"
           >
             <X className="h-5 w-5" />
           </button>
@@ -462,13 +462,13 @@ export const EditableWordModal: React.FC<EditableWordModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-xl px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+              className="rounded-xl px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
             >
               {language === 'vi' ? 'Hủy' : 'Cancel'}
             </button>
             <button
               type="submit"
-              className="rounded-xl bg-indigo-600 px-5 py-2 text-xs font-semibold text-white shadow-md shadow-indigo-600/20 hover:bg-indigo-500"
+              className="rounded-xl bg-indigo-600 px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-500 active:scale-[0.99] transition-all"
             >
               {isCreating
                 ? (language === 'vi' ? 'Thêm vào Deck' : 'Add to Deck')

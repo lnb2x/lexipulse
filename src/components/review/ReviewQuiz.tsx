@@ -56,19 +56,19 @@ export const ReviewQuiz: React.FC<ReviewQuizProps> = ({
     <div className="w-full max-w-2xl mx-auto space-y-5 animate-slide-up">
       {/* Top progress & mode toggle */}
       <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-        <span className="font-semibold">
+        <span className="font-bold font-mono text-slate-700 dark:text-slate-300">
           {language === 'vi' ? `Câu hỏi ${currentIndex + 1} / ${totalQuestions}` : `Question ${currentIndex + 1} of ${totalQuestions}`}
         </span>
 
         {/* MCQ vs Type Mode Toggle */}
-        <div className="flex items-center rounded-xl border border-slate-200 bg-slate-100 p-0.5 dark:border-slate-800 dark:bg-slate-800">
+        <div className="flex items-center rounded-lg border border-slate-200 bg-slate-100/80 p-0.5 dark:border-slate-800 dark:bg-slate-800/80">
           <button
             type="button"
             onClick={() => setMode('mcq')}
-            className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-all ${
+            className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition-all ${
               mode === 'mcq'
                 ? 'bg-white text-indigo-600 shadow-sm dark:bg-slate-900 dark:text-indigo-400'
-                : 'text-slate-500'
+                : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
             }`}
           >
             {t.review.multipleChoice}
@@ -76,10 +76,10 @@ export const ReviewQuiz: React.FC<ReviewQuizProps> = ({
           <button
             type="button"
             onClick={() => setMode('type')}
-            className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-all ${
+            className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition-all ${
               mode === 'type'
                 ? 'bg-white text-indigo-600 shadow-sm dark:bg-slate-900 dark:text-indigo-400'
-                : 'text-slate-500'
+                : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
             }`}
           >
             {t.review.typeIn}
@@ -88,20 +88,20 @@ export const ReviewQuiz: React.FC<ReviewQuizProps> = ({
       </div>
 
       {/* Main Question Card */}
-      <div className="rounded-3xl border border-slate-200/80 bg-white p-6 sm:p-8 shadow-xl shadow-slate-100/70 dark:border-slate-800 dark:bg-[#111622] dark:shadow-none space-y-6">
+      <div className="card-elevated p-6 sm:p-7 space-y-5">
         {/* Context badge & hints */}
         <div className="flex items-center justify-between">
-          <span className="rounded-md bg-indigo-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300">
+          <span className="rounded-md border border-indigo-100 bg-indigo-50/80 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-700 dark:border-indigo-900/50 dark:bg-indigo-950/40 dark:text-indigo-300">
             TOEIC Cloze Context
           </span>
 
-          <span className="text-xs text-slate-400 italic">
+          <span className="text-xs text-slate-400 dark:text-slate-500 italic">
             Hint: {question.hintPos || question.word.pos.join(', ')}
           </span>
         </div>
 
         {/* Masked sentence display */}
-        <div className="rounded-2xl bg-slate-50/70 p-5 text-center sm:text-left dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800/80">
+        <div className="rounded-xl bg-slate-50/90 p-5 text-center sm:text-left dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800">
           <p className="text-base sm:text-lg font-medium text-slate-800 dark:text-slate-200 leading-relaxed">
             {isSubmitted
               ? question.sentenceWithBlank.replace(
@@ -111,15 +111,15 @@ export const ReviewQuiz: React.FC<ReviewQuizProps> = ({
               : question.sentenceWithBlank}
           </p>
 
-          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          <p className="mt-2.5 text-xs text-slate-500 dark:text-slate-400">
             {language === 'vi' ? 'Nghĩa gợi ý:' : 'Hint definition:'}{' '}
-            <strong>{question.hintDefinition || question.word.vietnameseDefinition}</strong>
+            <strong className="text-slate-700 dark:text-slate-300 font-semibold">{question.hintDefinition || question.word.vietnameseDefinition}</strong>
           </p>
         </div>
 
         {/* Audio helper when submitted */}
         {isSubmitted && (
-          <div className="flex items-center justify-between rounded-xl border border-indigo-100 bg-indigo-50/50 px-4 py-2.5 dark:border-indigo-900/50 dark:bg-indigo-950/20 animate-fade-in">
+          <div className="flex items-center justify-between rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-2.5 dark:border-indigo-900/50 dark:bg-indigo-950/30 animate-fade-in">
             <div className="flex items-center gap-2">
               <span className="text-sm font-bold text-slate-900 dark:text-white">
                 {question.targetWord}
@@ -139,15 +139,15 @@ export const ReviewQuiz: React.FC<ReviewQuizProps> = ({
               const isOptionCorrect = opt.toLowerCase() === targetWordClean;
               const isOptionSelected = selectedOption === opt;
 
-              let btnStyle = 'border-slate-200 bg-white hover:border-indigo-300 dark:border-slate-800 dark:bg-slate-900/80 dark:hover:border-slate-700';
+              let btnStyle = 'border-slate-200 bg-white hover:border-indigo-300 hover:bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/60 dark:hover:border-slate-700 text-slate-800 dark:text-slate-200';
 
               if (isSubmitted) {
                 if (isOptionCorrect) {
-                  btnStyle = 'border-emerald-500 bg-emerald-50 text-emerald-800 font-bold dark:bg-emerald-950/40 dark:text-emerald-300';
+                  btnStyle = 'border-emerald-500 bg-emerald-50 text-emerald-800 font-bold dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300';
                 } else if (isOptionSelected && !isOptionCorrect) {
-                  btnStyle = 'border-rose-500 bg-rose-50 text-rose-800 font-bold dark:bg-rose-950/40 dark:text-rose-300';
+                  btnStyle = 'border-rose-500 bg-rose-50 text-rose-800 font-bold dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300';
                 } else {
-                  btnStyle = 'opacity-40 border-slate-200 dark:border-slate-800';
+                  btnStyle = 'opacity-40 border-slate-200 dark:border-slate-800 text-slate-400';
                 }
               }
 
@@ -157,7 +157,7 @@ export const ReviewQuiz: React.FC<ReviewQuizProps> = ({
                   type="button"
                   disabled={isSubmitted}
                   onClick={() => handleSelectOption(opt)}
-                  className={`flex items-center justify-between rounded-2xl border p-4 text-sm font-semibold transition-all ${btnStyle}`}
+                  className={`flex items-center justify-between rounded-xl border p-3.5 text-sm font-semibold transition-all shadow-sm ${btnStyle}`}
                 >
                   <span>{opt}</span>
                   {isSubmitted && isOptionCorrect && (
@@ -180,13 +180,13 @@ export const ReviewQuiz: React.FC<ReviewQuizProps> = ({
                 disabled={isSubmitted}
                 placeholder={language === 'vi' ? 'Nhập từ còn thiếu vào đây...' : 'Type the missing word here...'}
                 autoFocus
-                className="flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100"
+                className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100"
               />
               {!isSubmitted && (
                 <button
                   type="submit"
                   disabled={!typedAnswer.trim()}
-                  className="rounded-2xl bg-indigo-600 px-6 py-3 text-xs font-semibold text-white shadow-md shadow-indigo-600/20 hover:bg-indigo-500 disabled:opacity-50"
+                  className="rounded-xl bg-indigo-600 px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:opacity-50 active:scale-[0.99] transition-all"
                 >
                   {t.review.checkAnswer}
                 </button>
@@ -198,10 +198,10 @@ export const ReviewQuiz: React.FC<ReviewQuizProps> = ({
         {/* Immediate Feedback Bar */}
         {isSubmitted && (
           <div
-            className={`flex items-center justify-between rounded-2xl p-4 animate-fade-in ${
+            className={`flex items-center justify-between rounded-xl p-3.5 animate-fade-in ${
               isCorrect
-                ? 'border border-emerald-200 bg-emerald-50/70 text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200'
-                : 'border border-rose-200 bg-rose-50/70 text-rose-900 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-200'
+                ? 'border border-emerald-200/80 bg-emerald-50/60 text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200'
+                : 'border border-rose-200/80 bg-rose-50/60 text-rose-900 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-200'
             }`}
           >
             <div className="flex items-center gap-2.5">
@@ -214,7 +214,7 @@ export const ReviewQuiz: React.FC<ReviewQuizProps> = ({
                 <p className="text-xs font-bold">
                   {isCorrect ? t.review.correctFeedback : `${t.review.incorrectFeedback} "${question.targetWord}"`}
                 </p>
-                <p className="text-[11px] opacity-80">
+                <p className="text-[11px] opacity-80 font-medium">
                   {isCorrect
                     ? (language === 'vi' ? 'Khoảng cách ôn tập sẽ được tăng lên.' : 'Interval will be increased.')
                     : (language === 'vi' ? 'Thẻ sẽ sớm được lên lịch ôn tập lại.' : 'Card will be scheduled for review again soon.')}
@@ -225,7 +225,7 @@ export const ReviewQuiz: React.FC<ReviewQuizProps> = ({
             <button
               type="button"
               onClick={handleNext}
-              className="flex items-center gap-1.5 rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
+              className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 transition-all active:scale-95"
             >
               <span>{t.review.nextQuestion}</span>
               <ArrowRight className="h-3.5 w-3.5" />

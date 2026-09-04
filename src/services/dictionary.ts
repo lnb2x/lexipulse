@@ -1,6 +1,20 @@
 import { db, getAppSettings } from './db';
 import { createInitialReviewMeta } from './sm2';
-import type { CollocationItem, ExampleItem, MeaningItem, WordFamilyItem, WordItem } from '../types/vocab';
+import { enrichWordWithAI } from './ai';
+import type { CollocationItem, ExampleItem, MeaningItem, SpellingSuggestion, WordFamilyItem, WordItem } from '../types/vocab';
+import { findFuzzyMatches, stringSimilarity } from '../utils/fuzzySearch';
+
+export class WordNotFoundError extends Error {
+  query: string;
+  suggestions: SpellingSuggestion[];
+
+  constructor(query: string, suggestions: SpellingSuggestion[] = [], message?: string) {
+    super(message || `No definitions found for "${query}"`);
+    this.name = 'WordNotFoundError';
+    this.query = query;
+    this.suggestions = suggestions;
+  }
+}
 
 
 // In-memory cache for ultra-fast (0ms) repeat lookups
@@ -523,6 +537,79 @@ export const LOCAL_KNOWLEDGE_BASE: Record<
     ],
     tags: ['#TOEIC', '#Risk', '#Operations'],
   },
+  pool: {
+    vi: '1. Bể bơi, hồ bơi; vũng nước; 2. Nhóm người, đội ngũ sẵn có (talent pool, pool of candidates); 3. Quỹ chung, nguồn lực chung (resource pool); 4. (v) Gom góp, đóng góp chung vốn/nguồn lực',
+    enDef: '1. A swimming pool or body of water; 2. A group of people or resources available for work (e.g. talent pool, candidate pool); 3. A shared supply of money or resources; 4. (verb) To put funds or resources together for joint use.',
+    usIpa: '/puːl/',
+    ukIpa: '/puːl/',
+    pos: ['noun', 'verb'],
+    collocations: [
+      { phrase: 'talent pool', meaningVi: 'nguồn nhân tài, lực lượng ứng viên giỏi' },
+      { phrase: 'pool of candidates', meaningVi: 'nhóm ứng viên tiềm năng' },
+      { phrase: 'pool resources', meaningVi: 'gom chung tài nguyên/nguồn lực' },
+      { phrase: 'swimming pool', meaningVi: 'bể bơi, hồ bơi' },
+      { phrase: 'pool of funds', meaningVi: 'quỹ đóng góp chung, nguồn vốn góp' },
+      { phrase: 'car pool', meaningVi: 'đi chung xe (chia sẻ phương tiện)' },
+    ],
+    wordFamily: [
+      { word: 'pool', pos: 'noun', meaningVi: 'hồ bơi; nhóm người; quỹ chung' },
+      { word: 'pool', pos: 'verb', meaningVi: 'gom góp, chung vốn, hợp lực' },
+      { word: 'pooling', pos: 'noun', meaningVi: 'sự gom góp, sự tập hợp nguồn lực' },
+    ],
+    examples: [
+      {
+        en: 'The human resources division maintains a diverse talent pool of highly qualified candidates for management roles.',
+        vi: 'Bộ phận nhân sự duy trì một nhóm nhân tài đa dạng gồm các ứng viên có trình độ cao cho các vị trí quản lý.',
+        context: 'workplace',
+      },
+      {
+        en: 'Several technology companies agreed to pool their resources to accelerate research on clean energy.',
+        vi: 'Nhiều công ty công nghệ đã đồng ý gom chung nguồn lực để đẩy nhanh tiến độ nghiên cứu về năng lượng sạch.',
+        context: 'toeic',
+      },
+      {
+        en: 'The apartment complex offers a heated swimming pool and a fitness center.',
+        vi: 'Khu chung cư có một hồ bơi nước ấm và một phòng tập thể dục.',
+        context: 'general',
+      },
+    ],
+    tags: ['#TOEIC', '#HR', '#Business', '#Polysemous'],
+  },
+  'a pool': {
+    vi: '1. Một hồ bơi, bể bơi; 2. Một nhóm người, đội ngũ sẵn có (talent pool, candidate pool); 3. Một nguồn quỹ/tài nguyên chung',
+    enDef: '1. A swimming pool; 2. A group or supply of people available for work; 3. A shared supply of resources or funds.',
+    usIpa: '/ə puːl/',
+    ukIpa: '/ə puːl/',
+    pos: ['phrase', 'noun'],
+    collocations: [
+      { phrase: 'a pool of talent', meaningVi: 'một nhóm người tài năng, nguồn nhân lực' },
+      { phrase: 'a pool of candidates', meaningVi: 'một nhóm ứng viên tiềm năng' },
+      { phrase: 'a pool of resources', meaningVi: 'một nguồn tài nguyên chung' },
+      { phrase: 'a swimming pool', meaningVi: 'một bể bơi, hồ bơi' },
+    ],
+    wordFamily: [
+      { word: 'pool', pos: 'noun', meaningVi: 'hồ bơi; nhóm người; quỹ chung' },
+      { word: 'pool', pos: 'verb', meaningVi: 'gom góp, hợp lực' },
+    ],
+    examples: [
+      {
+        en: 'The firm drew from a pool of qualified candidates who had registered in their talent database.',
+        vi: 'Công ty đã tuyển chọn từ một nhóm ứng viên đủ tiêu chuẩn đã đăng ký trong cơ sở dữ liệu nhân tài của họ.',
+        context: 'workplace',
+      },
+      {
+        en: 'The resort features a pool surrounded by palm trees.',
+        vi: 'Khu nghỉ dưỡng có một hồ bơi được bao quanh bởi những hàng cọ.',
+        context: 'general',
+      },
+      {
+        en: 'Establishing a pool of shared funds helped the consortium overcome liquidity constraints.',
+        vi: 'Việc thành lập một quỹ nguồn vốn chung đã giúp liên doanh vượt qua các hạn chế về thanh khoản.',
+        context: 'toeic',
+      },
+    ],
+    tags: ['#TOEIC', '#HR', '#Phrase', '#Polysemous'],
+  },
 };
 
 /**
@@ -660,7 +747,7 @@ function parseOpenVnJson(json: any, query: string, form: string): OpenVnDictResu
     const posKeys = Object.keys(definitionsByPos);
     if (posKeys.length > 0) {
       const formatted = posKeys
-        .map((p) => `(${p}) ${definitionsByPos[p].slice(0, 3).join(', ')}`)
+        .map((p) => `(${p}) ${definitionsByPos[p].slice(0, 4).join(', ')}`)
         .join('; ');
       if (!result.vietnameseDef || form === query) {
         result.vietnameseDef = formatted;
@@ -835,6 +922,8 @@ export async function translateToVietnamese(text: string, timeoutMs = 1800): Pro
  * Datamuse API query for accurate IPA, parts of speech, and English definitions (80ms)
  */
 async function fetchDatamuseInfo(word: string, timeoutMs = 1500): Promise<{
+  matchedWord: string;
+  isExact: boolean;
   ipa: string;
   posList: string[];
   defs: Array<{ pos: string; def: string }>;
@@ -882,10 +971,230 @@ async function fetchDatamuseInfo(word: string, timeoutMs = 1500): Promise<{
       }
     }
 
-    return { ipa, posList, defs };
+    const matchedWord = typeof item.word === 'string' ? item.word.trim() : word;
+    const isExact = matchedWord.toLowerCase() === word.toLowerCase();
+
+    return { matchedWord, isExact, ipa, posList, defs };
   } catch {
     return null;
   }
+}
+
+/**
+ * Common English function words, prepositions, articles and auxiliaries with standard IPA.
+ */
+const COMMON_WORDS_IPA: Record<string, string> = {
+  a: 'ə', an: 'ən', the: 'ðə', to: 'tuː', of: 'əv', in: 'ɪn', for: 'fɔːr',
+  on: 'ɒn', with: 'wɪð', at: 'æt', by: 'baɪ', from: 'frɒm', up: 'ʌp',
+  about: 'əˈbaʊt', into: 'ˈɪntuː', over: 'ˈoʊvər', after: 'ˈæftər',
+  out: 'aʊt', down: 'daʊn', off: 'ɒf', through: 'θruː', between: 'bɪˈtwiːn',
+  under: 'ˈʌndər', behind: 'bɪˈhaɪnd', across: 'əˈkrɒs', and: 'ænd', but: 'bʌt',
+  or: 'ɔːr', nor: 'nɔːr', so: 'soʊ', yet: 'jet', if: 'ɪf', as: 'æz',
+  is: 'ɪz', are: 'ɑːr', was: 'wɒz', were: 'wɜːr', be: 'biː', been: 'biːn',
+  being: 'ˈbiːɪŋ', have: 'hæv', has: 'hæz', had: 'hæd', do: 'duː', does: 'dʌz',
+  did: 'dɪd', will: 'wɪl', would: 'wʊd', can: 'kæn', could: 'kʊd', may: 'meɪ',
+  might: 'maɪt', must: 'mʌst', should: 'ʃʊd', shall: 'ʃæl', not: 'nɒt',
+  all: 'ɔːl', any: 'ˈeni', some: 'sʌm', no: 'noʊ', each: 'iːtʃ', every: 'ˈevri',
+  other: 'ˈʌðər', another: 'əˈnʌðər', such: 'sʌtʃ', only: 'ˈoʊnli', own: 'oʊn',
+  same: 'seɪm', than: 'ðæn', too: 'tuː', very: 'ˈveri', just: 'dʒʌst',
+  this: 'ðɪs', that: 'ðæt', these: 'ðiːz', those: 'ðoʊz', what: 'wɒt',
+  which: 'wɪtʃ', who: 'huː', whom: 'huːm', whose: 'huːz', where: 'weər',
+  when: 'wen', why: 'waɪ', how: 'haʊ', there: 'ðeər', here: 'hɪər',
+  i: 'aɪ', you: 'juː', he: 'hiː', she: 'ʃiː', it: 'ɪt', we: 'wiː', they: 'ðeɪ',
+  me: 'miː', him: 'hɪm', her: 'hɜːr', us: 'ʌs', them: 'ðem', my: 'maɪ',
+  your: 'jɔːr', his: 'hɪz', its: 'ɪts', our: 'aʊər', their: 'ðeər',
+};
+
+function cleanIpa(rawIpa: string): string {
+  if (!rawIpa) return '';
+  return rawIpa.replace(/^\/+|\/+$/g, '').replace(/^[\[\(]+|[\]\)]+$/g, '').trim();
+}
+
+/**
+ * Resolves IPA for a single word using cache, knowledge base, open-vn-en-dict, and Datamuse.
+ */
+async function resolveSingleWordIpa(rawWord: string): Promise<string> {
+  const w = rawWord.trim().toLowerCase().replace(/^[^\w]+|[^\w]+$/g, '');
+  if (!w) return '';
+
+  // 1. Common words dictionary
+  if (COMMON_WORDS_IPA[w]) {
+    return COMMON_WORDS_IPA[w];
+  }
+
+  // 2. Built-in Knowledge Base
+  if (LOCAL_KNOWLEDGE_BASE[w]?.usIpa) {
+    return cleanIpa(LOCAL_KNOWLEDGE_BASE[w].usIpa);
+  }
+
+  // 3. Memory cache
+  if (MEMORY_CACHE.has(w)) {
+    const cached = MEMORY_CACHE.get(w);
+    if (cached?.phonetics?.us) {
+      return cleanIpa(cached.phonetics.us);
+    }
+  }
+
+  // 4. Online parallel query (OpenVnDict + Datamuse)
+  try {
+    const [openVn, datamuse] = await Promise.all([
+      fetchOpenVnEnDictData(w, 1500),
+      fetchDatamuseInfo(w, 1500),
+    ]);
+    const ipa = openVn?.ipa || datamuse?.ipa;
+    if (ipa) {
+      return cleanIpa(ipa);
+    }
+  } catch {
+    // fallback
+  }
+
+  return '';
+}
+
+/**
+ * Resolves accurate IPA for multi-word phrases (e.g. "floral arrangement", "take into account")
+ * by resolving each constituent word and combining them cleanly.
+ */
+async function resolvePhraseIpa(phrase: string): Promise<string> {
+  const words = phrase.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '';
+  if (words.length === 1) {
+    const singleIpa = await resolveSingleWordIpa(words[0]);
+    return singleIpa ? `/${singleIpa}/` : '';
+  }
+
+  // Resolve all words in parallel
+  const wordIpas = await Promise.all(words.map((w) => resolveSingleWordIpa(w)));
+
+  // If at least one word has a valid phonetic representation, combine
+  const hasAnyValid = wordIpas.some((ipa) => ipa.length > 0);
+  if (!hasAnyValid) return '';
+
+  const combined = wordIpas
+    .map((ipa, idx) => ipa || words[idx].toLowerCase())
+    .join(' ');
+
+  return `/${combined}/`;
+}
+
+/**
+ * Intelligent Spelling Suggestions & Typo Correction
+ * Searches:
+ * 1. User's local deck words with fuzzy distance
+ * 2. High-frequency built-in TOEIC knowledge base
+ * 3. Online Datamuse suggestions / sounds-like API
+ */
+export async function getSpellingSuggestions(
+  rawQuery: string,
+  deckWords: WordItem[] = []
+): Promise<SpellingSuggestion[]> {
+  const q = rawQuery.trim().toLowerCase();
+  if (!q || q.length < 2) return [];
+
+  const results: SpellingSuggestion[] = [];
+  const seenWords = new Set<string>([q]);
+
+  // 1. Check user's Deck words with fuzzy matching
+  const deckCandidates = deckWords.map((w) => ({
+    word: w.word,
+    meaningVi: w.vietnameseDefinition,
+    pos: w.pos?.[0] || 'word',
+    source: 'deck' as const,
+  }));
+  const deckFuzzy = findFuzzyMatches(q, deckCandidates, (item) => item.word, 0.62, 3);
+  for (const match of deckFuzzy) {
+    if (!seenWords.has(match.key)) {
+      seenWords.add(match.key);
+      results.push({
+        word: match.item.word,
+        meaningVi: match.item.meaningVi,
+        pos: match.item.pos,
+        source: 'deck',
+        score: match.similarity,
+      });
+    }
+  }
+
+  // 2. Check Built-in Knowledge Base with fuzzy matching
+  const kbEntries = Object.entries(LOCAL_KNOWLEDGE_BASE).map(([word, data]) => ({
+    word,
+    meaningVi: data.vi,
+    pos: data.pos?.[0] || 'word',
+    source: 'builtin' as const,
+  }));
+  const kbFuzzy = findFuzzyMatches(q, kbEntries, (item) => item.word, 0.62, 3);
+  for (const match of kbFuzzy) {
+    if (!seenWords.has(match.key)) {
+      seenWords.add(match.key);
+      results.push({
+        word: match.item.word,
+        meaningVi: match.item.meaningVi,
+        pos: match.item.pos,
+        source: 'builtin',
+        score: match.similarity,
+      });
+    }
+  }
+
+  // 3. Online Datamuse suggestions & spelling
+  try {
+    const [sugRes, spRes] = await Promise.all([
+      fetchWithTimeout(`https://api.datamuse.com/sug?s=${encodeURIComponent(q)}&max=6`, {}, 1200),
+      fetchWithTimeout(`https://api.datamuse.com/words?sp=${encodeURIComponent(q)}&max=6`, {}, 1200),
+    ]);
+
+    const onlineCandidates: string[] = [];
+
+    if (sugRes.ok) {
+      const arr = await sugRes.json();
+      if (Array.isArray(arr)) {
+        for (const item of arr) {
+          if (item.word && typeof item.word === 'string') {
+            const w = item.word.trim().toLowerCase();
+            if (!seenWords.has(w) && !w.includes(' ') && w.length >= 2) {
+              onlineCandidates.push(w);
+            }
+          }
+        }
+      }
+    }
+
+    if (spRes.ok) {
+      const arr = await spRes.json();
+      if (Array.isArray(arr)) {
+        for (const item of arr) {
+          if (item.word && typeof item.word === 'string') {
+            const w = item.word.trim().toLowerCase();
+            if (!seenWords.has(w) && !w.includes(' ') && w.length >= 2) {
+              onlineCandidates.push(w);
+            }
+          }
+        }
+      }
+    }
+
+    for (const w of onlineCandidates) {
+      if (!seenWords.has(w)) {
+        seenWords.add(w);
+        const kbMatch = LOCAL_KNOWLEDGE_BASE[w];
+        const deckMatch = deckWords.find((dw) => dw.word.toLowerCase() === w);
+        const sim = stringSimilarity(q, w);
+        results.push({
+          word: w,
+          meaningVi: kbMatch?.vi || deckMatch?.vietnameseDefinition || '',
+          pos: kbMatch?.pos?.[0] || deckMatch?.pos?.[0] || 'word',
+          source: deckMatch ? 'deck' : kbMatch ? 'builtin' : 'dictionary',
+          score: sim,
+        });
+      }
+      if (results.length >= 6) break;
+    }
+  } catch {
+    // ignore network timeouts
+  }
+
+  return results.sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 5);
 }
 
 /**
@@ -1061,76 +1370,7 @@ async function fetchDatamuseCollocations(word: string, mainPos: string, timeoutM
   }
 }
 
-/**
- * Optional Gemini AI enrichment prompt if user provided their API key
- */
-async function enrichWithGemini(
-  word: string,
-  pos: string,
-  apiKey: string
-): Promise<{
-  vietnameseDefinition: string;
-  collocations: CollocationItem[];
-  wordFamily: WordFamilyItem[];
-  examples: ExampleItem[];
-  tags: string[];
-} | null> {
-  try {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-    const prompt = `You are a linguist and TOEIC/IELTS teacher. Analyze the English word "${word}" (primary part of speech: ${pos}).
-Respond ONLY with a valid JSON object matching this exact TypeScript structure:
-{
-  "vietnameseDefinition": "Concise, precise Vietnamese meaning (e.g. 'Đàm phán, thương lượng')",
-  "collocations": [
-    {"phrase": "common collocation 1", "meaningVi": "nghĩa tiếng Việt 1"},
-    {"phrase": "common collocation 2", "meaningVi": "nghĩa tiếng Việt 2"},
-    {"phrase": "common collocation 3", "meaningVi": "nghĩa tiếng Việt 3"}
-  ],
-  "wordFamily": [
-    {"word": "derived_word_1", "pos": "noun/verb/adjective/adverb"},
-    {"word": "derived_word_2", "pos": "noun/verb/adjective/adverb"}
-  ],
-  "examples": [
-    {
-      "en": "A clear general English sentence using '${word}'.",
-      "vi": "Dịch tiếng Việt câu thông dụng.",
-      "context": "general"
-    },
-    {
-      "en": "A realistic workplace or TOEIC context sentence using '${word}'.",
-      "vi": "Dịch tiếng Việt câu ngữ cảnh TOEIC công sở.",
-      "context": "toeic"
-    }
-  ],
-  "tags": ["#TOEIC", "#Category1", "#Category2"]
-}
-Do not include markdown fences like \`\`\`json. Return raw JSON.`;
 
-    const res = await fetchWithTimeout(
-      endpoint,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: 'application/json' },
-        }),
-      },
-      3500
-    );
-
-    if (!res.ok) return null;
-    const data = await res.json();
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!rawText) return null;
-
-    const parsed = JSON.parse(rawText.replace(/```json|```/g, '').trim());
-    return parsed;
-  } catch (err) {
-    console.warn('Gemini enrichment failed:', err);
-    return null;
-  }
-}
 
 /**
  * Intelligent High-Speed Lookup Pipeline:
@@ -1162,7 +1402,17 @@ export async function lookupWord(rawWord: string): Promise<WordItem> {
   }
 
   // Tier 2: Check Built-in Offline Knowledge Base
-  const localMatch = LOCAL_KNOWLEDGE_BASE[query];
+  let localMatch = LOCAL_KNOWLEDGE_BASE[query];
+  if (!localMatch) {
+    const articleMatch = query.match(/^(a|an|the|to)\s+([a-z0-9-]+)$/i);
+    if (articleMatch) {
+      const core = articleMatch[2].toLowerCase();
+      if (LOCAL_KNOWLEDGE_BASE[core]) {
+        localMatch = LOCAL_KNOWLEDGE_BASE[core];
+      }
+    }
+  }
+
   if (localMatch) {
     const now = Date.now();
     const wordItem: WordItem = {
@@ -1200,16 +1450,29 @@ export async function lookupWord(rawWord: string): Promise<WordItem> {
   }
 
   const isPhrase = query.includes(' ');
+  const articleMatch = query.match(/^(a|an|the|to)\s+([a-z0-9-]+)$/i);
+  const coreWord = articleMatch ? articleMatch[2].toLowerCase() : '';
+  const targetForDict = !isPhrase ? query : coreWord;
 
   // Tier 3: Parallelized High-Speed Multi-Source Pipeline (<400ms)
-  const [openVnData, datamuseInfo, wikiInfo, wiktionaryVi, wordFamilyRaw, collocationsRaw, directTrans] = await Promise.all([
-    !isPhrase ? fetchOpenVnEnDictData(query, 2500) : Promise.resolve(null),
-    !isPhrase ? fetchDatamuseInfo(query, 1500) : Promise.resolve(null),
-    fetchWiktionaryData(query, 1200),
-    !isPhrase ? fetchWiktionaryVi(query, 1500) : Promise.resolve([]),
-    fetchDatamuseWordFamily(query, ['noun'], 1500),
-    fetchDatamuseCollocations(query, 'noun', 1500),
+  const [
+    openVnData,
+    datamuseInfo,
+    wikiInfo,
+    wiktionaryVi,
+    wordFamilyRaw,
+    collocationsRaw,
+    directTrans,
+    phraseIpa,
+  ] = await Promise.all([
+    targetForDict ? fetchOpenVnEnDictData(targetForDict, 2500) : Promise.resolve(null),
+    targetForDict ? fetchDatamuseInfo(targetForDict, 1500) : Promise.resolve(null),
+    fetchWiktionaryData(targetForDict || query, 1200),
+    targetForDict ? fetchWiktionaryVi(targetForDict, 1500) : Promise.resolve([]),
+    fetchDatamuseWordFamily(targetForDict || query, ['noun'], 1500),
+    fetchDatamuseCollocations(targetForDict || query, 'noun', 1500),
     translateToVietnamese(query, 1800),
+    isPhrase ? resolvePhraseIpa(query) : Promise.resolve(''),
   ]);
 
   // Combine POS tags
@@ -1229,8 +1492,13 @@ export async function lookupWord(rawWord: string): Promise<WordItem> {
   const posList = Array.from(posSet);
   const mainPos = posList[0];
 
-  // Phonetics (prefer openVnData or datamuse)
-  const ipa = openVnData?.ipa || datamuseInfo?.ipa || `/${query}/`;
+  // Phonetics (prefer openVnData or datamuse for single words, phraseIpa for phrases)
+  let ipa = '';
+  if (isPhrase) {
+    ipa = phraseIpa || '';
+  } else {
+    ipa = openVnData?.ipa || datamuseInfo?.ipa || '';
+  }
 
   // English definition & meanings
   let englishDef = '';
@@ -1260,6 +1528,29 @@ export async function lookupWord(rawWord: string): Promise<WordItem> {
       englishDef = `Idiom/collocation: "${query}" (${directTrans})`;
     } else {
       englishDef = `Definition for "${query}"`;
+    }
+  }
+
+  // Check if word is not recognized in standard dictionaries and is likely a typo
+  const hasReliableDef =
+    (openVnData?.vietnameseDef && openVnData.vietnameseDef.length > 0) ||
+    (wikiInfo?.definitions && wikiInfo.definitions.length > 0) ||
+    (datamuseInfo?.defs && datamuseInfo.defs.length > 0 && datamuseInfo.isExact);
+
+  if (!isPhrase && !hasReliableDef) {
+    const suggestions = await getSpellingSuggestions(query);
+    if (suggestions.length > 0) {
+      throw new WordNotFoundError(
+        query,
+        suggestions,
+        `No definitions found for "${query}". Did you mean "${suggestions[0].word}"?`
+      );
+    } else if (!directTrans || directTrans.toLowerCase() === query) {
+      throw new WordNotFoundError(
+        query,
+        [],
+        `No definitions found for "${query}". Try checking the spelling!`
+      );
     }
   }
 
@@ -1402,12 +1693,24 @@ export async function lookupWord(rawWord: string): Promise<WordItem> {
     ? wordFamilyRaw
     : [{ word: query, pos: mainPos }];
 
-  // Optional Gemini enrichment if user configured key
+  let finalIpaUs = ipa;
+  let finalIpaUk = ipa;
+
+  // Optional AI enrichment if user configured key (Gemini, OpenAI, Claude, DeepSeek, Groq, OpenRouter, Custom)
   let aiData: any = null;
   try {
     const settings = await getAppSettings();
-    if (settings.geminiApiKey && settings.geminiApiKey.trim().length > 10) {
-      aiData = await enrichWithGemini(query, mainPos, settings.geminiApiKey.trim());
+    const apiKey = settings.aiApiKey || settings.geminiApiKey;
+    if (settings.aiProvider === 'custom' || (apiKey && apiKey.trim().length >= 5)) {
+      aiData = await enrichWordWithAI(query, mainPos, {
+        provider: settings.aiProvider || 'gemini',
+        apiKey: (apiKey || '').trim(),
+        baseUrl: settings.aiBaseUrl,
+        model: settings.aiModel,
+      });
+      if (aiData?.ipaUs) finalIpaUs = aiData.ipaUs;
+      if (aiData?.ipaUk) finalIpaUk = aiData.ipaUk;
+      if (!finalIpaUk && finalIpaUs) finalIpaUk = finalIpaUs;
       if (aiData?.vietnameseDefinition) vietnameseDef = aiData.vietnameseDefinition;
       if (aiData?.collocations?.length) collocations.splice(0, collocations.length, ...aiData.collocations);
       if (aiData?.wordFamily?.length) wordFamily.splice(0, wordFamily.length, ...aiData.wordFamily);
@@ -1422,8 +1725,8 @@ export async function lookupWord(rawWord: string): Promise<WordItem> {
     id: `word-${now}-${Math.random().toString(36).slice(2, 7)}`,
     word: query,
     phonetics: {
-      us: ipa,
-      uk: ipa,
+      us: finalIpaUs,
+      uk: finalIpaUk || finalIpaUs,
       audioUs: `https://translate.google.com/translate_tts?ie=UTF-8&tl=en-US&client=tw-ob&q=${encodeURIComponent(query)}`,
       audioUk: `https://translate.google.com/translate_tts?ie=UTF-8&tl=en-GB&client=tw-ob&q=${encodeURIComponent(query)}`,
     },

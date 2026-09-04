@@ -53,6 +53,14 @@ export interface ReviewMeta {
   history: ReviewHistoryItem[];
 }
 
+export interface SpellingSuggestion {
+  word: string;
+  meaningVi?: string;
+  pos?: string;
+  source: 'deck' | 'builtin' | 'dictionary';
+  score?: number;
+}
+
 export interface WordItem {
   id: string;
   word: string;
@@ -70,6 +78,7 @@ export interface WordItem {
   createdAt: number;
   updatedAt: number;
   reviewMeta: ReviewMeta;
+  suggestions?: SpellingSuggestion[];
 }
 
 export interface DailyStats {
@@ -80,8 +89,14 @@ export interface DailyStats {
   lastActiveDate: string;
 }
 
+export type AIProvider = 'gemini' | 'openai' | 'claude' | 'deepseek' | 'groq' | 'openrouter' | 'custom';
+
 export interface AppSettings {
-  geminiApiKey: string;
+  aiProvider: AIProvider;
+  aiApiKey: string;
+  aiBaseUrl?: string;
+  aiModel?: string;
+  geminiApiKey: string; // legacy backward compatibility
   speechRate: number;
   speechPitch: number;
   preferredAccent: 'US' | 'UK';
@@ -98,7 +113,7 @@ export interface FilterOptions {
   sortDirection: 'asc' | 'desc';
 }
 
-export type ReviewMode = 'flashcard' | 'cloze';
+export type ReviewMode = 'flashcards' | 'cloze' | 'listen' | 'match' | 'choice';
 
 export interface ClozeQuestion {
   word: WordItem;
@@ -108,6 +123,24 @@ export interface ClozeQuestion {
   contextVi: string;
   hintPos: string;
   hintDefinition: string;
+}
+
+export interface DefinitionChoiceQuestion {
+  word: WordItem;
+  promptWord: string;
+  correctMeaning: string;
+  options: string[]; // 4 definition options
+  targetWord: string;
+}
+
+export interface MatchCardItem {
+  id: string; // unique card id in game session
+  wordId: string; // original word id
+  text: string;
+  type: 'en' | 'vi';
+  isMatched: boolean;
+  isSelected: boolean;
+  isError: boolean;
 }
 
 export type ContributionActivityFilter = 'all' | 'reviews' | 'words';

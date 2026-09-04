@@ -5,6 +5,7 @@ import { warmSearchCache } from '../services/dictionary';
 import { createInitialReviewMeta } from '../services/sm2';
 import type { FilterOptions, WordItem } from '../types/vocab';
 import { formatLocalDate } from '../utils/dateUtils';
+import { findFuzzyMatches } from '../utils/fuzzySearch';
 
 export function useVocabulary() {
   const [revision, setRevision] = useState(0);
@@ -53,8 +54,9 @@ export function useVocabulary() {
   }, [allWords]);
 
   // Filter and sort words
-  const filteredWords = useMemo(() => {
+  const { filteredWords, isFuzzyMatch } = useMemo(() => {
     let result = [...allWords];
+    let isFuzzy = false;
 
     // Search filter (word, definition, collocations)
     if (filterOptions.search.trim()) {
@@ -68,6 +70,15 @@ export function useVocabulary() {
           w.collocations.some((c) => c.phrase.toLowerCase().includes(q) || c.meaningVi.toLowerCase().includes(q))
         );
       });
+
+      // If exact search yields 0 results and query is at least 2 chars, try fuzzy search on deck words
+      if (result.length === 0 && q.length >= 2) {
+        const fuzzyMatches = findFuzzyMatches(q, allWords, (w) => w.word, 0.60, 10);
+        if (fuzzyMatches.length > 0) {
+          result = fuzzyMatches.map((m) => m.item);
+          isFuzzy = true;
+        }
+      }
     }
 
     // Status filter
@@ -92,26 +103,28 @@ export function useVocabulary() {
       );
     }
 
-    // Sort
-    result.sort((a, b) => {
-      let comparison = 0;
-      if (filterOptions.sortBy === 'urgency') {
-        // Due date ascending: overdue cards first
-        comparison = a.reviewMeta.dueDate - b.reviewMeta.dueDate;
-      } else if (filterOptions.sortBy === 'date_added') {
-        // Newest created first
-        comparison = b.createdAt - a.createdAt;
-      } else if (filterOptions.sortBy === 'alpha') {
-        // Alphabetical A-Z
-        comparison = a.word.localeCompare(b.word);
-      } else if (filterOptions.sortBy === 'repetition') {
-        comparison = a.reviewMeta.repetition - b.reviewMeta.repetition;
-      }
+    // Sort (preserve fuzzy relevance ordering if fuzzy, otherwise apply user sort)
+    if (!isFuzzy) {
+      result.sort((a, b) => {
+        let comparison = 0;
+        if (filterOptions.sortBy === 'urgency') {
+          // Due date ascending: overdue cards first
+          comparison = a.reviewMeta.dueDate - b.reviewMeta.dueDate;
+        } else if (filterOptions.sortBy === 'date_added') {
+          // Newest created first
+          comparison = b.createdAt - a.createdAt;
+        } else if (filterOptions.sortBy === 'alpha') {
+          // Alphabetical A-Z
+          comparison = a.word.localeCompare(b.word);
+        } else if (filterOptions.sortBy === 'repetition') {
+          comparison = a.reviewMeta.repetition - b.reviewMeta.repetition;
+        }
 
-      return filterOptions.sortDirection === 'desc' ? -comparison : comparison;
-    });
+        return filterOptions.sortDirection === 'desc' ? -comparison : comparison;
+      });
+    }
 
-    return result;
+    return { filteredWords: result, isFuzzyMatch: isFuzzy };
   }, [allWords, filterOptions]);
 
   // Summary counts
@@ -203,6 +216,7 @@ export function useVocabulary() {
     allWords,
     filteredWords,
     words: filteredWords,
+    isFuzzyMatch,
     loading: false,
     refresh,
     allTags,
