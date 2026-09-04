@@ -13,11 +13,11 @@
 
 ## 🌟 Giới thiệu tổng quan (Overview)
 
-**LexiPulse** là ứng dụng học từ vựng tiếng Anh cao cấp hoạt động **100% Offline-First** trên nền tảng trình duyệt. Được thiết kế tối ưu cho người học luyện thi chứng chỉ **TOEIC, IELTS** và người đi làm trong môi trường quốc tế, LexiPulse kết hợp giữa:
-- **Động cơ ngôn ngữ đa tầng (Multi-Tier Linguistic Pipeline)** với khả năng tra cứu siêu tốc (<400ms).
-- **Thuật toán Spaced Repetition (SuperMemo-2 / SM-2)** giúp khắc phục đường cong lãng quên (Ebbinghaus Forgetting Curve).
+**LexiPulse** là ứng dụng học từ vựng tiếng Anh chuyên sâu xây dựng theo kiến trúc **Offline-capable Core / Local-first** trên nền tảng trình duyệt (`React 19 + TypeScript + Vite + Dexie.js`). Được thiết kế tối ưu cho người học luyện thi chứng chỉ **TOEIC, IELTS** và giao tiếp công sở quốc tế, LexiPulse kết hợp giữa:
+- **Lõi từ điển cục bộ & Quản lý dữ liệu Local-First**: Hoạt động bền bỉ ngoại tuyến cho toàn bộ tính năng quản lý bộ từ, kho tri thức tuyển chọn `LOCAL_KNOWLEDGE_BASE`, và động cơ ôn tập SM-2.
+- **Thuật toán Spaced Repetition (SuperMemo-2 / SM-2)**: Giúp ghi nhớ dài hạn và khắc phục đường cong lãng quên (Ebbinghaus Forgetting Curve) với quy tắc toàn vẹn dữ liệu nghiêm ngặt.
 - **Hệ thống ôn tập đa giác quan 5 chế độ**: Flashcard 3D, Điền từ ngữ cảnh (Cloze), Nghe & Chép chính tả (Dictation), Trắc nghiệm phản xạ (Choice), và Nối từ siêu tốc (Speed Match).
-- **Cổng kết nối AI toàn năng (Universal AI Engine)** hỗ trợ đồng thời Google Gemini, OpenAI (ChatGPT), Anthropic Claude, DeepSeek, Groq, OpenRouter và các Local LLM (Ollama, LM Studio).
+- **Cổng kết nối AI & Trực tuyến (Yêu cầu kết nối mạng)**: Làm giàu ngữ cảnh nâng cao qua Google Gemini, OpenAI, Claude, DeepSeek, Groq, OpenRouter và từ điển mở Datamuse / Wiktionary.
 
 ---
 
@@ -194,10 +194,49 @@ Bản build sản phẩm đã được tối ưu hóa dung lượng sẽ đượ
 npm run preview
 ```
 
-### 4. Kiểm tra chất lượng mã nguồn (Linting)
-Dự án sử dụng công cụ linter siêu tốc **Oxlint**:
+### 4. Kiểm thử & Đảm bảo chất lượng (Verification Suite)
+Hệ thống kiểm thử đa tầng đảm bảo tính đúng đắn của logic, giao diện và toàn vẹn dữ liệu:
 ```bash
+# Kiểm tra định dạng & cú pháp mã nguồn
 npm run lint
+
+# Kiểm tra chặt chẽ TypeScript Types
+npm run typecheck
+
+# Chạy toàn bộ Unit & Component Tests (Vitest + React Testing Library)
+npm run test
+
+# Chạy kiểm thử tự động trình duyệt đầu cuối (Playwright E2E)
+npm run test:e2e
+```
+
+---
+
+## 🏗️ Kiến trúc mô-đun (Architecture)
+
+```
+src/
+├── features/               # Feature Modules (Code-split theo nghiệp vụ)
+│   ├── lookup/             # Tra cứu từ vựng & WordCard
+│   ├── deck/               # Quản lý bộ từ & danh sách
+│   └── review/             # Điều phối 5 chế độ ôn tập SRS (Lazy-loaded)
+├── services/
+│   ├── vocabRepository.ts  # Single Source of Truth: Merge Policy bảo vệ tiến độ học
+│   ├── db/                 # Cơ sở dữ liệu IndexedDB mô-đun hóa
+│   │   ├── schema.ts       # Định nghĩa bảng & phiên bản migration
+│   │   ├── statsRepo.ts    # Quản lý chuỗi ngày (Streak) & Thống kê
+│   │   ├── seedData.ts     # Khởi tạo Idempotent & Demo data (Opt-in)
+│   │   └── backup.ts       # Xuất/Nhập JSON/CSV (SheetJS dynamic import)
+│   ├── dictionary/         # Pipeline tra cứu & bộ chuyển đổi
+│   │   ├── cache.ts        # In-memory LRU cache & In-flight request deduplication
+│   │   ├── circuitBreaker.ts # Fetch timeout & Circuit breaker bảo vệ mạng
+│   │   ├── localData.ts    # Kho tri thức tuyển chọn LOCAL_KNOWLEDGE_BASE
+│   │   └── adapters/       # OpenVnDict, Wiktionary, Datamuse, Translation
+│   ├── sm2.ts              # Thuật toán SuperMemo-2 chuẩn xác
+│   └── ai.ts               # Runtime Schema Validation & Provider Adapter
+├── hooks/                  # Custom Hooks (useSpacedRepetition, useModalA11y)
+├── utils/                  # Thuần hàm (importParser, clozeGenerator, fuzzySearch)
+└── types/                  # Typed Data Contracts
 ```
 
 ---
@@ -206,21 +245,25 @@ npm run lint
 
 - **Ngôn ngữ & Nền tảng**: [React 19](https://react.dev/), [TypeScript 6](https://www.typescriptlang.org/), [Vite 8](https://vitejs.dev/)
 - **Tạo kiểu & Giao diện**: [Tailwind CSS 3.4](https://tailwindcss.com/), [Lucide React](https://lucide.dev/)
-- **Lưu trữ dữ liệu cục bộ**: [Dexie.js](https://dexie.org/) (IndexedDB wrapper có khả năng reactive live query)
-- **Hiệu ứng & Hoạt ảnh**: [Canvas-Confetti](https://www.npmjs.com/package/canvas-confetti), CSS 3D Transforms
-- **Xử lý tệp & Dữ liệu**: [SheetJS (xlsx)](https://docs.sheetjs.com/) cho xuất/nhập Excel
-- **Ngữ âm & Âm thanh**: Web Speech API, Google Translate TTS CDN, Datamuse Linguistic API
+- **Lưu trữ dữ liệu cục bộ**: [Dexie.js](https://dexie.org/) (IndexedDB wrapper reactive)
+- **Kiểm thử**: [Vitest](https://vitest.dev/), [@testing-library/react](https://testing-library.com/), [Playwright](https://playwright.dev/)
+- **Xử lý tệp & Dữ liệu**: [SheetJS (xlsx)](https://docs.sheetjs.com/) (Dynamic import theo nhu cầu, bundle initial < 500 kB)
+- **PWA & Ngoại tuyến**: Service Worker cache static shell, Local System Font fallbacks
 
 ---
 
-## 🔒 Bảo mật & Quyền riêng tư (Privacy & Security)
+## 🔒 Bảo mật, Quyền riêng tư & Giới hạn ngoại tuyến (Security & Offline Boundaries)
 
-- **100% Lưu trữ trên máy người dùng (Local Storage First)**: Toàn bộ danh sách từ vựng, lịch sử ôn tập và thống kê đều được lưu trữ an toàn trong IndexedDB của trình duyệt. Không có dữ liệu cá nhân nào bị gửi về máy chủ bên ngoài.
-- **Khóa API bảo mật**: API Key của các dịch vụ AI (Gemini, OpenAI, Claude, v.v.) chỉ được lưu trữ cục bộ trong trình duyệt của bạn và chỉ được gửi trực tiếp tới máy chủ chính thức của nhà cung cấp AI khi bạn thực hiện tra cứu.
-- **Hỗ trợ hoàn toàn ngoại tuyến**: Ứng dụng hoạt động mượt mà ngay cả khi ngắt kết nối Internet với kho từ điển tích hợp sẵn và bộ nhớ đệm cục bộ.
+- **Nguyên tắc bảo vệ dữ liệu học tập (Data Integrity)**: Toàn bộ danh sách từ vựng, ghi chú cá nhân, thẻ tag, và lịch sử ôn tập SM-2 (`repetition`, `interval`, `easeFactor`) được bảo vệ nghiêm ngặt qua `vocabRepository`. Khi cập nhật từ vựng từ điển hay nạp dữ liệu mới, tiến độ ôn tập của người học **không bao giờ bị ghi đè** trừ khi có sự xác nhận chủ động ("Replace learning progress").
+- **Cảnh báo Bảo mật API Key trên Frontend**:
+  > [!WARNING]
+  > Mọi API Key được lưu trữ trên trình duyệt web đều có khả năng bị truy cập bởi mã JavaScript thực thi trên client nếu xảy ra tấn công XSS. LexiPulse mặc định lưu trữ API Key trong **Session Storage** (tự động xóa khi đóng tab). Tùy chọn lưu trữ lâu dài trong IndexedDB là **Opt-in** kèm cảnh báo rõ ràng. Mã hóa phía client không thể đảm bảo an toàn tuyệt đối trước XSS.
+- **Phạm vi Ngoại tuyến (Offline Capabilities)**:
+  - **Khả dụng Ngoại tuyến**: Quản lý bộ từ, tìm kiếm mờ trong Deck, ôn tập SRS cả 5 chế độ, tra cứu kho tri thức tích hợp sẵn `LOCAL_KNOWLEDGE_BASE`, nạp và xuất file sao lưu JSON.
+  - **Yêu cầu Kết nối Mạng**: Tra cứu mở rộng qua Wiktionary / Datamuse, bản dịch câu thời gian thực, và các mô hình AI trực tuyến (Gemini, ChatGPT, Claude, DeepSeek, Groq, OpenRouter).
 
 ---
 
 ## 📄 Giấy phép (License)
 
-Dự án được phát hành theo giấy phép mã nguồn mở **MIT License**. Mọi đóng góp và cải tiến đều được hoan nghênh!
+Dự án được phát hành theo giấy phép mã nguồn mở **MIT License**. Mọi đóng góp và cải tiến đều được hoan nghênh! Xem tệp [LICENSE](LICENSE) để biết thêm chi tiết.

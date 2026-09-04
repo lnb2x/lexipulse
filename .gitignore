@@ -12,6 +12,8 @@ dist
 dist-ssr
 *.local
 scratch/
+test-results/
+playwright-report/
 
 # Local environment files and credentials
 .env

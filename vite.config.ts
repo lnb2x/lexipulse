@@ -77,4 +77,7 @@ function translationPlugin(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), translationPlugin()],
-})
+  test: {
+    exclude: ['**/node_modules/**', '**/dist/**', '**/e2e/**'],
+  },
+} as any)
