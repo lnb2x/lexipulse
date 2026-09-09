@@ -158,11 +158,11 @@ describe('React Component Testing (RTL)', () => {
       fireEvent.click(cardHeading);
 
       // Find Good rating button
-      const goodBtn = screen.getByText(/Tốt|Good/i).closest('button');
+      const goodBtn = screen.getByText(/Nhớ|Tốt|Good/i).closest('button');
       expect(goodBtn).toBeDefined();
       if (goodBtn) {
         fireEvent.click(goodBtn);
-        expect(handleGrade).toHaveBeenCalledWith(2);
+        expect(handleGrade).toHaveBeenCalledWith(3);
       }
     });
   });

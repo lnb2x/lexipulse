@@ -26,12 +26,23 @@ export function useVocabulary() {
     return await db.words.toArray();
   }, []) || [];
 
-  // Memoized Set for instant O(1) deck membership checks
+  // Memoized Set for instant O(1) deck membership checks (including lemmas & variants)
   const deckWordSet = useMemo(() => {
     const set = new Set<string>();
     for (const w of allWords) {
       if (w?.word) {
         set.add(w.word.toLowerCase().trim());
+      }
+      if (w?.lemma) {
+        set.add(w.lemma.toLowerCase().trim());
+      }
+      if (w?.originalInput) {
+        set.add(w.originalInput.toLowerCase().trim());
+      }
+      if (Array.isArray(w?.linkedVariants)) {
+        for (const v of w.linkedVariants) {
+          set.add(v.toLowerCase().trim());
+        }
       }
     }
     return set;
@@ -68,12 +79,15 @@ export function useVocabulary() {
     let result = [...allWords];
     let isFuzzy = false;
 
-    // Search filter (word, definition, collocations)
+    // Search filter (word, lemma, variants, definition, collocations)
     if (filterOptions.search.trim()) {
       const q = filterOptions.search.trim().toLowerCase();
       result = result.filter((w) => {
         return (
           w.word.toLowerCase().includes(q) ||
+          (w.lemma && w.lemma.toLowerCase().includes(q)) ||
+          (w.originalInput && w.originalInput.toLowerCase().includes(q)) ||
+          (w.linkedVariants && w.linkedVariants.some((v) => v.toLowerCase().includes(q))) ||
           w.vietnameseDefinition.toLowerCase().includes(q) ||
           w.englishDefinition.toLowerCase().includes(q) ||
           w.tags.some((t) => t.toLowerCase().includes(q)) ||

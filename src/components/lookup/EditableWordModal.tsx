@@ -1,9 +1,11 @@
-import { Calendar, Plus, Trash2, X } from 'lucide-react';
+import { Calendar, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import React, { useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useModalA11y } from '../../hooks/useModalA11y';
 import type { WordItem } from '../../types/vocab';
 import { formatLocalDate, parseLocalDateToTimestamp } from '../../utils/dateUtils';
+import { enrichWordWithAI } from '../../services/ai';
+import { getAppSettings } from '../../services/db/statsRepo';
 
 interface EditableWordModalProps {
   isOpen: boolean;
@@ -25,6 +27,8 @@ export const EditableWordModal: React.FC<EditableWordModalProps> = ({
   const [editedWord, setEditedWord] = useState<WordItem>({ ...word });
   const [newTag, setNewTag] = useState('');
 
+  const [isReEnriching, setIsReEnriching] = useState(false);
+
   // Sync state whenever modal opens or target word changes
   React.useEffect(() => {
     if (isOpen) {
@@ -35,6 +39,52 @@ export const EditableWordModal: React.FC<EditableWordModalProps> = ({
       setNewTag('');
     }
   }, [isOpen, word]);
+
+  const handleReEnrichWithAI = async () => {
+    if (!editedWord.word.trim() || !editedWord.contextSentence?.trim() || isReEnriching) return;
+    setIsReEnriching(true);
+    try {
+      const settings = await getAppSettings();
+      const apiKey = (settings.aiApiKey || settings.geminiApiKey || '').trim();
+      const aiRes = await enrichWordWithAI(
+        editedWord.word,
+        editedWord.pos?.[0] || 'noun',
+        {
+          provider: settings.aiProvider || 'gemini',
+          apiKey,
+          baseUrl: settings.aiBaseUrl,
+          model: settings.aiModel,
+          timeoutMs: 8000,
+        },
+        editedWord.contextSentence
+      );
+      if (aiRes) {
+        setEditedWord((prev) => ({
+          ...prev,
+          vietnameseDefinition: aiRes.vietnameseDefinition || prev.vietnameseDefinition,
+          vietnameseDefinitionProvenance: {
+            source: 'ai',
+            provider: settings.aiProvider || 'gemini',
+            model: settings.aiModel,
+            createdAt: Date.now(),
+          },
+          collocations: aiRes.collocations?.length ? aiRes.collocations : prev.collocations,
+          examples: aiRes.examples?.length ? aiRes.examples : prev.examples,
+          lemma: aiRes.lemma || prev.lemma,
+          formLabels: aiRes.formLabels?.length ? aiRes.formLabels : prev.formLabels,
+          phonetics: {
+            ...prev.phonetics,
+            us: aiRes.ipaUs || prev.phonetics.us,
+            uk: aiRes.ipaUk || prev.phonetics.uk,
+          },
+        }));
+      }
+    } catch (err) {
+      console.warn('Re-enrichment failed:', err);
+    } finally {
+      setIsReEnriching(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -129,9 +179,23 @@ export const EditableWordModal: React.FC<EditableWordModalProps> = ({
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editedWord.word.trim()) return;
+
+    const trimmedWord = editedWord.word.trim().toLowerCase();
+    const lemma = editedWord.lemma?.trim().toLowerCase() || trimmedWord;
+    const originalInput = editedWord.originalInput?.trim() || trimmedWord;
+    const linkedVariants = Array.from(
+      new Set([
+        ...(editedWord.linkedVariants || []),
+        ...(originalInput.toLowerCase() !== trimmedWord ? [originalInput.toLowerCase()] : []),
+      ])
+    );
+
     onSave({
       ...editedWord,
-      word: editedWord.word.trim().toLowerCase(),
+      word: trimmedWord,
+      lemma,
+      originalInput,
+      linkedVariants,
     });
     onClose();
   };
@@ -175,6 +239,67 @@ export const EditableWordModal: React.FC<EditableWordModalProps> = ({
         </div>
 
         <form onSubmit={handleFormSubmit} className="mt-5 space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+          {/* Morphological Lemma Banner */}
+          {editedWord.lemma && (
+            <div className="rounded-xl border border-indigo-200/80 bg-indigo-50/70 p-3.5 dark:border-indigo-900/60 dark:bg-indigo-950/30 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-900 dark:text-indigo-200">
+                  <span>💡 {language === 'vi' ? 'Nhận diện từ nguyên mẫu (Lemma):' : 'Identified Lemma:'}</span>
+                  <span className="font-mono underline text-indigo-700 dark:text-indigo-300">{editedWord.lemma}</span>
+                </div>
+                {editedWord.formLabels && editedWord.formLabels.length > 0 && (
+                  <span className="rounded bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-300">
+                    {editedWord.formLabels.join(', ')}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
+                <span className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">
+                  {language === 'vi' ? 'Lưu vào Deck dưới dạng:' : 'Save to Deck as:'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const original = editedWord.originalInput || editedWord.word;
+                    const lem = editedWord.lemma!;
+                    setEditedWord({
+                      ...editedWord,
+                      word: lem,
+                      originalInput: original,
+                      linkedVariants: Array.from(new Set([...(editedWord.linkedVariants || []), original.toLowerCase()])),
+                    });
+                  }}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-all ${
+                    editedWord.word.toLowerCase() === editedWord.lemma.toLowerCase()
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'
+                  }`}
+                >
+                  {language === 'vi' ? `Từ gốc: "${editedWord.lemma}" (Khuyên dùng TOEIC)` : `Lemma: "${editedWord.lemma}" (Recommended)`}
+                </button>
+                {editedWord.originalInput && editedWord.originalInput.toLowerCase() !== editedWord.lemma.toLowerCase() && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditedWord({
+                        ...editedWord,
+                        word: editedWord.originalInput!,
+                      });
+                    }}
+                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-all ${
+                      editedWord.word.toLowerCase() === editedWord.originalInput.toLowerCase()
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'
+                    }`}
+                  >
+                    {language === 'vi' ? `Dạng biến thể: "${editedWord.originalInput}"` : `Variant: "${editedWord.originalInput}"`}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Word Name Input */}
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
@@ -226,7 +351,22 @@ export const EditableWordModal: React.FC<EditableWordModalProps> = ({
             <input
               type="text"
               value={editedWord.vietnameseDefinition}
-              onChange={(e) => setEditedWord({ ...editedWord, vietnameseDefinition: e.target.value })}
+              onChange={(e) => {
+                const newVal = e.target.value;
+                setEditedWord({
+                  ...editedWord,
+                  vietnameseDefinition: newVal,
+                  vietnameseDefinitionProvenance:
+                    newVal !== word.vietnameseDefinition
+                      ? {
+                          source: 'user_edit',
+                          isUserEdited: true,
+                          originalSource: word.vietnameseDefinitionProvenance?.source,
+                          createdAt: Date.now(),
+                        }
+                      : editedWord.vietnameseDefinitionProvenance,
+                });
+              }}
               placeholder={language === 'vi' ? 'Ví dụ: Cơ sở, tiện nghi, điều kiện thuận lợi' : 'Vietnamese translation'}
               required
               className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none dark:border-slate-800 dark:bg-slate-800 dark:text-slate-100"
@@ -245,6 +385,42 @@ export const EditableWordModal: React.FC<EditableWordModalProps> = ({
               placeholder={language === 'vi' ? 'Định nghĩa chi tiết bằng tiếng Anh...' : 'English definition...'}
               className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none dark:border-slate-800 dark:bg-slate-800 dark:text-slate-100"
             />
+          </div>
+
+          {/* Context Sentence */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                {language === 'vi' ? 'Ngữ cảnh câu thực tế (Context sentence)' : 'Context Sentence / Usage'}
+              </label>
+              {editedWord.contextSentence?.trim() && (
+                <button
+                  type="button"
+                  onClick={handleReEnrichWithAI}
+                  disabled={isReEnriching}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 transition-colors disabled:opacity-50"
+                >
+                  <Sparkles className="h-3 w-3" />
+                  <span>
+                    {isReEnriching
+                      ? (language === 'vi' ? 'Đang dịch AI...' : 'Translating...')
+                      : (language === 'vi' ? 'Dịch lại bằng AI theo câu này' : 'Re-translate with AI')}
+                  </span>
+                </button>
+              )}
+            </div>
+            <textarea
+              rows={2}
+              value={editedWord.contextSentence || ''}
+              onChange={(e) => setEditedWord({ ...editedWord, contextSentence: e.target.value })}
+              placeholder={language === 'vi' ? 'Câu tiếng Anh có chứa từ cần học để lưu và ôn tập đúng ngữ cảnh...' : 'Sentence containing the word for accurate context...'}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none dark:border-slate-800 dark:bg-slate-800 dark:text-slate-100"
+            />
+            <p className="text-[10px] text-slate-400 dark:text-slate-500">
+              {language === 'vi'
+                ? 'Lưu văn bản đơn thuần sẽ giữ nguyên bản dịch hiện tại. Bấm "Dịch lại bằng AI" nếu muốn AI cập nhật nghĩa theo câu mới.'
+                : 'Saving text only keeps current translation. Click "Re-translate with AI" to generate a contextual definition.'}
+            </p>
           </div>
 
           {/* Date Added row */}

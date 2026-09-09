@@ -1,7 +1,7 @@
 import { Calendar, CheckCircle2, CheckSquare, Flame, Headphones, HelpCircle, Layers, Play, Sparkles } from 'lucide-react';
 import React, { useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
-import type { ReviewMode, WordItem } from '../../types/vocab';
+import type { ReviewMode, ReviewQueueStats, WordItem } from '../../types/vocab';
 import { formatLocalDate } from '../../utils/dateUtils';
 
 interface ReviewDashboardProps {
@@ -11,7 +11,8 @@ interface ReviewDashboardProps {
   reviewedTodayCount: number;
   dailyQuota: number;
   streak: number;
-  onStartSession: (mode: ReviewMode, cardsToReview: WordItem[]) => void;
+  queueStats?: ReviewQueueStats;
+  onStartSession: (mode: ReviewMode, cardsToReview: WordItem[], sessionType?: 'due' | 'cram') => void;
 }
 
 export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
@@ -21,6 +22,7 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
   reviewedTodayCount,
   dailyQuota,
   streak,
+  queueStats,
   onStartSession,
 }) => {
   const { language, t } = useLanguage();
@@ -33,11 +35,11 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
   const masteredCount = allWords.filter((w) => w.status === 'mastered').length;
 
   const handleStartDue = () => {
-    onStartSession(selectedMode, dueCards);
+    onStartSession(selectedMode, dueCards, 'due');
   };
 
   const handleStartCram = () => {
-    onStartSession(selectedMode, allWords);
+    onStartSession(selectedMode, allWords, 'cram');
   };
 
   const dateWords = allWords.filter(
@@ -46,7 +48,7 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
 
   const handleStartReviewByDate = () => {
     if (dateWords.length > 0) {
-      onStartSession(selectedMode, dateWords);
+      onStartSession(selectedMode, dateWords, 'cram');
     }
   };
 
@@ -147,7 +149,11 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
         </div>
 
         {/* Stats Grid */}
-        <div className="mt-5 grid grid-cols-3 gap-3">
+        <div className={`mt-5 grid gap-3 ${
+          queueStats && queueStats.retentionSampleCount > 0 && queueStats.actualRetentionRate !== null
+            ? 'grid-cols-2 sm:grid-cols-4'
+            : 'grid-cols-3'
+        }`}>
           <div className="rounded-xl border border-slate-200/70 bg-slate-50/70 p-3.5 text-center dark:border-slate-800 dark:bg-slate-900/50">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
               {t.deck.dueToday}
@@ -174,6 +180,20 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
               {allWords.length}
             </p>
           </div>
+
+          {queueStats && queueStats.retentionSampleCount > 0 && queueStats.actualRetentionRate !== null && (
+            <div className="rounded-xl border border-indigo-200/80 bg-indigo-50/60 p-3.5 text-center dark:border-indigo-900/50 dark:bg-indigo-950/30">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-400">
+                {language === 'vi' ? 'Độ nhớ thực tế' : 'Retention Rate'}
+              </span>
+              <p className="mt-1 font-display text-2xl font-bold text-indigo-600 dark:text-indigo-400">
+                {Math.round(queueStats.actualRetentionRate * 100)}%
+              </p>
+              <span className="text-[10px] text-slate-400 font-mono block">
+                N={queueStats.retentionSampleCount}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

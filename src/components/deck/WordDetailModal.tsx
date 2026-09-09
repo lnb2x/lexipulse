@@ -6,6 +6,7 @@ import type { WordItem } from '../../types/vocab';
 import { AudioButton } from '../common/AudioButton';
 import { Badge } from '../common/Badge';
 import { WordFamilyInteractive } from '../common/WordFamilyInteractive';
+import { ProvenanceBadge } from '../common/ProvenanceBadge';
 import { parseMultipleMeanings } from '../../utils/definitionUtils';
 import { useModalA11y } from '../../hooks/useModalA11y';
 
@@ -72,6 +73,41 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
                 </span>
               )}
             </div>
+
+            {/* Lemma & Form Badges */}
+            {word.lemma && word.lemma.toLowerCase() !== word.word.toLowerCase() && (
+              <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                <span className="rounded bg-indigo-50 border border-indigo-200/80 px-2 py-0.5 text-[11px] font-bold text-indigo-700 dark:bg-indigo-950/40 dark:border-indigo-900/60 dark:text-indigo-300">
+                  💡 {language === 'vi' ? 'Từ gốc:' : 'Lemma:'} {word.lemma}
+                </span>
+                {word.formLabels &&
+                  word.formLabels.map((lbl, idx) => (
+                    <span
+                      key={idx}
+                      className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                    >
+                      {lbl}
+                    </span>
+                  ))}
+              </div>
+            )}
+
+            {/* Linked Variants */}
+            {word.linkedVariants && word.linkedVariants.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 mt-1.5">
+                <span className="font-semibold text-slate-600 dark:text-slate-300">
+                  {language === 'vi' ? 'Biến thể:' : 'Variants:'}
+                </span>
+                {word.linkedVariants.map((v, idx) => (
+                  <span
+                    key={idx}
+                    className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                  >
+                    {v}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -91,9 +127,12 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
         <div className="mt-5 space-y-4 max-h-[65vh] overflow-y-auto pr-1">
           {/* Vietnamese Definition */}
           <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/50 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
-              {language === 'vi' ? 'Định nghĩa Tiếng Việt' : 'Vietnamese Meaning'}
-            </span>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                {language === 'vi' ? 'Định nghĩa Tiếng Việt' : 'Vietnamese Meaning'}
+              </span>
+              <ProvenanceBadge provenance={word.vietnameseDefinitionProvenance} />
+            </div>
             {(() => {
               const senses = parseMultipleMeanings(word.vietnameseDefinition);
               if (senses.length > 1) {
@@ -123,12 +162,48 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
                 {word.englishDefinition}
               </p>
             )}
+
+            {/* Context Sentence */}
+            {word.contextSentence && (
+              <div className="mt-3 rounded-lg border border-emerald-200/80 bg-white/70 p-3 text-xs dark:border-emerald-900/40 dark:bg-slate-900/60 space-y-1">
+                <span className="font-bold text-emerald-800 dark:text-emerald-300 uppercase tracking-wider text-[10px]">
+                  {language === 'vi' ? 'Ngữ cảnh câu thực tế:' : 'Context Sentence:'}
+                </span>
+                <p className="text-slate-800 dark:text-slate-200 font-medium italic">
+                  "{word.contextSentence}"
+                </p>
+              </div>
+            )}
           </div>
+
+          {/* Inflections */}
+          {word.inflections && word.inflections.length > 0 && (
+            <div className="rounded-xl border border-slate-200/70 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-900/50 space-y-2">
+              <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                {language === 'vi' ? 'Bảng biến thể từ (Inflections)' : 'Word Inflections'}
+              </h3>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {word.inflections.map((inf, idx) => (
+                  <div
+                    key={idx}
+                    className="rounded-lg border border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-slate-900"
+                  >
+                    <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider block">
+                      {inf.label || inf.form}
+                    </span>
+                    <p className="font-semibold text-xs text-slate-900 dark:text-slate-100 mt-0.5 font-mono">
+                      {inf.word || inf.form}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Spaced Repetition Meta Card */}
           <div className="rounded-xl border border-slate-200/70 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-900/50">
             <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              {language === 'vi' ? 'Thống kê lặp lại ngắt quãng (SM-2)' : 'Spaced Repetition Stats (SM-2)'}
+              {language === 'vi' ? 'Thống kê lặp lại ngắt quãng (FSRS v5)' : 'Spaced Repetition Stats (FSRS v5)'}
             </h3>
             <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
               <div className="rounded-lg border border-slate-200/70 bg-white p-2.5 shadow-sm dark:border-slate-800 dark:bg-slate-900">

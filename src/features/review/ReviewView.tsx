@@ -32,6 +32,7 @@ export interface ReviewSessionState {
   clozeQuestions: ClozeQuestion[];
   sessionHistory: Array<{ word: WordItem; rating: number }>;
   isCompleted: boolean;
+  sessionType?: 'due' | 'cram';
 }
 
 export interface ReviewViewProps {
@@ -43,11 +44,14 @@ export interface ReviewViewProps {
   availableDates?: Array<{ date: string; count: number }>;
   reviewState: ReviewSessionState;
   setReviewState: React.Dispatch<React.SetStateAction<ReviewSessionState>>;
-  onStartReviewSession: (mode: ReviewMode, cards?: WordItem[]) => void;
+  onStartReviewSession: (mode: ReviewMode, cards?: WordItem[], sessionType?: 'due' | 'cram') => void;
   onSwitchReviewMode: (mode: ReviewMode) => void;
   onGradeReview: (rating: ReviewRating) => void;
   onGradeSingleWord?: (wordId: string, rating: ReviewRating) => Promise<void> | void;
   onGoToDeck: () => void;
+  isSubmitting?: boolean;
+  desiredRetention?: number;
+  queueStats?: import('../../types/vocab').ReviewQueueStats;
 }
 
 export const ReviewView: React.FC<ReviewViewProps> = ({
@@ -64,6 +68,9 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
   onGradeReview,
   onGradeSingleWord,
   onGoToDeck,
+  isSubmitting,
+  desiredRetention,
+  queueStats,
 }) => {
   const { language } = useLanguage();
 
@@ -77,6 +84,7 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
           reviewedTodayCount={reviewedTodayCount}
           dailyQuota={dailyQuota}
           streak={streak}
+          queueStats={queueStats}
           onStartSession={onStartReviewSession}
         />
       </div>
@@ -107,14 +115,22 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
         <div className="space-y-4">
           {/* Top Navigation & Mode Switcher Bar */}
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <button
-              type="button"
-              onClick={() => setReviewState((prev) => ({ ...prev, inProgress: false }))}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 shadow-sm transition-colors"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              <span>{language === 'vi' ? 'Quay lại Hub Ôn tập' : 'Back to Review Hub'}</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setReviewState((prev) => ({ ...prev, inProgress: false }))}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 shadow-sm transition-colors"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                <span>{language === 'vi' ? 'Quay lại Hub Ôn tập' : 'Back to Review Hub'}</span>
+              </button>
+
+              {reviewState.sessionType === 'cram' && (
+                <span className="inline-flex items-center gap-1 rounded-lg border border-amber-300/80 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-800 dark:border-amber-800/80 dark:bg-amber-950/40 dark:text-amber-300 shadow-sm">
+                  ⚡ {language === 'vi' ? 'Luyện thêm • Luyện tập mà không thay đổi lịch ôn' : 'Extra Practice • Practice without altering review schedule'}
+                </span>
+              )}
+            </div>
 
             {/* Quick Mode Switcher */}
             <div className="flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-slate-100/80 p-1 dark:border-slate-800 dark:bg-slate-900/60 shadow-sm">
@@ -165,6 +181,8 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
                 currentIndex={reviewState.currentIndex}
                 totalCards={reviewState.cards.length}
                 onGrade={onGradeReview}
+                isSubmitting={isSubmitting}
+                desiredRetention={desiredRetention}
                 onPrevCard={
                   reviewState.currentIndex > 0
                     ? () =>

@@ -1,6 +1,6 @@
 import { db } from './db';
 import type { WordItem } from '../types/vocab';
-import { createInitialReviewMeta } from './sm2';
+import { createInitialReviewMeta, migrateLegacyMetaToFSRS } from './fsrs/fsrsService';
 import { warmSearchCache } from './dictionary';
 
 export type MergePolicy = 'preserve-progress' | 'replace-progress';
@@ -75,11 +75,41 @@ export function mergeWordRecords(
   const mergedPhonetics = {
     us: incoming.phonetics?.us || existing.phonetics?.us || '',
     uk: incoming.phonetics?.uk || existing.phonetics?.uk || '',
+    audioUs: incoming.phonetics?.audioUs !== undefined && incoming.phonetics.audioUs !== ''
+      ? incoming.phonetics.audioUs
+      : existing.phonetics?.audioUs,
+    audioUk: incoming.phonetics?.audioUk !== undefined && incoming.phonetics.audioUk !== ''
+      ? incoming.phonetics.audioUk
+      : existing.phonetics?.audioUk,
   };
 
-  const vietnameseDef = incoming.vietnameseDefinition && incoming.vietnameseDefinition.trim()
-    ? incoming.vietnameseDefinition
-    : existing.vietnameseDefinition;
+  // Protect user-edited Vietnamese definition from background overwrite
+  const isExistingUserEdited = Boolean(
+    existing.isUserEdited ||
+    existing.vietnameseDefinitionProvenance?.isUserEdited ||
+    (typeof existing.vietnameseDefinitionProvenance === 'object' && existing.vietnameseDefinitionProvenance?.source === 'user_edit') ||
+    (existing.vietnameseDefinitionProvenance as unknown) === 'user_edit'
+  );
+  const isIncomingUserEdited = Boolean(
+    incoming.isUserEdited ||
+    incoming.vietnameseDefinitionProvenance?.isUserEdited ||
+    (typeof incoming.vietnameseDefinitionProvenance === 'object' && incoming.vietnameseDefinitionProvenance?.source === 'user_edit') ||
+    (incoming.vietnameseDefinitionProvenance as unknown) === 'user_edit'
+  );
+
+  let vietnameseDef = existing.vietnameseDefinition;
+  let mergedProvenance = existing.vietnameseDefinitionProvenance;
+
+  if (policy === 'replace-progress' || isIncomingUserEdited || !isExistingUserEdited) {
+    if (incoming.vietnameseDefinition && incoming.vietnameseDefinition.trim()) {
+      vietnameseDef = incoming.vietnameseDefinition;
+      mergedProvenance = incoming.vietnameseDefinitionProvenance || (
+        isIncomingUserEdited
+          ? { source: 'user_edit', isUserEdited: true, createdAt: Date.now() }
+          : existing.vietnameseDefinitionProvenance
+      );
+    }
+  }
 
   const englishDef = incoming.englishDefinition && incoming.englishDefinition.trim()
     ? incoming.englishDefinition
@@ -92,6 +122,21 @@ export function mergeWordRecords(
   const pos = incoming.pos && incoming.pos.length > 0
     ? incoming.pos
     : existing.pos || ['noun'];
+
+  // Merge linked variants uniquely
+  const existingVariants = Array.isArray(existing.linkedVariants) ? existing.linkedVariants : [];
+  const incomingVariants = Array.isArray(incoming.linkedVariants) ? incoming.linkedVariants : [];
+  const mergedVariants = Array.from(new Set([...existingVariants, ...incomingVariants]));
+
+  // Merge form labels uniquely
+  const existingFormLabels = Array.isArray(existing.formLabels) ? existing.formLabels : [];
+  const incomingFormLabels = Array.isArray(incoming.formLabels) ? incoming.formLabels : [];
+  const mergedFormLabels = Array.from(new Set([...existingFormLabels, ...incomingFormLabels]));
+
+  const lemma = incoming.lemma || existing.lemma;
+  const originalInput = incoming.originalInput || existing.originalInput;
+  const contextSentence = incoming.contextSentence || existing.contextSentence;
+  const inflections = incoming.inflections || existing.inflections;
 
   if (policy === 'replace-progress') {
     return {
@@ -107,12 +152,19 @@ export function mergeWordRecords(
       tags: mergedTags,
       phonetics: mergedPhonetics,
       vietnameseDefinition: vietnameseDef,
+      vietnameseDefinitionProvenance: mergedProvenance,
       englishDefinition: englishDef,
       meanings,
       collocations: mergedCollocations,
       wordFamily: mergedWf,
       examples: mergedExamples,
       pos,
+      lemma,
+      originalInput,
+      formLabels: mergedFormLabels.length > 0 ? mergedFormLabels : undefined,
+      linkedVariants: mergedVariants.length > 0 ? mergedVariants : undefined,
+      contextSentence,
+      inflections,
     };
   }
 
@@ -131,12 +183,19 @@ export function mergeWordRecords(
     // Update linguistic enrichments
     phonetics: mergedPhonetics,
     vietnameseDefinition: vietnameseDef,
+    vietnameseDefinitionProvenance: mergedProvenance,
     englishDefinition: englishDef,
     meanings,
     collocations: mergedCollocations,
     wordFamily: mergedWf,
     examples: mergedExamples,
     pos,
+    lemma,
+    originalInput,
+    formLabels: mergedFormLabels.length > 0 ? mergedFormLabels : undefined,
+    linkedVariants: mergedVariants.length > 0 ? mergedVariants : undefined,
+    contextSentence,
+    inflections,
   };
 }
 
@@ -326,6 +385,8 @@ export async function deleteWord(id: string): Promise<void> {
 export const saveWord = saveOrUpdateWord;
 
 export const vocabRepository = {
+  findWordByTerm,
+  getWordById,
   saveWord,
   saveOrUpdateWord,
   updateWord,
@@ -381,7 +442,9 @@ export async function importDeckFromJson(
         notes: item.notes || '',
         createdAt: item.createdAt || Date.now(),
         updatedAt: Date.now(),
-        reviewMeta: item.reviewMeta || createInitialReviewMeta(),
+        reviewMeta: item.reviewMeta
+          ? migrateLegacyMetaToFSRS(item.reviewMeta, item.createdAt || Date.now(), item.reviewMeta.dueDate)
+          : createInitialReviewMeta(item.createdAt || Date.now()),
       };
       validItems.push(wordRecord);
     }
@@ -393,3 +456,5 @@ export async function importDeckFromJson(
     return { imported: 0, skipped: 0, errors };
   }
 }
+
+

@@ -1,4 +1,4 @@
-import { Bookmark, BookmarkCheck, Edit3, Sparkles, Tag } from 'lucide-react';
+import { Bookmark, BookmarkCheck, Edit3, Tag } from 'lucide-react';
 import React, { useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
 import type { WordItem } from '../../types/vocab';
@@ -6,6 +6,7 @@ import { lookupWord } from '../../services/dictionary';
 import { createInitialReviewMeta } from '../../services/sm2';
 import { AudioButton } from '../common/AudioButton';
 import { WordFamilyInteractive } from '../common/WordFamilyInteractive';
+import { ProvenanceBadge } from '../common/ProvenanceBadge';
 import { parseMultipleMeanings } from '../../utils/definitionUtils';
 
 const EditableWordModal = React.lazy(() =>
@@ -16,7 +17,7 @@ interface WordCardProps {
   word: WordItem;
   onSaveToDeck: (word: WordItem) => void;
   isAlreadyInDeck: boolean;
-  onLookupWord?: (word: string) => void;
+  onLookupWord?: (word: string, contextSentence?: string) => void;
   deckWords?: WordItem[];
 }
 
@@ -100,16 +101,10 @@ export const WordCard: React.FC<WordCardProps> = ({
         id: `word-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         word: familyWord.toLowerCase(),
         pos: ['noun'],
-        vietnameseDefinition: `Ý nghĩa của "${familyWord}"`,
-        englishDefinition: `Definition for ${familyWord}`,
-        meanings: [
-          {
-            pos: 'noun',
-            englishDefinition: `Definition for ${familyWord}`,
-            vietnameseDefinition: `Ý nghĩa của "${familyWord}"`,
-          },
-        ],
-        phonetics: { us: `/${familyWord}/`, uk: `/${familyWord}/` },
+        vietnameseDefinition: '',
+        englishDefinition: '',
+        meanings: [],
+        phonetics: { us: '', uk: '' },
         collocations: [],
         wordFamily: [],
         examples: [],
@@ -118,6 +113,7 @@ export const WordCard: React.FC<WordCardProps> = ({
         createdAt: Date.now(),
         updatedAt: Date.now(),
         reviewMeta: createInitialReviewMeta(),
+        vietnameseDefinitionProvenance: { source: 'unknown' },
       });
     }
   };
@@ -190,6 +186,12 @@ export const WordCard: React.FC<WordCardProps> = ({
                 showLabel={false}
               />
             </div>
+            {/* Missing phonetics indicator */}
+            {!currentWord.phonetics.us && !currentWord.phonetics.uk && (
+              <span className="text-[11px] text-slate-400 italic py-1">
+                {language === 'vi' ? 'Chưa có phiên âm' : 'No phonetics'}
+              </span>
+            )}
           </div>
         </div>
 
@@ -239,13 +241,72 @@ export const WordCard: React.FC<WordCardProps> = ({
         </div>
       </div>
 
+      {/* Morphological Analysis Callout (Lemma & Grammatical Form) */}
+      {currentWord.lemma &&
+        (currentWord.lemma.toLowerCase() !== currentWord.word.toLowerCase() ||
+          (currentWord.originalInput && currentWord.originalInput.toLowerCase() !== currentWord.word.toLowerCase())) && (
+          <div className="rounded-xl border border-indigo-200/90 bg-indigo-50/70 p-4 dark:border-indigo-900/60 dark:bg-indigo-950/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in shadow-subtle">
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-0.5 text-xs font-bold text-white shadow-xs">
+                  💡 {language === 'vi' ? 'Từ nguyên mẫu:' : 'Lemma:'} {currentWord.lemma}
+                </span>
+                {currentWord.formLabels &&
+                  currentWord.formLabels.map((lbl, idx) => (
+                    <span
+                      key={idx}
+                      className="rounded-md border border-indigo-200 bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-indigo-800 dark:border-indigo-800 dark:bg-slate-900/80 dark:text-indigo-300"
+                    >
+                      {lbl}
+                    </span>
+                  ))}
+              </div>
+              <p className="text-xs text-slate-600 dark:text-slate-300">
+                {language === 'vi'
+                  ? `Được tra cứu từ dạng: "${currentWord.originalInput || currentWord.word}". Học từ gốc giúp mở rộng vốn từ TOEIC hiệu quả nhất.`
+                  : `Queried from variant: "${currentWord.originalInput || currentWord.word}". Learning root forms accelerates TOEIC progress.`}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              {currentWord.word.toLowerCase() !== currentWord.lemma.toLowerCase() ? (
+                <button
+                  type="button"
+                  onClick={() => onLookupWord?.(currentWord.lemma!)}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-500 active:scale-95 transition-all"
+                >
+                  <span>{language === 'vi' ? `Xem từ gốc "${currentWord.lemma}"` : `View lemma "${currentWord.lemma}"`}</span>
+                </button>
+              ) : currentWord.originalInput &&
+                currentWord.originalInput.toLowerCase() !== currentWord.word.toLowerCase() ? (
+                <button
+                  type="button"
+                  onClick={() => onLookupWord?.(currentWord.originalInput!)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 transition-all"
+                >
+                  <span>{language === 'vi' ? `Xem dạng "${currentWord.originalInput}"` : `View form "${currentWord.originalInput}"`}</span>
+                </button>
+              ) : null}
+            </div>
+          </div>
+        )}
+
       {/* Core Vietnamese Definition Card */}
       <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/40 p-4 sm:p-5 dark:border-emerald-900/40 dark:bg-emerald-950/20">
-        <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
-          <Sparkles className="h-3.5 w-3.5" />
-          <span>{t.lookup.meaningLabel}</span>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+            <span>{t.lookup.meaningLabel}</span>
+          </div>
+          <ProvenanceBadge provenance={currentWord.vietnameseDefinitionProvenance} />
         </div>
         {(() => {
+          if (!currentWord.vietnameseDefinition || !currentWord.vietnameseDefinition.trim()) {
+            return (
+              <p className="mt-2 text-sm italic text-slate-400 dark:text-slate-500">
+                {language === 'vi' ? 'Chưa có bản dịch tiếng Việt' : 'No Vietnamese translation available'}
+              </p>
+            );
+          }
           const senses = parseMultipleMeanings(currentWord.vietnameseDefinition);
           if (senses.length > 1) {
             return (
@@ -274,7 +335,54 @@ export const WordCard: React.FC<WordCardProps> = ({
             {currentWord.englishDefinition}
           </p>
         )}
+
+        {/* Provided Context Sentence if any */}
+        {currentWord.contextSentence && (
+          <div className="mt-3 rounded-lg border border-emerald-200/80 bg-white/70 p-3 text-xs dark:border-emerald-900/40 dark:bg-slate-900/60 space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-bold text-emerald-800 dark:text-emerald-300 uppercase tracking-wider text-[10px]">
+                {language === 'vi' ? 'Ngữ cảnh câu tra cứu:' : 'Provided Context Sentence:'}
+              </span>
+              {onLookupWord && (
+                <button
+                  type="button"
+                  onClick={() => onLookupWord(currentWord.originalInput || currentWord.word, currentWord.contextSentence)}
+                  className="text-[10px] font-semibold text-emerald-700 hover:text-emerald-800 dark:text-emerald-300 dark:hover:text-emerald-200 underline underline-offset-2 transition-colors"
+                >
+                  {language === 'vi' ? 'Dịch lại theo câu này' : 'Re-translate with this sentence'}
+                </button>
+              )}
+            </div>
+            <p className="text-slate-800 dark:text-slate-200 font-medium italic">
+              "{currentWord.contextSentence}"
+            </p>
+          </div>
+        )}
       </div>
+
+      {/* Inflections Grid */}
+      {currentWord.inflections && currentWord.inflections.length > 0 && (
+        <div className="rounded-xl border border-slate-200/80 bg-slate-50/50 p-4 dark:border-slate-800/80 dark:bg-slate-900/40 space-y-2.5">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            {language === 'vi' ? 'Bảng biến thể ngữ pháp (Inflections)' : 'Grammatical Inflections'}
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {currentWord.inflections.map((inf, idx) => (
+              <div
+                key={idx}
+                className="rounded-lg border border-slate-200/70 bg-white p-2.5 dark:border-slate-800 dark:bg-slate-900/80 shadow-xs"
+              >
+                <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider block">
+                  {inf.label || inf.form}
+                </span>
+                <p className="font-semibold text-xs text-slate-900 dark:text-slate-100 mt-0.5 font-mono">
+                  {inf.word || inf.form}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Grid: Collocations & Word Family */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -394,7 +502,7 @@ export const WordCard: React.FC<WordCardProps> = ({
           <form onSubmit={handleAddCustomTag} className="flex items-center">
             <input
               type="text"
-              placeholder="+ tag mới"
+              placeholder={language === 'vi' ? '+ tag mới' : '+ new tag'}
               value={newTagInput}
               onChange={(e) => setNewTagInput(e.target.value)}
               className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-800 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"

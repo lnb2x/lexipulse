@@ -18,6 +18,11 @@ export class LexiPulseDatabase extends Dexie {
       dailyStats: 'date, streak',
       settingsTable: 'key',
     });
+    this.version(3).stores({
+      words: 'id, word, status, createdAt, updatedAt, *tags, reviewMeta.dueDate',
+      dailyStats: 'date, streak',
+      settingsTable: 'key',
+    });
   }
 }
 

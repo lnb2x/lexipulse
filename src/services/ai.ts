@@ -1,4 +1,5 @@
-import type { AIProvider, CollocationItem, ExampleItem, WordFamilyItem } from '../types/vocab';
+import type { AIProvider, CollocationItem, ExampleItem, WordFamilyItem, InflectionItem } from '../types/vocab';
+import { getCachedAIEnrichment, setCachedAIEnrichment } from './ai/aiCache';
 
 export interface AIProviderConfig {
   id: AIProvider;
@@ -105,6 +106,9 @@ export interface AIEnrichmentResult {
   wordFamily: WordFamilyItem[];
   examples: ExampleItem[];
   tags: string[];
+  lemma?: string;
+  formLabels?: string[];
+  inflections?: InflectionItem[];
 }
 
 export interface AIRequestConfig {
@@ -118,20 +122,45 @@ export interface AIRequestConfig {
 
 /**
  * Concurrency limiter for background AI requests (max 2 concurrent)
+ * Drops aborted requests immediately from the waiting queue.
  */
 let activeAIRequests = 0;
 const aiQueue: Array<() => void> = [];
 
-async function acquireAISlot(): Promise<void> {
+async function acquireAISlot(signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
   if (activeAIRequests < 2) {
     activeAIRequests++;
     return;
   }
-  return new Promise<void>((resolve) => {
-    aiQueue.push(() => {
+  return new Promise<void>((resolve, reject) => {
+    let onAbort: (() => void) | undefined;
+    const task = () => {
+      if (onAbort && signal) {
+        signal.removeEventListener('abort', onAbort);
+      }
+      if (signal?.aborted) {
+        reject(new DOMException('Aborted', 'AbortError'));
+        return;
+      }
       activeAIRequests++;
       resolve();
-    });
+    };
+
+    if (signal) {
+      onAbort = () => {
+        const idx = aiQueue.indexOf(task);
+        if (idx !== -1) {
+          aiQueue.splice(idx, 1);
+        }
+        reject(new DOMException('Aborted', 'AbortError'));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    aiQueue.push(task);
   });
 }
 
@@ -293,6 +322,34 @@ export function validateAndNormalizeAIResponse(data: unknown): AIEnrichmentResul
     }
   }
 
+  // Lemma
+  const lemma = typeof obj.lemma === 'string' && obj.lemma.trim() ? obj.lemma.trim().toLowerCase() : undefined;
+
+  // Form labels
+  const formLabels: string[] = [];
+  if (Array.isArray(obj.formLabels)) {
+    for (const f of obj.formLabels) {
+      if (typeof f === 'string' && f.trim()) {
+        formLabels.push(f.trim());
+      }
+    }
+  }
+
+  // Inflections
+  const inflections: Array<{ form: string; label: string }> = [];
+  if (Array.isArray(obj.inflections)) {
+    for (const inf of obj.inflections) {
+      if (inf && typeof inf === 'object') {
+        const item = inf as Record<string, unknown>;
+        const form = typeof item.form === 'string' ? item.form.trim() : '';
+        const label = typeof item.label === 'string' ? item.label.trim() : '';
+        if (form && label) {
+          inflections.push({ form, label });
+        }
+      }
+    }
+  }
+
   return {
     ipaUs,
     ipaUk,
@@ -301,6 +358,9 @@ export function validateAndNormalizeAIResponse(data: unknown): AIEnrichmentResul
     wordFamily,
     examples,
     tags: tags.length > 0 ? tags : ['#TOEIC', '#AIEnriched'],
+    lemma,
+    formLabels: formLabels.length > 0 ? formLabels : undefined,
+    inflections: inflections.length > 0 ? inflections : undefined,
   };
 }
 
@@ -415,15 +475,8 @@ export async function testAIConnection(
           headers,
           body: JSON.stringify({
             model,
-            messages: [
-              {
-                role: 'system',
-                content: 'You are a test assistant. Always reply strictly in raw JSON without formatting.',
-              },
-              { role: 'user', content: testPrompt },
-            ],
-            temperature: 0.1,
-            max_tokens: 80,
+            messages: [{ role: 'user', content: testPrompt }],
+            max_tokens: 50,
           }),
         },
         config.timeoutMs || 7000,
@@ -444,7 +497,7 @@ export async function testAIConnection(
     const latencyMs = Date.now() - startTime;
     return {
       success: true,
-      message: `Kết nối thành công với ${providerInfo.name} (${model}) trong ${latencyMs}ms!`,
+      message: `Kết nối thành công tới ${providerInfo.name} (${model}) trong ${latencyMs}ms!`,
       latencyMs,
     };
   } catch (err: any) {
@@ -456,12 +509,14 @@ export async function testAIConnection(
 }
 
 /**
- * Enrich word definition, collocations, word family, and workplace examples via AI.
+ * Enrich word definition, collocations, word family, inflections, and workplace examples via AI.
+ * Context-aware and cached.
  */
 export async function enrichWordWithAI(
   word: string,
   pos: string,
-  config: AIRequestConfig
+  config: AIRequestConfig,
+  contextSentence?: string
 ): Promise<AIEnrichmentResult | null> {
   const provider = config.provider || 'gemini';
   const providerInfo = AI_PROVIDERS[provider] || AI_PROVIDERS.gemini;
@@ -474,38 +529,62 @@ export async function enrichWordWithAI(
     return null;
   }
 
+  // Check cache first (differentiating word, context, provider, model, pos, and endpoint)
+  const cached = getCachedAIEnrichment(word, contextSentence, provider, model, pos, baseUrl);
+  if (cached) {
+    return cached;
+  }
+
+  const contextPrompt = contextSentence?.trim()
+    ? `\nSentence context: "${contextSentence.trim()}".
+CRITICAL CONTEXT REQUIREMENT:
+- Determine the specific meaning and inflection form of "${word}" in this sentence.
+- The "vietnameseDefinition" MUST prioritize the meaning fitting this sentence context.
+- The first example in "examples" MUST be this exact sentence, with its precise Vietnamese translation preserving tense and tone.\n`
+    : `\nCRITICAL REQUIREMENT:
+- If "${word}" is polysemous (e.g. pool, plant, board, address), clearly number and explain its primary meanings (1. [Nghĩa 1]; 2. [Nghĩa 2]). Do not falsely claim only a single meaning exists.\n`;
+
   const prompt = `You are an expert English linguist and TOEIC/IELTS instructor. Analyze the English word or phrase "${word}" (primary part of speech: ${pos}).
+${contextPrompt}
+CRITICAL MORPHOLOGY REQUIREMENT:
+- If "${word}" is an inflected form (e.g. "went", "written", "working", "studies", "looked up"), set "lemma" to the base dictionary word (e.g. "go", "write", "work", "study", "look up"). If "${word}" is already the base word, set "lemma" to "${word}".
+- Identify the grammatical form of "${word}" in "formLabels" (e.g. ["Quá khứ đơn (V2)"] or ["Hiện tại phân từ (V-ing)"] or ["Danh từ số ít"]).
+- Provide an inflection overview in "inflections" (e.g. V1, V2, V3, V-ing, Plural).
+
 Respond ONLY with a valid JSON object matching this exact TypeScript structure:
 {
-  "ipaUs": "Standard US IPA pronunciation enclosed in slashes (e.g. '/ˈflɔːr.əl əˈreɪndʒ.mənt/' or '/puːl/')",
-  "ipaUk": "Standard UK IPA pronunciation enclosed in slashes (e.g. '/ˈflɔː.rəl əˈreɪndʒ.mənt/' or '/puːl/')",
-  "vietnameseDefinition": "Comprehensive, precise Vietnamese definition. IMPORTANT: For words or phrases with multiple distinct meanings (especially polysemous words like 'pool' which means 1. hồ bơi; 2. nhóm người, lực lượng sẵn có/nhân tài; 3. quỹ chung/góp vốn; or 'plant' = 1. thực vật; 2. nhà máy; or 'board' = 1. bảng; 2. ban quản trị/hội đồng; 3. lên tàu/xe), you MUST list all major primary senses clearly numbered: '1. [Nghĩa 1]; 2. [Nghĩa 2]; 3. [Nghĩa 3 nếu có]'",
+  "lemma": "base dictionary form",
+  "formLabels": ["e.g. Quá khứ đơn (V2)"],
+  "inflections": [
+    {"form": "base_or_inflected_word", "label": "V1 / V2 / V3 / V-ing / Plural"}
+  ],
+  "ipaUs": "Standard US IPA pronunciation enclosed in slashes (e.g. '/wɛnt/' or '/ɡoʊ/')",
+  "ipaUk": "Standard UK IPA pronunciation enclosed in slashes",
+  "vietnameseDefinition": "Comprehensive, precise Vietnamese definition. If context was provided, highlight the contextual meaning first.",
   "collocations": [
     {"phrase": "common collocation 1", "meaningVi": "nghĩa tiếng Việt 1"},
-    {"phrase": "workplace/TOEIC collocation 2", "meaningVi": "nghĩa tiếng Việt 2"},
-    {"phrase": "collocation 3 (illustrating second meaning if polysemous)", "meaningVi": "nghĩa tiếng Việt 3"}
+    {"phrase": "workplace/TOEIC collocation 2", "meaningVi": "nghĩa tiếng Việt 2"}
   ],
   "wordFamily": [
-    {"word": "derived_word_1", "pos": "noun/verb/adjective/adverb", "meaningVi": "nghĩa tiếng Việt"},
-    {"word": "derived_word_2", "pos": "noun/verb/adjective/adverb", "meaningVi": "nghĩa tiếng Việt"}
+    {"word": "derived_word_1", "pos": "noun/verb/adjective/adverb", "meaningVi": "nghĩa tiếng Việt"}
   ],
   "examples": [
     {
-      "en": "A clear general English sentence using '${word}'.",
-      "vi": "Dịch tiếng Việt câu thông dụng.",
+      "en": "Context or general English sentence.",
+      "vi": "Dịch tiếng Việt chuẩn xác.",
       "context": "general"
     },
     {
-      "en": "A realistic workplace or TOEIC context sentence using '${word}' (illustrating business or talent/resource meaning if applicable).",
-      "vi": "Dịch tiếng Việt câu ngữ cảnh TOEIC công sở.",
+      "en": "Realistic workplace or TOEIC sentence.",
+      "vi": "Dịch tiếng Việt ngữ cảnh công sở.",
       "context": "toeic"
     }
   ],
-  "tags": ["#TOEIC", "#Business", "#HighYield"]
+  "tags": ["#TOEIC", "#Business"]
 }
 Do not include markdown code block fences like \`\`\`json. Return raw JSON strictly.`;
 
-  await acquireAISlot();
+  await acquireAISlot(config.signal);
   try {
     let rawText = '';
 
@@ -595,7 +674,11 @@ Do not include markdown code block fences like \`\`\`json. Return raw JSON stric
 
     if (!rawText) return null;
     const parsed = extractJsonFromResponse(rawText);
-    return validateAndNormalizeAIResponse(parsed);
+    const normalized = validateAndNormalizeAIResponse(parsed);
+    if (normalized) {
+      setCachedAIEnrichment(word, normalized, contextSentence, provider, model, pos, baseUrl);
+    }
+    return normalized;
   } catch (err) {
     console.warn(`[AI Enrichment] ${provider} failed for "${word}":`, err);
     return null;

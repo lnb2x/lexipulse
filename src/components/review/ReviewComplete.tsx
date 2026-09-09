@@ -91,23 +91,33 @@ export const ReviewComplete: React.FC<ReviewCompleteProps> = ({
             {language === 'vi' ? 'Các thẻ đã ôn tập trong phiên này:' : 'Reviewed Cards in This Session:'}
           </span>
           <div className="mt-2 flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1">
-            {history.map((h, i) => (
-              <span
-                key={i}
-                className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium ${
-                  h.rating === 3
-                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800/80'
-                    : h.rating === 2
-                    ? 'bg-indigo-50 text-indigo-700 border border-indigo-200/80 dark:bg-indigo-950/50 dark:text-indigo-300 dark:border-indigo-800/80'
-                    : 'bg-rose-50 text-rose-700 border border-rose-200/80 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800/80'
-                }`}
-              >
-                <span className="font-semibold">{h.word.word}</span>
-                <span className="text-[10px] opacity-75">
-                  ({h.rating === 3 ? t.review.easyRating : h.rating === 2 ? t.review.goodRating : t.review.againRating})
+            {history.map((h, i) => {
+              let badgeColor = 'bg-rose-50 text-rose-700 border-rose-200/80 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800/80';
+              let ratingLabel = t.review.againRating;
+
+              if (h.rating === 4) {
+                badgeColor = 'bg-emerald-50 text-emerald-700 border-emerald-200/80 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800/80';
+                ratingLabel = t.review.easyRating;
+              } else if (h.rating === 3) {
+                badgeColor = 'bg-indigo-50 text-indigo-700 border-indigo-200/80 dark:bg-indigo-950/50 dark:text-indigo-300 dark:border-indigo-800/80';
+                ratingLabel = t.review.goodRating;
+              } else if (h.rating === 2) {
+                badgeColor = 'bg-amber-50 text-amber-700 border-amber-200/80 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800/80';
+                ratingLabel = t.review.hardRating;
+              }
+
+              return (
+                <span
+                  key={i}
+                  className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium border ${badgeColor}`}
+                >
+                  <span className="font-semibold">{h.word.word}</span>
+                  <span className="text-[10px] opacity-80 font-bold">
+                    ({ratingLabel})
+                  </span>
                 </span>
-              </span>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

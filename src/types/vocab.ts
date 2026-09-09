@@ -1,6 +1,19 @@
 export type WordStatus = 'new' | 'learning' | 'review_needed' | 'mastered';
 
-export type ReviewRating = 1 | 2 | 3; // 1: Again (1d), 2: Good (3d+), 3: Easy (7d+)
+export type ReviewRating = 1 | 2 | 3 | 4; // 1: Again, 2: Hard, 3: Good, 4: Easy
+export type LegacyReviewRating = 1 | 2 | 3;
+
+export interface FSRSCardData {
+  due: number; // timestamp in ms
+  stability: number; // S in days
+  difficulty: number; // D (1-10)
+  elapsed_days: number;
+  scheduled_days: number;
+  reps: number;
+  lapses: number;
+  state: number; // 0: New, 1: Learning, 2: Review, 3: Relearning
+  last_review: number | null; // timestamp in ms
+}
 
 export interface PhoneticInfo {
   us?: string;
@@ -42,15 +55,33 @@ export interface ReviewHistoryItem {
   interval: number;
   easeFactor: number;
   repetition: number;
+  reviewType?: 'scheduled' | 'cram';
+  fsrsState?: number;
+  stability?: number;
+  difficulty?: number;
+}
+
+export interface LegacyReviewMetaBackup {
+  repetition: number;
+  interval: number;
+  easeFactor: number;
+  dueDate: number;
+  lastReviewedDate: number | null;
+  history: ReviewHistoryItem[];
 }
 
 export interface ReviewMeta {
   repetition: number;
   interval: number; // in days
-  easeFactor: number; // SM-2 EF, starts at 2.5
+  easeFactor: number; // legacy EF kept for compatibility
   dueDate: number; // timestamp in ms
   lastReviewedDate: number | null;
   history: ReviewHistoryItem[];
+  // FSRS additions
+  fsrs?: FSRSCardData;
+  schedulerVersion?: 'fsrs-v5' | 'sm2-legacy';
+  isEstimated?: boolean;
+  legacyBackup?: LegacyReviewMetaBackup;
 }
 
 export interface SpellingSuggestion {
@@ -63,6 +94,52 @@ export interface SpellingSuggestion {
 
 export type WordSource = 'local' | 'online' | 'ai' | 'manual';
 export type EnrichmentStatus = 'completed' | 'pending' | 'failed' | 'manual';
+
+export interface LemmaCandidate {
+  lemma: string;
+  pos: string; // verb, noun, adj, adv
+  formLabel: string; // e.g. "Quá khứ đơn (V2)", "Quá khứ phân từ (V3)", "Dạng -ing", "Số nhiều", "Nguyên mẫu"
+  explanationVi?: string;
+  isAmbiguous?: boolean;
+}
+
+export interface InflectionItem {
+  form: string;
+  word?: string;
+  label?: string;
+}
+
+export interface MorphologicalAnalysis {
+  originalInput: string;
+  lemmaCandidates: LemmaCandidate[];
+  selectedLemma: string;
+  partOfSpeech: string[];
+  formLabels: string[];
+  contextSentence?: string;
+  senses: Array<{
+    meaningVi: string;
+    englishDef?: string;
+    pos: string;
+    context?: string;
+  }>;
+  inflections: InflectionItem[];
+  examples: ExampleItem[];
+  source: 'ai' | 'dictionary' | 'local' | 'rule-based';
+  needsDisambiguation?: boolean;
+  confidenceReason?: string;
+}
+
+export type DefinitionSourceType = 'ai' | 'dictionary' | 'machine' | 'user_edit' | 'unknown';
+
+export interface VietnameseDefinitionProvenance {
+  source: DefinitionSourceType;
+  provider?: string;
+  model?: string;
+  createdAt?: number;
+  isUserEdited?: boolean;
+  originalSource?: DefinitionSourceType;
+  confidenceReason?: string;
+}
 
 export interface WordItem {
   id: string;
@@ -84,6 +161,16 @@ export interface WordItem {
   suggestions?: SpellingSuggestion[];
   source?: WordSource;
   enrichmentStatus?: EnrichmentStatus;
+  // Morphological & Lemma features
+  lemma?: string;
+  originalInput?: string;
+  formLabels?: string[];
+  linkedVariants?: string[];
+  contextSentence?: string;
+  inflections?: InflectionItem[];
+  // Provenance tracking for Vietnamese translation
+  vietnameseDefinitionProvenance?: VietnameseDefinitionProvenance;
+  isUserEdited?: boolean;
 }
 
 export interface DailyStats {
@@ -103,11 +190,22 @@ export interface AppSettings {
   aiModel?: string;
   geminiApiKey: string; // legacy backward compatibility
   persistApiKey?: boolean; // Default false: keep in session only; opt-in for persistent storage
+  prioritizeAI?: boolean; // Default true when AI is configured
   speechRate: number;
   speechPitch: number;
   preferredAccent: 'US' | 'UK';
   dailyQuota: number;
   theme: 'dark' | 'light' | 'system';
+  desiredRetention?: 0.85 | 0.90 | 0.95; // default 0.90
+}
+
+export interface ReviewQueueStats {
+  dueCount: number;
+  overdueCount: number;
+  relearningCount: number;
+  nextDueTimestamp: number | null;
+  actualRetentionRate: number | null;
+  retentionSampleCount: number;
 }
 
 export interface FilterOptions {

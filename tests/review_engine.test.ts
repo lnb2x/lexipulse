@@ -8,6 +8,11 @@ import {
   DEFAULT_EASE_FACTOR,
 } from '../src/services/sm2';
 import {
+  applyFSRSReview,
+  previewFSRS,
+  migrateLegacyMetaToFSRS,
+} from '../src/services/fsrs/fsrsService';
+import {
   escapeRegex,
   fisherYatesShuffle,
   generateClozeQuestion,
@@ -157,112 +162,140 @@ describe('Phase 3: Review Engine Correctness & SM-2 Tests', () => {
     });
   });
 
-  describe('SM-2 Algorithm Boundary & Correctness', () => {
+  describe('FSRS Spaced Repetition Engine Correctness & Dynamics', () => {
     const fixedNow = 1700000000000;
     const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-    it('1. Rating 1 (Again): Resets repetition to 0, sets interval to 1 day, reduces EF', () => {
-      const meta = {
-        repetition: 3,
-        interval: 10,
-        easeFactor: 2.5,
-        dueDate: fixedNow,
-        lastReviewedDate: fixedNow - 10 * MS_PER_DAY,
-        history: [],
-      };
+    it('1. Rating 1 (Again): Triggers short-term relearning step without corrupting history', () => {
+      const initialMeta = createInitialReviewMeta(fixedNow);
+      const { nextMeta, newStatus } = calculateNextReview(initialMeta, 1, fixedNow);
 
-      const { nextMeta, newStatus } = calculateNextReview(meta, 1, fixedNow);
-
-      expect(nextMeta.repetition).toBe(0);
-      expect(nextMeta.interval).toBe(1);
-      expect(nextMeta.easeFactor).toBe(2.3); // 2.5 - 0.2
-      expect(nextMeta.dueDate).toBe(fixedNow + 1 * MS_PER_DAY);
       expect(newStatus).toBe('learning');
+      expect(nextMeta.fsrs).toBeDefined();
       expect(nextMeta.history.length).toBe(1);
+      expect(nextMeta.history[0].rating).toBe(1);
+      // Rating 1 enters short-term relearning (due within minutes, not jumping days ahead)
+      expect(nextMeta.dueDate).toBeLessThan(fixedNow + MS_PER_DAY);
+      expect(nextMeta.dueDate).toBeGreaterThanOrEqual(fixedNow);
     });
 
-    it('2. Minimum ease factor clamp at 1.3', () => {
-      let meta = {
-        repetition: 0,
-        interval: 1,
-        easeFactor: 1.4,
-        dueDate: fixedNow,
-        lastReviewedDate: fixedNow,
-        history: [],
+    it('2. 4-Rating Progression (Again, Hard, Good, Easy): Easy gives a significantly larger interval leap than Good/Hard', () => {
+      const initialMeta = createInitialReviewMeta(fixedNow);
+
+      const preview = previewFSRS(initialMeta, fixedNow, 0.90);
+      expect(preview[1]).toBeDefined(); // Again
+      expect(preview[2]).toBeDefined(); // Hard
+      expect(preview[3]).toBeDefined(); // Good
+      expect(preview[4]).toBeDefined(); // Easy
+
+      // Easy nextDue must be strictly greater than Good, which is >= Hard, which is > Again
+      expect(preview[4].nextDue).toBeGreaterThan(preview[3].nextDue);
+      expect(preview[3].nextDue).toBeGreaterThanOrEqual(preview[2].nextDue);
+      expect(preview[2].nextDue).toBeGreaterThan(preview[1].nextDue);
+
+      // Easy scheduled interval is multi-day even on first review, avoiding annoying premature repeats
+      expect(preview[4].scheduledDays).toBeGreaterThanOrEqual(2);
+    });
+
+    it('3. Reaches "mastered" threshold when repetition >= 4 and interval >= 21 days', () => {
+      const masteredCardMeta = {
+        ...createInitialReviewMeta(fixedNow),
+        repetition: 4,
+        interval: 25,
+        dueDate: fixedNow + 25 * MS_PER_DAY,
+        fsrs: {
+          due: fixedNow + 25 * MS_PER_DAY,
+          stability: 25,
+          difficulty: 3,
+          elapsed_days: 20,
+          scheduled_days: 25,
+          reps: 4,
+          lapses: 0,
+          state: 2, // Review state
+          last_review: fixedNow,
+        },
       };
 
-      // Two consecutive Again ratings
-      const step1 = calculateNextReview(meta, 1, fixedNow);
-      expect(step1.nextMeta.easeFactor).toBe(MIN_EASE_FACTOR); // clamped at 1.3
-
-      const step2 = calculateNextReview(step1.nextMeta, 1, fixedNow + MS_PER_DAY);
-      expect(step2.nextMeta.easeFactor).toBe(MIN_EASE_FACTOR); // remains at minimum 1.3
+      const status = computeWordStatus(masteredCardMeta);
+      expect(status).toBe('mastered');
     });
 
-    it('3. Rating 2 (Good) progression: 1 -> 3 -> interval * EF', () => {
-      let meta = createInitialReviewMeta();
-
-      // Step 1: Good
-      const r1 = calculateNextReview(meta, 2, fixedNow);
-      expect(r1.nextMeta.repetition).toBe(1);
-      expect(r1.nextMeta.interval).toBe(1);
-      expect(r1.nextMeta.easeFactor).toBe(2.5);
-
-      // Step 2: Good
-      const r2 = calculateNextReview(r1.nextMeta, 2, fixedNow + 1 * MS_PER_DAY);
-      expect(r2.nextMeta.repetition).toBe(2);
-      expect(r2.nextMeta.interval).toBe(3);
-
-      // Step 3: Good (interval = 3 * 2.5 = 7.5 -> 8 days)
-      const r3 = calculateNextReview(r2.nextMeta, 2, fixedNow + 4 * MS_PER_DAY);
-      expect(r3.nextMeta.repetition).toBe(3);
-      expect(r3.nextMeta.interval).toBe(8);
-    });
-
-    it('4. Rating 3 (Easy) progression: 2 -> 6 -> interval * EF * 1.3, increases EF up to 3.0', () => {
-      let meta = createInitialReviewMeta();
-
-      // Step 1: Easy
-      const r1 = calculateNextReview(meta, 3, fixedNow);
-      expect(r1.nextMeta.repetition).toBe(1);
-      expect(r1.nextMeta.interval).toBe(2);
-      expect(r1.nextMeta.easeFactor).toBe(2.65); // 2.5 + 0.15
-
-      // Step 2: Easy
-      const r2 = calculateNextReview(r1.nextMeta, 3, fixedNow + 2 * MS_PER_DAY);
-      expect(r2.nextMeta.repetition).toBe(2);
-      expect(r2.nextMeta.interval).toBe(6);
-      expect(r2.nextMeta.easeFactor).toBe(2.8); // 2.65 + 0.15
-    });
-
-    it('5. Reaches "mastered" threshold when repetition >= 4 and interval >= 21 days', () => {
-      const meta = {
-        repetition: 3,
-        interval: 15,
-        easeFactor: 2.5,
-        dueDate: fixedNow,
-        lastReviewedDate: fixedNow - 15 * MS_PER_DAY,
-        history: [],
-      };
-
-      // 15 * 2.5 = 37.5 -> 38 days interval, repetition = 4
-      const { nextMeta, newStatus } = calculateNextReview(meta, 2, fixedNow);
-      expect(nextMeta.repetition).toBe(4);
-      expect(nextMeta.interval).toBe(38);
-      expect(newStatus).toBe('mastered');
-    });
-
-    it('6. History is preserved and strictly immutable across review cycles', () => {
-      const initialMeta = createInitialReviewMeta();
-      const h1 = calculateNextReview(initialMeta, 2, fixedNow);
-      const h2 = calculateNextReview(h1.nextMeta, 3, fixedNow + 1 * MS_PER_DAY);
+    it('4. History is preserved and strictly immutable across review cycles', () => {
+      const initialMeta = createInitialReviewMeta(fixedNow);
+      const h1 = calculateNextReview(initialMeta, 3, fixedNow); // Good
+      const h2 = calculateNextReview(h1.nextMeta, 4, fixedNow + 3 * MS_PER_DAY); // Easy
 
       expect(h2.nextMeta.history.length).toBe(2);
-      expect(h2.nextMeta.history[0].rating).toBe(2);
-      expect(h2.nextMeta.history[1].rating).toBe(3);
+      expect(h2.nextMeta.history[0].rating).toBe(3);
+      expect(h2.nextMeta.history[1].rating).toBe(4);
       // Original objects unchanged
       expect(initialMeta.history.length).toBe(0);
       expect(h1.nextMeta.history.length).toBe(1);
+    });
+
+    it('5. Cram Mode (Extra Practice): Does NOT alter scheduled dueDate or SRS memory model', () => {
+      const scheduledMeta = createInitialReviewMeta(fixedNow);
+      const scheduledResult = applyFSRSReview(scheduledMeta, 3, fixedNow, 0.90, 'scheduled');
+
+      const originalDueDate = scheduledResult.nextMeta.dueDate;
+      const originalHistoryLen = scheduledResult.nextMeta.history.length;
+
+      // Now do a cram review
+      const cramResult = applyFSRSReview(scheduledResult.nextMeta, 4, fixedNow + 1000, 0.90, 'cram');
+
+      // Due date and history must NOT be mutated by cram session
+      expect(cramResult.nextMeta.dueDate).toBe(originalDueDate);
+      expect(cramResult.nextMeta.history.length).toBe(originalHistoryLen);
+    });
+
+    it('6. Preview consistency: previewFSRS matches applyFSRSReview exactly at the same timestamp', () => {
+      const meta = createInitialReviewMeta(fixedNow);
+      const preview = previewFSRS(meta, fixedNow, 0.90);
+      const executed = applyFSRSReview(meta, 3, fixedNow, 0.90, 'scheduled');
+
+      expect(executed.nextDue).toBe(preview[3].nextDue);
+      expect(executed.nextMeta.interval).toBe(preview[3].scheduledDays);
+    });
+
+    it('7. Lossless Migration: Preserves existing dueDate and legacy backup for rollback safety', () => {
+      const targetFutureDue = fixedNow + 14 * MS_PER_DAY;
+      const legacyMeta = {
+        repetition: 3,
+        interval: 10,
+        easeFactor: 2.5,
+        dueDate: targetFutureDue,
+        lastReviewedDate: fixedNow - 10 * MS_PER_DAY,
+        history: [
+          { date: fixedNow - 14 * MS_PER_DAY, rating: 2 as const, interval: 1, easeFactor: 2.5, repetition: 1 },
+          { date: fixedNow - 10 * MS_PER_DAY, rating: 3 as const, interval: 3, easeFactor: 2.65, repetition: 2 },
+        ],
+      };
+
+      const migrated = migrateLegacyMetaToFSRS(legacyMeta, fixedNow - 20 * MS_PER_DAY, targetFutureDue);
+
+      // Must preserve existing target future dueDate so cards do not all become due today
+      expect(migrated.dueDate).toBe(targetFutureDue);
+      expect(migrated.schedulerVersion).toBe('fsrs-v5');
+      expect(migrated.legacyBackup).toBeDefined();
+      expect(migrated.legacyBackup?.easeFactor).toBe(2.5);
+      expect(migrated.legacyBackup?.repetition).toBe(3);
+
+      // Idempotency: Running migration again must produce the exact same object
+      const secondMigration = migrateLegacyMetaToFSRS(migrated);
+      expect(secondMigration).toBe(migrated);
+    });
+
+    it('8. Desired Retention parameter affects interval scaling predictably', () => {
+      const meta = createInitialReviewMeta(fixedNow);
+
+      // High retention (95%) needs more frequent reviews (shorter interval)
+      const highRetentionPreview = previewFSRS(meta, fixedNow, 0.95);
+      // Lower retention (80%) can tolerate longer intervals
+      const lowRetentionPreview = previewFSRS(meta, fixedNow, 0.80);
+
+      expect(lowRetentionPreview[3].scheduledDays).toBeGreaterThanOrEqual(
+        highRetentionPreview[3].scheduledDays
+      );
     });
   });
 });

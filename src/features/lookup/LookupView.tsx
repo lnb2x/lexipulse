@@ -15,7 +15,7 @@ export interface LookupViewProps {
   } | null;
   allWords: WordItem[];
   isWordInDeck: (word: string) => boolean;
-  onSearch: (word: string) => void;
+  onSearch: (word: string, contextSentence?: string) => void;
   onSaveToDeck: (word: WordItem) => void;
 }
 

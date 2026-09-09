@@ -1,11 +1,13 @@
 import { db } from './db/schema';
 import { SEED_WORDS } from './db/seedData';
 import { DEFAULT_SETTINGS } from './db/statsRepo';
+import { runFSRSMigration } from './db/migration';
 import { formatLocalDate } from '../utils/dateUtils';
 
 // Re-export core modules
 export { db, LexiPulseDatabase } from './db/schema';
 export { SEED_WORDS } from './db/seedData';
+export { runFSRSMigration } from './db/migration';
 export {
   DEFAULT_SETTINGS,
   getAppSettings,
@@ -39,6 +41,7 @@ export interface InitializeDbOptions {
  * Initializes database idempotently.
  * - Demo words are strictly opt-in (fresh database has 0 words by default).
  * - Fresh database has authentic 0 reviews and 0 streak (no fake historical activity).
+ * - Automatically performs idempotent FSRS migration for existing words.
  * - Safe for React 19 StrictMode double-execution.
  */
 export async function initializeDatabase(options: InitializeDbOptions = {}): Promise<void> {
@@ -55,6 +58,9 @@ export async function initializeDatabase(options: InitializeDbOptions = {}): Pro
   if (!settings) {
     await db.settingsTable.put({ key: 'appSettings', value: DEFAULT_SETTINGS });
   }
+
+  // Idempotently migrate all words to FSRS if not yet migrated
+  await runFSRSMigration();
 
   // Ensure today's stats exist without creating fake streaks or review activity
   const todayStats = await db.dailyStats.get(todayDateStr);

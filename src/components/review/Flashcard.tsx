@@ -1,12 +1,23 @@
 import { ChevronLeft, ChevronRight, RotateCw } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
-import { formatInterval } from '../../services/sm2';
+import { previewFSRS } from '../../services/fsrs/fsrsService';
 import type { ReviewRating, WordItem } from '../../types/vocab';
 import { AudioButton } from '../common/AudioButton';
 import { Badge } from '../common/Badge';
 import { WordFamilyInteractive } from '../common/WordFamilyInteractive';
 import { parseMultipleMeanings } from '../../utils/definitionUtils';
+
+function formatInterval(days: number, language: 'vi' | 'en' = 'vi'): string {
+  if (!days || days < 1) return language === 'vi' ? '< 1 ngày' : '< 1 day';
+  if (days < 30) return `${Math.round(days)}${language === 'vi' ? ' ngày' : 'd'}`;
+  if (days < 365) {
+    const m = Math.round(days / 30);
+    return `${m}${language === 'vi' ? ' tháng' : 'm'}`;
+  }
+  const y = (days / 365).toFixed(1);
+  return `${y}${language === 'vi' ? ' năm' : 'y'}`;
+}
 
 interface FlashcardProps {
   word: WordItem;
@@ -15,6 +26,8 @@ interface FlashcardProps {
   onGrade: (rating: ReviewRating) => void;
   onPrevCard?: () => void;
   onNextCard?: () => void;
+  isSubmitting?: boolean;
+  desiredRetention?: number;
 }
 
 export const Flashcard: React.FC<FlashcardProps> = ({
@@ -24,16 +37,23 @@ export const Flashcard: React.FC<FlashcardProps> = ({
   onGrade,
   onPrevCard,
   onNextCard,
+  isSubmitting = false,
+  desiredRetention = 0.90,
 }) => {
   const { language, t } = useLanguage();
   const [isFlipped, setIsFlipped] = useState(false);
+
+  // Compute live FSRS scheduling previews
+  const preview = useMemo(() => {
+    return previewFSRS(word.reviewMeta, Date.now(), desiredRetention);
+  }, [word.id, word.reviewMeta, desiredRetention]);
 
   // Reset flip state when card changes
   useEffect(() => {
     setIsFlipped(false);
   }, [word.id]);
 
-  // Keyboard shortcut listener for Space (flip), 1/2/3 (grade), and Arrow Left/Right (nav)
+  // Keyboard shortcut listener: Space (flip), 1/2/3/4 (grade, only after flipped), Arrows (nav)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't trigger if user is typing in an input
@@ -44,15 +64,20 @@ export const Flashcard: React.FC<FlashcardProps> = ({
       if (e.code === 'Space') {
         e.preventDefault();
         setIsFlipped((prev) => !prev);
-      } else if (e.key === '1') {
-        e.preventDefault();
-        onGrade(1);
-      } else if (e.key === '2') {
-        e.preventDefault();
-        onGrade(2);
-      } else if (e.key === '3') {
-        e.preventDefault();
-        onGrade(3);
+      } else if (isFlipped && !isSubmitting) {
+        if (e.key === '1') {
+          e.preventDefault();
+          onGrade(1);
+        } else if (e.key === '2') {
+          e.preventDefault();
+          onGrade(2);
+        } else if (e.key === '3') {
+          e.preventDefault();
+          onGrade(3);
+        } else if (e.key === '4') {
+          e.preventDefault();
+          onGrade(4);
+        }
       } else if (e.key === 'ArrowLeft' && onPrevCard) {
         e.preventDefault();
         onPrevCard();
@@ -64,7 +89,7 @@ export const Flashcard: React.FC<FlashcardProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onGrade, onPrevCard, onNextCard]);
+  }, [isFlipped, isSubmitting, onGrade, onPrevCard, onNextCard]);
 
   // Highlight target word in example sentence
   const renderHighlightedExample = (sentence: string, target: string) => {
@@ -135,7 +160,7 @@ export const Flashcard: React.FC<FlashcardProps> = ({
         <div className="flex items-center gap-2">
           <Badge status={word.status} size="sm" />
           <span className="text-[11px] font-mono font-medium text-slate-400 dark:text-slate-500">
-            {language === 'vi' ? 'Chu kỳ' : 'Interval'}: {formatInterval(word.reviewMeta.interval)}
+            {language === 'vi' ? 'Chu kỳ' : 'Interval'}: {formatInterval(word.reviewMeta.interval, language)}
           </span>
         </div>
       </div>
@@ -318,54 +343,102 @@ export const Flashcard: React.FC<FlashcardProps> = ({
 
             {/* Bottom Flip Reminder */}
             <div className="text-center text-[11px] text-slate-400 border-t border-slate-100 pt-2 dark:border-slate-800">
-              Grade your recall below or press numbers <kbd className="kbd-shortcut">1</kbd>, <kbd className="kbd-shortcut">2</kbd>, <kbd className="kbd-shortcut">3</kbd>
+              {t.review.flipPrompt}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Self-grading Action Controls (Module C.1) */}
-      <div className="grid grid-cols-3 gap-3 pt-1">
+      {/* Flip requirement helper banner when unflipped */}
+      {!isFlipped && (
+        <div className="text-center text-xs font-medium text-amber-700 bg-amber-50/90 dark:bg-amber-950/40 dark:text-amber-300 py-2 px-3 rounded-xl border border-amber-200/80 dark:border-amber-900/60 transition-all flex items-center justify-center gap-2">
+          <span>{t.review.flipToGradePrompt}</span>
+        </div>
+      )}
+
+      {/* Self-grading Action Controls (FSRS 4-level rating) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
         {/* Rating 1: Again */}
         <button
           type="button"
+          disabled={!isFlipped || isSubmitting}
           onClick={() => onGrade(1)}
-          className="flex flex-col items-center justify-center rounded-xl border border-rose-200 bg-rose-50/60 p-3 text-rose-700 transition-all hover:bg-rose-100/70 hover:border-rose-300 active:scale-[0.98] shadow-sm dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300"
+          className={`flex flex-col items-center justify-center rounded-xl border p-2.5 text-rose-700 transition-all shadow-sm dark:text-rose-300 ${
+            !isFlipped || isSubmitting
+              ? 'border-rose-100 bg-rose-50/30 dark:border-rose-950 dark:bg-rose-950/10 opacity-40 cursor-not-allowed'
+              : 'border-rose-200 bg-rose-50/70 hover:bg-rose-100 hover:border-rose-300 active:scale-[0.98] dark:border-rose-900/60 dark:bg-rose-950/40 dark:hover:bg-rose-950/70'
+          }`}
+          title={isFlipped ? 'Again' : t.review.flipToGradePrompt}
         >
           <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm">
             <span>{t.review.againRating}</span>
             <kbd className="rounded bg-rose-200/80 px-1.5 py-0.5 text-[10px] font-mono dark:bg-rose-800/80 font-bold">1</kbd>
           </div>
-          <span className="text-[11px] opacity-75 mt-0.5 font-medium">1 {language === 'vi' ? 'ngày' : 'day'}</span>
-        </button>
-
-        {/* Rating 2: Good */}
-        <button
-          type="button"
-          onClick={() => onGrade(2)}
-          className="flex flex-col items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50/60 p-3 text-indigo-700 transition-all hover:bg-indigo-100/70 hover:border-indigo-300 active:scale-[0.98] shadow-sm dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:text-indigo-300"
-        >
-          <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm">
-            <span>{t.review.goodRating}</span>
-            <kbd className="rounded bg-indigo-200/80 px-1.5 py-0.5 text-[10px] font-mono dark:bg-indigo-800/80 font-bold">2</kbd>
-          </div>
-          <span className="text-[11px] opacity-75 mt-0.5 font-medium">
-            {word.reviewMeta.repetition === 0 ? (language === 'vi' ? '1 ngày' : '1 day') : (language === 'vi' ? '3+ ngày' : '3+ days')}
+          <span className="text-[11px] opacity-80 mt-0.5 font-semibold text-rose-800 dark:text-rose-200">
+            {language === 'vi' ? preview[1].intervalTextVi : preview[1].intervalTextEn}
           </span>
         </button>
 
-        {/* Rating 3: Easy */}
+        {/* Rating 2: Hard */}
         <button
           type="button"
+          disabled={!isFlipped || isSubmitting}
+          onClick={() => onGrade(2)}
+          className={`flex flex-col items-center justify-center rounded-xl border p-2.5 text-amber-700 transition-all shadow-sm dark:text-amber-300 ${
+            !isFlipped || isSubmitting
+              ? 'border-amber-100 bg-amber-50/30 dark:border-amber-950 dark:bg-amber-950/10 opacity-40 cursor-not-allowed'
+              : 'border-amber-200 bg-amber-50/70 hover:bg-amber-100 hover:border-amber-300 active:scale-[0.98] dark:border-amber-900/60 dark:bg-amber-950/40 dark:hover:bg-amber-950/70'
+          }`}
+          title={isFlipped ? 'Hard' : t.review.flipToGradePrompt}
+        >
+          <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm">
+            <span>{t.review.hardRating}</span>
+            <kbd className="rounded bg-amber-200/80 px-1.5 py-0.5 text-[10px] font-mono dark:bg-amber-800/80 font-bold">2</kbd>
+          </div>
+          <span className="text-[11px] opacity-80 mt-0.5 font-semibold text-amber-800 dark:text-amber-200">
+            {language === 'vi' ? preview[2].intervalTextVi : preview[2].intervalTextEn}
+          </span>
+        </button>
+
+        {/* Rating 3: Good */}
+        <button
+          type="button"
+          disabled={!isFlipped || isSubmitting}
           onClick={() => onGrade(3)}
-          className="flex flex-col items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 text-emerald-700 transition-all hover:bg-emerald-100/70 hover:border-emerald-300 active:scale-[0.98] shadow-sm dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300"
+          className={`flex flex-col items-center justify-center rounded-xl border p-2.5 text-indigo-700 transition-all shadow-sm dark:text-indigo-300 ${
+            !isFlipped || isSubmitting
+              ? 'border-indigo-100 bg-indigo-50/30 dark:border-indigo-950 dark:bg-indigo-950/10 opacity-40 cursor-not-allowed'
+              : 'border-indigo-200 bg-indigo-50/70 hover:bg-indigo-100 hover:border-indigo-300 active:scale-[0.98] dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:hover:bg-indigo-950/70'
+          }`}
+          title={isFlipped ? 'Good' : t.review.flipToGradePrompt}
+        >
+          <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm">
+            <span>{t.review.goodRating}</span>
+            <kbd className="rounded bg-indigo-200/80 px-1.5 py-0.5 text-[10px] font-mono dark:bg-indigo-800/80 font-bold">3</kbd>
+          </div>
+          <span className="text-[11px] opacity-80 mt-0.5 font-semibold text-indigo-800 dark:text-indigo-200">
+            {language === 'vi' ? preview[3].intervalTextVi : preview[3].intervalTextEn}
+          </span>
+        </button>
+
+        {/* Rating 4: Easy */}
+        <button
+          type="button"
+          disabled={!isFlipped || isSubmitting}
+          onClick={() => onGrade(4)}
+          className={`flex flex-col items-center justify-center rounded-xl border p-2.5 text-emerald-700 transition-all shadow-sm dark:text-emerald-300 ${
+            !isFlipped || isSubmitting
+              ? 'border-emerald-100 bg-emerald-50/30 dark:border-emerald-950 dark:bg-emerald-950/10 opacity-40 cursor-not-allowed'
+              : 'border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100 hover:border-emerald-300 active:scale-[0.98] dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:hover:bg-emerald-950/70'
+          }`}
+          title={isFlipped ? 'Easy' : t.review.flipToGradePrompt}
         >
           <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm">
             <span>{t.review.easyRating}</span>
-            <kbd className="rounded bg-emerald-200/80 px-1.5 py-0.5 text-[10px] font-mono dark:bg-emerald-800/80 font-bold">3</kbd>
+            <kbd className="rounded bg-emerald-200/80 px-1.5 py-0.5 text-[10px] font-mono dark:bg-emerald-800/80 font-bold">4</kbd>
           </div>
-          <span className="text-[11px] opacity-75 mt-0.5 font-medium">
-            {word.reviewMeta.repetition === 0 ? (language === 'vi' ? '2 ngày' : '2 days') : (language === 'vi' ? '7+ ngày' : '7+ days')}
+          <span className="text-[11px] opacity-80 mt-0.5 font-semibold text-emerald-800 dark:text-emerald-200">
+            {language === 'vi' ? preview[4].intervalTextVi : preview[4].intervalTextEn}
           </span>
         </button>
       </div>

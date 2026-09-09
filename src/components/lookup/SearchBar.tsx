@@ -3,12 +3,14 @@ import React, { useEffect, useMemo, useRef, useState, useDeferredValue } from 'r
 import { useLanguage } from '../../context/LanguageContext';
 import type { WordItem, SpellingSuggestion } from '../../types/vocab';
 import { LOCAL_KNOWLEDGE_BASE, getSpellingSuggestions } from '../../services/dictionary';
+import { analyzeMorphology } from '../../services/morphology/lemmatizer';
 import { findFuzzyMatches } from '../../utils/fuzzySearch';
 
 interface SearchBarProps {
-  onSearch: (word: string) => void;
+  onSearch: (word: string, contextSentence?: string) => void;
   isLoading: boolean;
   deckWords?: WordItem[];
+  initialContextSentence?: string;
 }
 
 const QUICK_RECOMMENDATIONS = ['negotiate', 'feasible', 'implement', 'compliance', 'facilitate', 'collaborate', 'perspective', 'innovative'];
@@ -30,9 +32,16 @@ const STATIC_LOCAL_KB_ITEMS: KbItem[] = Object.entries(LOCAL_KNOWLEDGE_BASE).map
   source: 'builtin' as const,
 }));
 
-export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isLoading, deckWords = [] }) => {
-  const { t } = useLanguage();
+export const SearchBar: React.FC<SearchBarProps> = ({
+  onSearch,
+  isLoading,
+  deckWords = [],
+  initialContextSentence = '',
+}) => {
+  const { language, t } = useLanguage();
   const [query, setQuery] = useState('');
+  const [contextSentence, setContextSentence] = useState(initialContextSentence);
+  const [showContextInput, setShowContextInput] = useState(Boolean(initialContextSentence));
   const deferredQuery = useDeferredValue(query);
   const [isOpen, setIsOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
@@ -234,19 +243,36 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isLoading, deckW
       .slice(0, 4);
   }, [deferredQuery, exactSuggestions, deckWords, deckWordMap, onlineFuzzySuggestions]);
 
+  // Morphological base form recognition
+  const morphologicalMatch = useMemo(() => {
+    const q = deferredQuery.trim().toLowerCase();
+    if (!q || q.length < 3) return null;
+    const analysis = analyzeMorphology(q);
+    if (analysis.selectedLemma && analysis.selectedLemma.toLowerCase() !== q) {
+      return analysis;
+    }
+    return null;
+  }, [deferredQuery]);
+
   // Combined list for keyboard navigation
   const allSelectableWords = useMemo(() => {
     return [
+      ...(morphologicalMatch ? [morphologicalMatch.selectedLemma] : []),
       ...exactSuggestions.map((e) => e.word),
       ...combinedFuzzySuggestions.map((f) => f.word),
     ];
-  }, [exactSuggestions, combinedFuzzySuggestions]);
+  }, [morphologicalMatch, exactSuggestions, combinedFuzzySuggestions]);
 
   const handleSelectWord = (word: string) => {
     setQuery(word);
     setIsOpen(false);
     saveToHistory(word);
-    onSearch(word);
+    const trimmedContext = contextSentence.trim();
+    if (trimmedContext) {
+      onSearch(word, trimmedContext);
+    } else {
+      onSearch(word);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -274,7 +300,10 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isLoading, deckW
     }
   };
 
-  const hasSuggestions = exactSuggestions.length > 0 || combinedFuzzySuggestions.length > 0;
+  const hasSuggestions =
+    Boolean(morphologicalMatch) ||
+    exactSuggestions.length > 0 ||
+    combinedFuzzySuggestions.length > 0;
 
   return (
     <div ref={wrapperRef} className="relative w-full max-w-2xl mx-auto space-y-2.5">
@@ -341,6 +370,46 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isLoading, deckW
       {/* Autocomplete & Fuzzy Suggestion Dropdown */}
       {isOpen && (hasSuggestions || (query.trim() === '' && history.length > 0)) && (
         <div className="absolute left-0 right-0 top-12 z-50 overflow-hidden rounded-xl border border-slate-200/90 bg-white/95 p-1.5 shadow-dropdown backdrop-blur-md dark:border-slate-800 dark:bg-[#121824]/95 space-y-1.5 divide-y divide-slate-100 dark:divide-slate-800/80">
+          {/* Morphological Lemma Recommendation */}
+          {morphologicalMatch && (
+            <div className="p-1">
+              <button
+                type="button"
+                onClick={() => handleSelectWord(morphologicalMatch.selectedLemma)}
+                onMouseEnter={() => setSelectedIndex(0)}
+                className={`flex w-full items-center justify-between rounded-xl p-2.5 text-left transition-all ${
+                  selectedIndex === 0
+                    ? 'bg-indigo-100/90 text-indigo-950 dark:bg-indigo-900/60 dark:text-white'
+                    : 'bg-indigo-50/80 text-indigo-900 hover:bg-indigo-100/70 dark:bg-indigo-950/40 dark:text-indigo-200 dark:hover:bg-indigo-900/50'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-xs text-white shadow-xs">
+                    💡
+                  </span>
+                  <div className="space-y-0.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        {language === 'vi' ? 'Từ gốc:' : 'Lemma:'}
+                      </span>
+                      <span className="font-bold text-sm text-indigo-700 dark:text-indigo-300 underline decoration-indigo-400 underline-offset-2">
+                        {morphologicalMatch.selectedLemma}
+                      </span>
+                      {morphologicalMatch.formLabels.length > 0 && (
+                        <span className="rounded bg-indigo-200/80 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-900 dark:bg-indigo-900 dark:text-indigo-200">
+                          {morphologicalMatch.formLabels.join(', ')}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 shrink-0">
+                  {language === 'vi' ? 'Tra cứu từ gốc →' : 'Lookup root →'}
+                </span>
+              </button>
+            </div>
+          )}
+
           {/* 1. Exact / Substring matches */}
           {exactSuggestions.length > 0 && (
             <div className="space-y-1">
@@ -348,7 +417,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isLoading, deckW
                 {t.lookup.instantMatches}
               </div>
               {exactSuggestions.map((item, idx) => {
-                const globalIdx = idx;
+                const globalIdx = idx + (morphologicalMatch ? 1 : 0);
                 const isSelected = selectedIndex === globalIdx;
                 return (
                   <button
@@ -390,7 +459,8 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isLoading, deckW
                 <span>{t.lookup.fuzzySuggestionTitle}</span>
               </div>
               {combinedFuzzySuggestions.map((item, idx) => {
-                const globalIdx = exactSuggestions.length + idx;
+                const globalIdx =
+                  idx + exactSuggestions.length + (morphologicalMatch ? 1 : 0);
                 const isSelected = selectedIndex === globalIdx;
                 return (
                   <button
@@ -468,6 +538,49 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isLoading, deckW
           )}
         </div>
       )}
+
+      {/* Context sentence input toggle */}
+      <div className="space-y-1.5 pt-0.5">
+        <div className="flex items-center justify-between px-1">
+          <button
+            type="button"
+            onClick={() => setShowContextInput((prev) => !prev)}
+            className="inline-flex items-center gap-1.5 text-[11px] font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 transition-colors"
+          >
+            <Sparkles className="h-3 w-3" />
+            <span>
+              {showContextInput
+                ? (language === 'vi' ? 'Ẩn câu ngữ cảnh' : 'Hide context sentence')
+                : (language === 'vi' ? '+ Thêm câu ngữ cảnh để AI dịch đúng nghĩa' : '+ Add context sentence for AI translation')}
+            </span>
+          </button>
+          {contextSentence.trim() && (
+            <button
+              type="button"
+              onClick={() => setContextSentence('')}
+              className="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+            >
+              {language === 'vi' ? 'Xóa câu ngữ cảnh' : 'Clear context'}
+            </button>
+          )}
+        </div>
+
+        {showContextInput && (
+          <div className="relative animate-fade-in">
+            <input
+              type="text"
+              value={contextSentence}
+              onChange={(e) => setContextSentence(e.target.value)}
+              placeholder={
+                language === 'vi'
+                  ? 'Nhập câu chứa từ (ví dụ: She went to the regional office for the annual inspection)...'
+                  : 'Enter a sentence with the word (e.g.: She went to the regional office...)...'
+              }
+              className="w-full rounded-xl border border-indigo-200/90 bg-indigo-50/50 py-2 px-3 text-xs text-slate-900 placeholder-slate-400 transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-indigo-900/60 dark:bg-indigo-950/30 dark:text-slate-100 dark:placeholder-slate-500"
+            />
+          </div>
+        )}
+      </div>
 
       {/* Quick search recommendation chips */}
       <div className="flex items-center gap-1.5 overflow-x-auto py-1 text-xs text-slate-500 dark:text-slate-400 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">

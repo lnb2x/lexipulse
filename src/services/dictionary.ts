@@ -2,6 +2,7 @@ import { db, getAppSettings } from './db';
 import { createInitialReviewMeta } from './sm2';
 import { enrichWordWithAI } from './ai';
 import { vocabRepository } from './vocabRepository';
+import { analyzeMorphology } from './morphology/lemmatizer';
 import type { MeaningItem, SpellingSuggestion, WordFamilyItem, WordItem } from '../types/vocab';
 import { findFuzzyMatches, stringSimilarity } from '../utils/fuzzySearch';
 
@@ -65,6 +66,7 @@ export class WordNotFoundError extends Error {
 export interface LookupOptions {
   signal?: AbortSignal;
   onEnriched?: (word: WordItem) => void;
+  skipBackgroundAi?: boolean;
 }
 
 /**
@@ -279,11 +281,12 @@ async function scheduleBackgroundEnrichment(
       }
 
       // 2. AI Enrichment if configured
+      let aiData: any = null;
       try {
         const settings = await getAppSettings();
         const apiKey = settings.aiApiKey || settings.geminiApiKey;
         if (settings.aiProvider === 'custom' || (apiKey && apiKey.trim().length >= 5)) {
-          const aiData = await enrichWordWithAI(query, mainPos, {
+          aiData = await enrichWordWithAI(query, mainPos, {
             provider: settings.aiProvider || 'gemini',
             apiKey: (apiKey || '').trim(),
             baseUrl: settings.aiBaseUrl,
@@ -322,6 +325,9 @@ async function scheduleBackgroundEnrichment(
         examples: richExamples,
         tags,
         updatedAt: Date.now(),
+        lemma: aiData?.lemma || baseWord.lemma,
+        formLabels: aiData?.formLabels || baseWord.formLabels,
+        inflections: aiData?.inflections || baseWord.inflections,
       };
 
       WORD_LRU_CACHE.set(query, enrichedWord);
@@ -376,7 +382,7 @@ export async function lookupWord(rawWord: string, options?: LookupOptions): Prom
   // Tier 0: Check in-memory LRU cache (<0.1ms)
   const cachedWord = WORD_LRU_CACHE.get(query);
   if (cachedWord) {
-    if (options?.onEnriched) {
+    if (options?.onEnriched && !options?.skipBackgroundAi) {
       scheduleBackgroundEnrichment(cachedWord, signal, options.onEnriched);
     }
     return cachedWord;
@@ -385,7 +391,7 @@ export async function lookupWord(rawWord: string, options?: LookupOptions): Prom
   // Check In-Flight Lookups (deduplicate simultaneous requests for same word)
   if (IN_FLIGHT_LOOKUPS.has(query)) {
     const inFlightPromise = IN_FLIGHT_LOOKUPS.get(query)!;
-    if (options?.onEnriched) {
+    if (options?.onEnriched && !options?.skipBackgroundAi) {
       inFlightPromise
         .then((w) => {
           scheduleBackgroundEnrichment(w, signal, options.onEnriched);
@@ -401,7 +407,7 @@ export async function lookupWord(rawWord: string, options?: LookupOptions): Prom
       const existingInDb = await db.words.where('word').equals(query).first();
       if (existingInDb) {
         WORD_LRU_CACHE.set(query, existingInDb);
-        if (options?.onEnriched) {
+        if (options?.onEnriched && !options?.skipBackgroundAi) {
           scheduleBackgroundEnrichment(existingInDb, signal, options.onEnriched);
         }
         return existingInDb;
@@ -426,6 +432,10 @@ export async function lookupWord(rawWord: string, options?: LookupOptions): Prom
 
     if (localMatch) {
       const now = Date.now();
+      const morphology = analyzeMorphology(query);
+      const lemma = morphology.selectedLemma || query;
+      const isInflected = lemma.toLowerCase() !== query.toLowerCase();
+
       const wordItem: WordItem = {
         id: `word-${now}-${Math.random().toString(36).slice(2, 7)}`,
         word: query,
@@ -455,7 +465,13 @@ export async function lookupWord(rawWord: string, options?: LookupOptions): Prom
         updatedAt: now,
         reviewMeta: createInitialReviewMeta(),
         source: 'local',
+        vietnameseDefinitionProvenance: localMatch.vi ? { source: 'dictionary', createdAt: now } : undefined,
         enrichmentStatus: 'completed',
+        lemma,
+        originalInput: query,
+        formLabels: morphology.formLabels.length > 0 ? morphology.formLabels : undefined,
+        linkedVariants: isInflected ? [query.toLowerCase()] : undefined,
+        inflections: morphology.inflections.length > 0 ? morphology.inflections : undefined,
       };
 
       WORD_LRU_CACHE.set(query, wordItem);
@@ -597,6 +613,10 @@ export async function lookupWord(rawWord: string, options?: LookupOptions): Prom
     const wordFamily: WordFamilyItem[] = [{ word: query, pos: mainPos }];
 
     const now = Date.now();
+    const morphology = analyzeMorphology(query);
+    const lemma = morphology.selectedLemma || query;
+    const isInflected = lemma.toLowerCase() !== query.toLowerCase();
+
     const basicWordItem: WordItem = {
       id: `word-${now}-${Math.random().toString(36).slice(2, 7)}`,
       word: query,
@@ -624,15 +644,21 @@ export async function lookupWord(rawWord: string, options?: LookupOptions): Prom
       createdAt: now,
       updatedAt: now,
       reviewMeta: createInitialReviewMeta(),
-      source: openVnData ? 'online' : 'ai',
+      source: openVnData || wikiInfo || datamuseInfo ? 'online' : 'local',
+      vietnameseDefinitionProvenance: vietnameseDef ? { source: 'dictionary', createdAt: now } : undefined,
       enrichmentStatus: 'completed',
+      lemma,
+      originalInput: query,
+      formLabels: morphology.formLabels.length > 0 ? morphology.formLabels : undefined,
+      linkedVariants: isInflected ? [query.toLowerCase()] : undefined,
+      inflections: morphology.inflections.length > 0 ? morphology.inflections : undefined,
     };
 
     // Cache basic word immediately
     WORD_LRU_CACHE.set(query, basicWordItem);
 
-    // Schedule background enrichment if caller requested
-    if (options?.onEnriched) {
+    // Schedule background enrichment if caller requested and AI not skipped
+    if (options?.onEnriched && !options?.skipBackgroundAi) {
       scheduleBackgroundEnrichment(basicWordItem, signal, options.onEnriched);
     }
 

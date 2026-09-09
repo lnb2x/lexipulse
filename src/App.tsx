@@ -11,6 +11,8 @@ import { useTheme } from './hooks/useTheme';
 import { useVocabulary } from './hooks/useVocabulary';
 import { db, exportDeckToCsv, exportDeckToXlsx, initializeDatabase } from './services/db';
 import { WordNotFoundError, lookupWord, warmSearchCache } from './services/dictionary';
+import { runEnrichmentPipeline } from './services/enrichmentPipeline';
+import { vocabRepository } from './services/vocabRepository';
 import { formatLocalDate } from './utils/dateUtils';
 import type { ClozeQuestion, ReviewMode, ReviewRating, SpellingSuggestion, WordItem } from './types/vocab';
 
@@ -92,6 +94,9 @@ export function App() {
     streak,
     reviewedTodayCount,
     dailyQuota,
+    queueStats,
+    isSubmitting,
+    settings,
     submitRating,
     generateClozeQuestions,
   } = useSpacedRepetition(allWords);
@@ -180,12 +185,12 @@ export function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Handle Lookup submission with two-stage enrichment, cancellation & latest request wins
-  const handleSearch = useCallback(async (query: string) => {
+  // Handle Lookup submission with enrichment pipeline, contextSentence, cancellation & latest request wins
+  const handleSearch = useCallback(async (query: string, contextSentence?: string) => {
     const trimmed = query.trim();
     if (!trimmed) return;
 
-    // Abort previous search request
+    // Abort previous search request immediately
     if (searchAbortControllerRef.current) {
       searchAbortControllerRef.current.abort();
     }
@@ -199,33 +204,45 @@ export function App() {
     setSearchTypoInfo(null);
 
     try {
-      const result = await lookupWord(trimmed, {
+      const pipelineResult = await runEnrichmentPipeline({
+        query: trimmed,
+        contextSentence,
         signal: abortController.signal,
-        onEnriched: (enrichedWord) => {
+        onStageUpdate: (update) => {
           if (
             currentSearchId === searchIdRef.current &&
             !abortController.signal.aborted
           ) {
             setLookupResult((prev) => {
-              if (!prev || prev.word.toLowerCase() !== enrichedWord.word.toLowerCase()) {
-                return prev;
+              if (!prev || prev.word.toLowerCase() !== update.word.word.toLowerCase()) {
+                return update.word;
               }
-              return {
-                ...prev,
-                phonetics: {
-                  us: (prev.phonetics.us && prev.phonetics.us !== `/${prev.word}/`) ? prev.phonetics.us : enrichedWord.phonetics.us,
-                  uk: (prev.phonetics.uk && prev.phonetics.uk !== `/${prev.word}/`) ? prev.phonetics.uk : enrichedWord.phonetics.uk,
-                  audioUs: prev.phonetics.audioUs || enrichedWord.phonetics.audioUs,
-                  audioUk: prev.phonetics.audioUk || enrichedWord.phonetics.audioUk,
-                },
-                collocations: prev.collocations.length > 0 ? prev.collocations : enrichedWord.collocations,
-                wordFamily: prev.wordFamily.length > 0 ? prev.wordFamily : enrichedWord.wordFamily,
-                examples: prev.examples.length > 0 ? prev.examples : enrichedWord.examples,
-                meanings: (prev.meanings && prev.meanings.length > 1) ? prev.meanings : (enrichedWord.meanings || prev.meanings),
-                vietnameseDefinition: prev.vietnameseDefinition || enrichedWord.vietnameseDefinition,
-                englishDefinition: prev.englishDefinition || enrichedWord.englishDefinition,
-              };
+              // If user has manually edited the definition, protect their manual edits
+              if (prev.vietnameseDefinitionProvenance?.isUserEdited) {
+                return {
+                  ...update.word,
+                  vietnameseDefinition: prev.vietnameseDefinition,
+                  vietnameseDefinitionProvenance: prev.vietnameseDefinitionProvenance,
+                  notes: prev.notes !== undefined ? prev.notes : update.word.notes,
+                  tags: prev.tags.length > 0 ? prev.tags : update.word.tags,
+                };
+              }
+              return update.word;
             });
+
+            // If this word is already saved in deck, non-destructively update background enrichments
+            vocabRepository
+              .findWordByTerm(update.word.word)
+              .then((existing: WordItem | undefined) => {
+                if (
+                  existing &&
+                  currentSearchId === searchIdRef.current &&
+                  !abortController.signal.aborted
+                ) {
+                  vocabRepository.updateWord(existing.id, update.word);
+                }
+              })
+              .catch(() => {});
           }
         },
       });
@@ -234,8 +251,23 @@ export function App() {
         return;
       }
 
-      if (result) {
-        setLookupResult(result);
+      if (pipelineResult.word) {
+        setLookupResult((prev) => {
+          if (
+            prev &&
+            prev.word.toLowerCase() === pipelineResult.word.word.toLowerCase() &&
+            prev.vietnameseDefinitionProvenance?.isUserEdited
+          ) {
+            return {
+              ...pipelineResult.word,
+              vietnameseDefinition: prev.vietnameseDefinition,
+              vietnameseDefinitionProvenance: prev.vietnameseDefinitionProvenance,
+              notes: prev.notes !== undefined ? prev.notes : pipelineResult.word.notes,
+              tags: prev.tags.length > 0 ? prev.tags : pipelineResult.word.tags,
+            };
+          }
+          return pipelineResult.word;
+        });
       } else {
         setSearchError(`No definitions found for "${trimmed}". Try another word!`);
       }
@@ -290,7 +322,12 @@ export function App() {
   }, [addWord, isWordInDeck, language, showToast]);
 
   // Start Review Session
-  const handleStartReviewSession = (mode: ReviewMode, cardsToReview?: WordItem[]) => {
+  const handleStartReviewSession = (
+    mode: ReviewMode,
+    cardsToReview?: WordItem[],
+    sessionType?: 'due' | 'cram'
+  ) => {
+    const isDue = sessionType ? sessionType === 'due' : (!cardsToReview || cardsToReview === dueCards);
     const targetCards = cardsToReview && cardsToReview.length > 0 ? cardsToReview : (dueCards.length > 0 ? dueCards : allWords);
     if (targetCards.length === 0) return;
 
@@ -307,6 +344,7 @@ export function App() {
       clozeQuestions,
       sessionHistory: [],
       isCompleted: false,
+      sessionType: sessionType ?? (isDue ? 'due' : 'cram'),
     });
     setActiveTab('review');
   };
@@ -345,7 +383,7 @@ export function App() {
     const currentWord = reviewState.cards[reviewState.currentIndex];
     if (!currentWord) return;
 
-    await submitRating(currentWord.id, rating);
+    await submitRating(currentWord.id, rating, reviewState.sessionType || 'due');
 
     const nextIndex = reviewState.currentIndex + 1;
     const newHistory = [...reviewState.sessionHistory, { word: currentWord, rating }];
@@ -356,7 +394,11 @@ export function App() {
         sessionHistory: newHistory,
         isCompleted: true,
       }));
-      showToast('Session finished! Great job!');
+      showToast(
+        reviewState.sessionType === 'cram'
+          ? (language === 'vi' ? 'Đã hoàn thành luyện thêm! Lịch ôn chính thức được giữ nguyên.' : 'Finished extra practice! Official schedule preserved.')
+          : (language === 'vi' ? 'Đã hoàn thành phiên ôn tập!' : 'Review session completed! Great job!')
+      );
     } else {
       setReviewState((prev) => ({
         ...prev,
@@ -495,11 +537,14 @@ export function App() {
             onStartReviewSession={handleStartReviewSession}
             onSwitchReviewMode={handleSwitchReviewMode}
             onGradeReview={handleGradeReview}
-            onGradeSingleWord={submitRating}
+            onGradeSingleWord={(wordId, rating) => submitRating(wordId, rating, reviewState.sessionType || 'due')}
             onGoToDeck={() => {
               setReviewState((prev) => ({ ...prev, inProgress: false }));
               setActiveTab('deck');
             }}
+            queueStats={queueStats}
+            isSubmitting={isSubmitting}
+            desiredRetention={settings?.desiredRetention}
           />
         )}
       </main>

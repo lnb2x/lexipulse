@@ -9,6 +9,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   aiModel: 'gemini-2.5-flash',
   geminiApiKey: '',
   persistApiKey: false,
+  prioritizeAI: true,
   speechRate: 0.95,
   speechPitch: 1.0,
   preferredAccent: 'US',

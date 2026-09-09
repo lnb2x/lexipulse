@@ -1,6 +1,6 @@
 # ⚡ LexiPulse - Intelligent English Vocabulary Mastery
 
-> **Hệ thống tra cứu, làm giàu ngữ cảnh và ôn tập từ vựng tiếng Anh chuyên sâu (TOEIC, IELTS & Workplace Communication) ứng dụng thuật toán lặp lại ngắt quãng SM-2 và Trí tuệ Nhân tạo đa nền tảng.**
+> **Hệ thống tra cứu, làm giàu ngữ cảnh và ôn tập từ vựng tiếng Anh chuyên sâu (TOEIC, IELTS & Workplace Communication) ứng dụng thuật toán lặp lại ngắt quãng FSRS v5 và Trí tuệ Nhân tạo đa nền tảng.**
 
 [![React](https://img.shields.io/badge/React-19-blue.svg?logo=react)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-blue.svg?logo=typescript)](https://www.typescriptlang.org/)
@@ -14,8 +14,8 @@
 ## 🌟 Giới thiệu tổng quan (Overview)
 
 **LexiPulse** là ứng dụng học từ vựng tiếng Anh chuyên sâu xây dựng theo kiến trúc **Offline-capable Core / Local-first** trên nền tảng trình duyệt (`React 19 + TypeScript + Vite + Dexie.js`). Được thiết kế tối ưu cho người học luyện thi chứng chỉ **TOEIC, IELTS** và giao tiếp công sở quốc tế, LexiPulse kết hợp giữa:
-- **Lõi từ điển cục bộ & Quản lý dữ liệu Local-First**: Hoạt động bền bỉ ngoại tuyến cho toàn bộ tính năng quản lý bộ từ, kho tri thức tuyển chọn `LOCAL_KNOWLEDGE_BASE`, và động cơ ôn tập SM-2.
-- **Thuật toán Spaced Repetition (SuperMemo-2 / SM-2)**: Giúp ghi nhớ dài hạn và khắc phục đường cong lãng quên (Ebbinghaus Forgetting Curve) với quy tắc toàn vẹn dữ liệu nghiêm ngặt.
+- **Lõi từ điển cục bộ & Quản lý dữ liệu Local-First**: Hoạt động bền bỉ ngoại tuyến cho toàn bộ tính năng quản lý bộ từ, kho tri thức tuyển chọn `LOCAL_KNOWLEDGE_BASE`, và động cơ ôn tập FSRS v5.
+- **Thuật toán Spaced Repetition (FSRS v5)**: Tối ưu khoảng cách ôn tập dựa trên độ ổn định (stability) và độ khó (difficulty), hỗ trợ chuyển đổi tương thích từ SM-2 cũ với quy tắc toàn vẹn dữ liệu nghiêm ngặt.
 - **Hệ thống ôn tập đa giác quan 5 chế độ**: Flashcard 3D, Điền từ ngữ cảnh (Cloze), Nghe & Chép chính tả (Dictation), Trắc nghiệm phản xạ (Choice), và Nối từ siêu tốc (Speed Match).
 - **Cổng kết nối AI & Trực tuyến (Yêu cầu kết nối mạng)**: Làm giàu ngữ cảnh nâng cao qua Google Gemini, OpenAI, Claude, DeepSeek, Groq, OpenRouter và từ điển mở Datamuse / Wiktionary.
 
@@ -45,15 +45,15 @@
 
 ### 2. 🗂️ 5 Phương thức ôn tập toàn diện (Spaced Repetition System)
 
-LexiPulse triển khai thuật toán **SuperMemo-2 (SM-2)** chuẩn xác với Ease Factor (EF), số lần lặp (Repetition) và khoảng cách chu kỳ ôn tập (Interval). Người học có thể linh hoạt chuyển đổi giữa 5 chế độ ngay trong phiên học:
+LexiPulse triển khai thuật toán **FSRS v5 (Free Spaced Repetition Scheduler)** chuẩn xác với Stability (S), Difficulty (D) và khoảng cách chu kỳ ôn tập tính theo ngày thực tế. Người học có thể linh hoạt chuyển đổi giữa 5 chế độ ngay trong phiên học:
 
 | Chế độ ôn tập | Mô tả chi tiết | Kỹ năng rèn luyện |
 | :--- | :--- | :--- |
-| 🗂️ **Thẻ Flashcard 3D** | Lật thẻ 3 chiều mượt mà (`Space`). Chấm điểm SM-2 (`1: Học lại`, `2: Nhớ tốt`, `3: Quá dễ`) với dự báo chu kỳ ngày kế tiếp. | Khả năng hồi tưởng chủ động (Active Recall) |
+| 🗂️ **Thẻ Flashcard 3D** | Lật thẻ 3 chiều mượt mà (`Space`). Đánh giá 4 mức (`Học lại`, `Khó`, `Tốt`, `Dễ`) với dự báo chu kỳ ngày kế tiếp. | Khả năng hồi tưởng chủ động (Active Recall) |
 | 📝 **Điền từ ngữ cảnh (Cloze Test)** | Điền từ mục tiêu vào chỗ trống trong câu đề thi TOEIC/công sở thực tế qua 4 đáp án hoặc gõ phím trực tiếp. | Hiểu nghĩa trong ngữ cảnh thực tế |
 | 🎧 **Nghe & Chép chính tả (Dictation)** | Tự động phát âm audio giọng bản xứ; hỗ trợ điều chỉnh tốc độ chậm `0.75x`, phím tắt `Ctrl+Space` nghe lại và hệ thống gợi ý ký tự. | Thính giác & Độ chính xác chính tả |
 | 🎯 **Trắc nghiệm phản xạ (Choice)** | Trắc nghiệm 4 đáp án chọn nghĩa tiếng Việt nhanh với các đáp án gây nhiễu thông minh. Hỗ trợ phím số `1`, `2`, `3`, `4`. | Phản xạ nhận diện từ vựng tức thì |
-| ⚡ **Nối từ siêu tốc (Speed Match)** | Minigame ghép 5 cặp từ Anh - Việt (10 thẻ) tính combo liên hoàn và thời gian hoàn thành. Tự động tính điểm SM-2 theo số lỗi. | Tốc độ liên kết ngữ nghĩa & Tăng hứng thú |
+| ⚡ **Nối từ siêu tốc (Speed Match)** | Minigame ghép 5 cặp từ Anh - Việt (10 thẻ) tính combo liên hoàn và thời gian hoàn thành. Tự động ghi nhận kết quả theo số lỗi. | Tốc độ liên kết ngữ nghĩa & Tăng hứng thú |
 
 ---
 
@@ -139,7 +139,7 @@ lexipulse/
 │   ├── context/
 │   │   └── LanguageContext.tsx  # Context quản lý ngôn ngữ giao diện (VI/EN)
 │   ├── hooks/
-│   │   ├── useSpacedRepetition.ts # Hook tính toán lượt ôn tập & hàng đợi SM-2
+│   │   ├── useSpacedRepetition.ts # Hook tính toán lượt ôn tập & hàng đợi FSRS
 │   │   └── useVocabulary.ts     # Hook quản lý kho từ Dexie IndexedDB
 │   ├── i18n/
 │   │   └── translations.ts      # Toàn bộ từ điển ngôn ngữ VI/EN
@@ -254,7 +254,7 @@ src/
 
 ## 🔒 Bảo mật, Quyền riêng tư & Giới hạn ngoại tuyến (Security & Offline Boundaries)
 
-- **Nguyên tắc bảo vệ dữ liệu học tập (Data Integrity)**: Toàn bộ danh sách từ vựng, ghi chú cá nhân, thẻ tag, và lịch sử ôn tập SM-2 (`repetition`, `interval`, `easeFactor`) được bảo vệ nghiêm ngặt qua `vocabRepository`. Khi cập nhật từ vựng từ điển hay nạp dữ liệu mới, tiến độ ôn tập của người học **không bao giờ bị ghi đè** trừ khi có sự xác nhận chủ động ("Replace learning progress").
+- **Nguyên tắc bảo vệ dữ liệu học tập (Data Integrity)**: Toàn bộ danh sách từ vựng, ghi chú cá nhân, thẻ tag, và dữ liệu ôn tập FSRS/SM-2 (`repetition`, `interval`, `easeFactor`, `fsrs`) được bảo vệ qua `vocabRepository`. Khi cập nhật từ vựng từ điển hay làm giàu nền, tiến độ ôn tập và chỉnh sửa của người học không bị ghi đè trừ khi có sự xác nhận chủ động của người dùng.
 - **Cảnh báo Bảo mật API Key trên Frontend**:
   > [!WARNING]
   > Mọi API Key được lưu trữ trên trình duyệt web đều có khả năng bị truy cập bởi mã JavaScript thực thi trên client nếu xảy ra tấn công XSS. LexiPulse mặc định lưu trữ API Key trong **Session Storage** (tự động xóa khi đóng tab). Tùy chọn lưu trữ lâu dài trong IndexedDB là **Opt-in** kèm cảnh báo rõ ràng. Mã hóa phía client không thể đảm bảo an toàn tuyệt đối trước XSS.

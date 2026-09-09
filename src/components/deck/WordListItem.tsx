@@ -59,6 +59,19 @@ export const WordListItem: React.FC<WordListItemProps> = ({
           </div>
 
           <Badge status={word.status} size="sm" />
+
+          {/* Morphological form indicator */}
+          {word.formLabels && word.formLabels.length > 0 && (
+            <span className="rounded bg-indigo-50 border border-indigo-200/60 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-950/40 dark:border-indigo-900/40 dark:text-indigo-300">
+              {word.formLabels[0]}
+            </span>
+          )}
+
+          {word.lemma && word.lemma.toLowerCase() !== word.word.toLowerCase() && (
+            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500 dark:bg-slate-800 dark:text-slate-400 font-mono">
+              {language === 'vi' ? 'Gốc:' : 'Root:'} {word.lemma}
+            </span>
+          )}
         </div>
 
         {/* Vietnamese definition */}
