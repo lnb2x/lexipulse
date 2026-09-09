@@ -92,7 +92,7 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6">
       {reviewState.isCompleted ? (
         <Suspense
           fallback={

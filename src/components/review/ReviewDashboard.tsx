@@ -116,7 +116,7 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
           <div className="flex items-center gap-2">
             {/* Streak pill */}
             <div className="flex items-center gap-2.5 rounded-xl border border-amber-200/80 bg-amber-50/60 px-3.5 py-2 dark:border-amber-900/50 dark:bg-amber-950/30">
-              <Flame className="h-5 w-5 text-amber-500 fill-amber-500 animate-pulse" />
+              <Flame className="h-5 w-5 text-amber-500 fill-amber-500" />
               <div>
                 <span className="block text-[10px] uppercase font-bold tracking-wider text-amber-700/80 dark:text-amber-400/80">
                   {t.review.streakCount}

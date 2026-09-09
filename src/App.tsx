@@ -1,11 +1,12 @@
 import { Check } from 'lucide-react';
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Header } from './components/common/Header';
 import { useLanguage } from './context/LanguageContext';
 import { DeckView } from './features/deck/DeckView';
 import { LookupView } from './features/lookup/LookupView';
 import { ReviewView, type ReviewSessionState } from './features/review/ReviewView';
+import { usePrefersReducedMotion } from './hooks/usePrefersReducedMotion';
 import { useSpacedRepetition } from './hooks/useSpacedRepetition';
 import { useTheme } from './hooks/useTheme';
 import { useVocabulary } from './hooks/useVocabulary';
@@ -39,12 +40,83 @@ interface Toast {
   type: 'success' | 'info' | 'error';
 }
 
+type TabId = 'lookup' | 'deck' | 'review';
+
+const TAB_ORDER: Record<TabId, number> = {
+  lookup: 0,
+  deck: 1,
+  review: 2,
+};
+
 export function App() {
   const { language } = useLanguage();
   const { theme, toggleTheme } = useTheme();
+  const prefersReducedMotion = usePrefersReducedMotion();
 
-  // Navigation tab: 'lookup' | 'deck' | 'review'
-  const [activeTab, setActiveTab] = useState<'lookup' | 'deck' | 'review'>('lookup');
+  // Navigation tab state with directional transition tracking
+  const [activeTab, setActiveTab] = useState<TabId>('lookup');
+  const activeTabRef = useRef<TabId>('lookup');
+  const [displayedTab, setDisplayedTab] = useState<TabId>('lookup');
+  const [transitionDirection, setTransitionDirection] = useState<'forward' | 'backward'>('forward');
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const transitionTimerRef = useRef<number | null>(null);
+
+  // In-progress search query & context sentence state preservation
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchContextSentence, setSearchContextSentence] = useState('');
+  const [showSearchContextInput, setShowSearchContextInput] = useState(false);
+
+  // Navigation tab change handler with directional transition & rapid-switch cancellation
+  const handleTabChange = useCallback(
+    (targetTab: TabId) => {
+      // Same-tab clicks must not restart motion
+      if (targetTab === activeTabRef.current) {
+        return;
+      }
+
+      const prevTab = activeTabRef.current;
+      activeTabRef.current = targetTab;
+
+      // Clear pending timer immediately for rapid repeated switches
+      if (transitionTimerRef.current !== null) {
+        window.clearTimeout(transitionTimerRef.current);
+        transitionTimerRef.current = null;
+      }
+
+      const currentIdx = TAB_ORDER[prevTab];
+      const targetIdx = TAB_ORDER[targetTab];
+      const direction = targetIdx > currentIdx ? 'forward' : 'backward';
+
+      if (prefersReducedMotion) {
+        setActiveTab(targetTab);
+        setDisplayedTab(targetTab);
+        setIsTransitioning(false);
+        return;
+      }
+
+      setTransitionDirection(direction);
+      setActiveTab(targetTab);
+      setIsTransitioning(true);
+
+      startTransition(() => {
+        setDisplayedTab(targetTab);
+      });
+
+      transitionTimerRef.current = window.setTimeout(() => {
+        setIsTransitioning(false);
+        transitionTimerRef.current = null;
+      }, 200);
+    },
+    [prefersReducedMotion]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (transitionTimerRef.current !== null) {
+        window.clearTimeout(transitionTimerRef.current);
+      }
+    };
+  }, []);
 
   // Modals state
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -168,13 +240,13 @@ export function App() {
 
       if (e.altKey && e.key === '1') {
         e.preventDefault();
-        setActiveTab('lookup');
+        handleTabChange('lookup');
       } else if (e.altKey && e.key === '2') {
         e.preventDefault();
-        setActiveTab('deck');
+        handleTabChange('deck');
       } else if (e.altKey && e.key === '3') {
         e.preventDefault();
-        setActiveTab('review');
+        handleTabChange('review');
       } else if (e.key === '?' || (e.ctrlKey && e.key === 'k') || (e.metaKey && e.key === 'k')) {
         e.preventDefault();
         setIsShortcutsOpen((prev) => !prev);
@@ -183,12 +255,20 @@ export function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [handleTabChange]);
 
   // Handle Lookup submission with enrichment pipeline, contextSentence, cancellation & latest request wins
   const handleSearch = useCallback(async (query: string, contextSentence?: string) => {
     const trimmed = query.trim();
     if (!trimmed) return;
+
+    setSearchQuery(trimmed);
+    if (contextSentence !== undefined) {
+      setSearchContextSentence(contextSentence);
+      if (contextSentence.trim()) {
+        setShowSearchContextInput(true);
+      }
+    }
 
     // Abort previous search request immediately
     if (searchAbortControllerRef.current) {
@@ -437,7 +517,7 @@ export function App() {
       {/* Main App Navigation Header */}
       <Header
         activeTab={activeTab}
-        onTabChange={(tab) => setActiveTab(tab)}
+        onTabChange={(tab) => handleTabChange(tab)}
         streak={streak}
         totalCards={allWords.length}
         dueCount={dueCards.length}
@@ -448,105 +528,125 @@ export function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 mx-auto w-full max-w-5xl px-4 sm:px-6 py-6 sm:py-8">
-        {/* TAB 1: LOOKUP */}
-        {activeTab === 'lookup' && (
-          <LookupView
-            lookupResult={lookupResult}
-            isSearching={isSearching}
-            searchError={searchError}
-            searchTypoInfo={searchTypoInfo}
-            allWords={allWords}
-            isWordInDeck={isWordInDeck}
-            onSearch={handleSearch}
-            onSaveToDeck={handleSaveToDeck}
-          />
-        )}
+      <main className="relative flex-1 mx-auto w-full max-w-5xl px-4 sm:px-6 py-6 sm:py-8">
+        <div
+          role="tabpanel"
+          id={`panel-${displayedTab}`}
+          aria-labelledby={`tab-desktop-${displayedTab}`}
+          tabIndex={0}
+          className={`focus:outline-none ${
+            isTransitioning
+              ? transitionDirection === 'forward'
+                ? 'tab-enter-forward'
+                : 'tab-enter-backward'
+              : ''
+          }`}
+        >
+          {/* TAB 1: LOOKUP */}
+          {displayedTab === 'lookup' && (
+            <LookupView
+              lookupResult={lookupResult}
+              isSearching={isSearching}
+              searchError={searchError}
+              searchTypoInfo={searchTypoInfo}
+              allWords={allWords}
+              isWordInDeck={isWordInDeck}
+              onSearch={handleSearch}
+              onSaveToDeck={handleSaveToDeck}
+              searchQuery={searchQuery}
+              onSearchQueryChange={setSearchQuery}
+              searchContextSentence={searchContextSentence}
+              onSearchContextSentenceChange={setSearchContextSentence}
+              showSearchContextInput={showSearchContextInput}
+              onShowSearchContextInputChange={setShowSearchContextInput}
+            />
+          )}
 
-        {/* TAB 2: DECK */}
-        {activeTab === 'deck' && (
-          <DeckView
-            words={words}
-            allWords={allWords}
-            dailyStats={dailyStats}
-            deckStats={deckStats}
-            deckLoading={deckLoading}
-            filterOptions={filterOptions}
-            setFilterOptions={setFilterOptions}
-            allTags={allTags}
-            availableDates={availableDates}
-            isFuzzyMatch={isFuzzyMatch}
-            onOpenDetail={(w) => setDetailWord(w)}
-            onOpenEdit={(w) => setEditingWord(w)}
-            onDeleteWord={async (id, wordStr) => {
-              await deleteWord(id);
-              showToast(`Deleted "${wordStr}" from deck`, 'info');
-            }}
-            onOpenImportExport={(tab = 'export') => {
-              setImportExportTab(tab);
-              setIsImportExportOpen(true);
-            }}
-            onQuickExportCsv={async () => {
-              const csv = await exportDeckToCsv(words);
-              const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              const suffix = filterOptions.createdDate ? `_${filterOptions.createdDate}` : `_${formatLocalDate()}`;
-              a.download = `lexipulse_words${suffix}.csv`;
-              a.click();
-              URL.revokeObjectURL(url);
-              showToast(
-                language === 'vi'
-                  ? `Đã xuất ${words.length} từ ra file CSV!`
-                  : `Exported ${words.length} words to CSV!`
-              );
-            }}
-            onQuickExportXlsx={async () => {
-              const blob = await exportDeckToXlsx(words);
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              const suffix = filterOptions.createdDate ? `_${filterOptions.createdDate}` : `_${formatLocalDate()}`;
-              a.download = `lexipulse_words${suffix}.xlsx`;
-              a.click();
-              URL.revokeObjectURL(url);
-              showToast(
-                language === 'vi'
-                  ? `Đã xuất ${words.length} từ ra file Excel (.xlsx)!`
-                  : `Exported ${words.length} words to Excel (.xlsx)!`
-              );
-            }}
-            onStartReviewSession={(mode, cards) => handleStartReviewSession(mode, cards)}
-            onNavigateToLookup={() => setActiveTab('lookup')}
-            showToast={showToast}
-          />
-        )}
+          {/* TAB 2: DECK */}
+          {displayedTab === 'deck' && (
+            <DeckView
+              words={words}
+              allWords={allWords}
+              dailyStats={dailyStats}
+              deckStats={deckStats}
+              deckLoading={deckLoading}
+              filterOptions={filterOptions}
+              setFilterOptions={setFilterOptions}
+              allTags={allTags}
+              availableDates={availableDates}
+              isFuzzyMatch={isFuzzyMatch}
+              onOpenDetail={(w) => setDetailWord(w)}
+              onOpenEdit={(w) => setEditingWord(w)}
+              onDeleteWord={async (id, wordStr) => {
+                await deleteWord(id);
+                showToast(`Deleted "${wordStr}" from deck`, 'info');
+              }}
+              onOpenImportExport={(tab = 'export') => {
+                setImportExportTab(tab);
+                setIsImportExportOpen(true);
+              }}
+              onQuickExportCsv={async () => {
+                const csv = await exportDeckToCsv(words);
+                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                const suffix = filterOptions.createdDate ? `_${filterOptions.createdDate}` : `_${formatLocalDate()}`;
+                a.download = `lexipulse_words${suffix}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+                showToast(
+                  language === 'vi'
+                    ? `Đã xuất ${words.length} từ ra file CSV!`
+                    : `Exported ${words.length} words to CSV!`
+                );
+              }}
+              onQuickExportXlsx={async () => {
+                const blob = await exportDeckToXlsx(words);
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                const suffix = filterOptions.createdDate ? `_${filterOptions.createdDate}` : `_${formatLocalDate()}`;
+                a.download = `lexipulse_words${suffix}.xlsx`;
+                a.click();
+                URL.revokeObjectURL(url);
+                showToast(
+                  language === 'vi'
+                    ? `Đã xuất ${words.length} từ ra file Excel (.xlsx)!`
+                    : `Exported ${words.length} words to Excel (.xlsx)!`
+                );
+              }}
+              onStartReviewSession={(mode, cards) => handleStartReviewSession(mode, cards)}
+              onNavigateToLookup={() => handleTabChange('lookup')}
+              showToast={showToast}
+            />
+          )}
 
-        {/* TAB 3: REVIEW */}
-        {activeTab === 'review' && (
-          <ReviewView
-            allWords={allWords}
-            dueCards={dueCards}
-            streak={streak}
-            reviewedTodayCount={reviewedTodayCount}
-            dailyQuota={dailyQuota}
-            availableDates={availableDates}
-            reviewState={reviewState}
-            setReviewState={setReviewState}
-            onStartReviewSession={handleStartReviewSession}
-            onSwitchReviewMode={handleSwitchReviewMode}
-            onGradeReview={handleGradeReview}
-            onGradeSingleWord={(wordId, rating) => submitRating(wordId, rating, reviewState.sessionType || 'due')}
-            onGoToDeck={() => {
-              setReviewState((prev) => ({ ...prev, inProgress: false }));
-              setActiveTab('deck');
-            }}
-            queueStats={queueStats}
-            isSubmitting={isSubmitting}
-            desiredRetention={settings?.desiredRetention}
-          />
-        )}
+          {/* TAB 3: REVIEW */}
+          {displayedTab === 'review' && (
+            <ReviewView
+              allWords={allWords}
+              dueCards={dueCards}
+              streak={streak}
+              reviewedTodayCount={reviewedTodayCount}
+              dailyQuota={dailyQuota}
+              availableDates={availableDates}
+              reviewState={reviewState}
+              setReviewState={setReviewState}
+              onStartReviewSession={handleStartReviewSession}
+              onSwitchReviewMode={handleSwitchReviewMode}
+              onGradeReview={handleGradeReview}
+              onGradeSingleWord={(wordId, rating) => submitRating(wordId, rating, reviewState.sessionType || 'due')}
+              onGoToDeck={() => {
+                setReviewState((prev) => ({ ...prev, inProgress: false }));
+                handleTabChange('deck');
+              }}
+              queueStats={queueStats}
+              isSubmitting={isSubmitting}
+              desiredRetention={settings?.desiredRetention}
+            />
+          )}
+        </div>
       </main>
 
       {/* Global Modals - Lazy loaded with Suspense */}
@@ -614,7 +714,7 @@ export function App() {
             onSelectDeckWord={(w) => setDetailWord(w)}
             onLookupWord={(w) => {
               setDetailWord(null);
-              setActiveTab('lookup');
+              handleTabChange('lookup');
               handleSearch(w);
             }}
             onAddWordToDeck={async (w) => {

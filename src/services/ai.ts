@@ -1,5 +1,14 @@
 import type { AIProvider, CollocationItem, ExampleItem, WordFamilyItem, InflectionItem } from '../types/vocab';
 import { getCachedAIEnrichment, setCachedAIEnrichment } from './ai/aiCache';
+import {
+  analyzeWordMorphologyWithAI,
+  type AIMorphologyResult,
+  validateAIMorphologyResult,
+  setCachedMorphology,
+  SUSPICIOUS_TRUNCATED_STEMS,
+} from './ai/aiMorphology';
+
+export { analyzeWordMorphologyWithAI, validateAIMorphologyResult, type AIMorphologyResult };
 
 export interface AIProviderConfig {
   id: AIProvider;
@@ -107,6 +116,7 @@ export interface AIEnrichmentResult {
   examples: ExampleItem[];
   tags: string[];
   lemma?: string;
+  pos?: string[];
   formLabels?: string[];
   inflections?: InflectionItem[];
 }
@@ -322,8 +332,27 @@ export function validateAndNormalizeAIResponse(data: unknown): AIEnrichmentResul
     }
   }
 
-  // Lemma
-  const lemma = typeof obj.lemma === 'string' && obj.lemma.trim() ? obj.lemma.trim().toLowerCase() : undefined;
+  // Lemma validation (Strict English morphology)
+  let lemma = typeof obj.lemma === 'string' && obj.lemma.trim() ? obj.lemma.trim().toLowerCase() : undefined;
+  if (lemma) {
+    if (!/^[a-zA-Z]+(-[a-zA-Z]+)*$/.test(lemma) || lemma.length > 45) {
+      lemma = undefined;
+    } else if (SUSPICIOUS_TRUNCATED_STEMS.has(lemma)) {
+      lemma = SUSPICIOUS_TRUNCATED_STEMS.get(lemma);
+    }
+  }
+
+  // Part of speech from AI
+  const posList: string[] = [];
+  if (Array.isArray(obj.pos)) {
+    for (const p of obj.pos) {
+      if (typeof p === 'string' && p.trim()) {
+        posList.push(p.trim().toLowerCase());
+      }
+    }
+  } else if (typeof obj.pos === 'string' && obj.pos.trim()) {
+    posList.push(obj.pos.trim().toLowerCase());
+  }
 
   // Form labels
   const formLabels: string[] = [];
@@ -359,6 +388,7 @@ export function validateAndNormalizeAIResponse(data: unknown): AIEnrichmentResul
     examples,
     tags: tags.length > 0 ? tags : ['#TOEIC', '#AIEnriched'],
     lemma,
+    pos: posList.length > 0 ? posList : undefined,
     formLabels: formLabels.length > 0 ? formLabels : undefined,
     inflections: inflections.length > 0 ? inflections : undefined,
   };
@@ -547,8 +577,15 @@ CRITICAL CONTEXT REQUIREMENT:
   const prompt = `You are an expert English linguist and TOEIC/IELTS instructor. Analyze the English word or phrase "${word}" (primary part of speech: ${pos}).
 ${contextPrompt}
 CRITICAL MORPHOLOGY REQUIREMENT:
-- If "${word}" is an inflected form (e.g. "went", "written", "working", "studies", "looked up"), set "lemma" to the base dictionary word (e.g. "go", "write", "work", "study", "look up"). If "${word}" is already the base word, set "lemma" to "${word}".
-- Identify the grammatical form of "${word}" in "formLabels" (e.g. ["Quá khứ đơn (V2)"] or ["Hiện tại phân từ (V-ing)"] or ["Danh từ số ít"]).
+- Determine the canonical dictionary lemma of "${word}".
+- Do NOT perform naive stemming. Do NOT simply delete suffixes such as "-ing", "-ed", "-s", "-es", "-er", "-est".
+- Recover the correct dictionary headword using English morphology (e.g. "postponing" -> "postpone", "making" -> "make", "running" -> "run", "studies" -> "study", "went" -> "go", "written" -> "write", "children" -> "child").
+- If "${word}" is already in canonical dictionary form, set "lemma" to "${word}".
+- For verbs, return the infinitive/base form without 'to'.
+- For plural nouns, return singular form.
+- For irregular forms, resolve the actual dictionary lemma.
+- Never invent a word.
+- Identify the grammatical form of "${word}" in "formLabels" (e.g. ["Hiện tại phân từ (V-ing)"] or ["Quá khứ đơn (V2)"] or ["Danh từ số nhiều"]).
 - Provide an inflection overview in "inflections" (e.g. V1, V2, V3, V-ing, Plural).
 
 Respond ONLY with a valid JSON object matching this exact TypeScript structure:
@@ -677,6 +714,21 @@ Do not include markdown code block fences like \`\`\`json. Return raw JSON stric
     const normalized = validateAndNormalizeAIResponse(parsed);
     if (normalized) {
       setCachedAIEnrichment(word, normalized, contextSentence, provider, model, pos, baseUrl);
+      if (normalized.lemma) {
+        setCachedMorphology(
+          word,
+          {
+            original: word,
+            lemma: normalized.lemma,
+            pos,
+            form: normalized.formLabels?.[0] || 'inflected',
+            is_inflected: normalized.lemma.toLowerCase() !== word.toLowerCase(),
+            confidence: 0.98,
+            alternatives: [],
+          },
+          contextSentence
+        );
+      }
     }
     return normalized;
   } catch (err) {

@@ -17,6 +17,12 @@ export interface LookupViewProps {
   isWordInDeck: (word: string) => boolean;
   onSearch: (word: string, contextSentence?: string) => void;
   onSaveToDeck: (word: WordItem) => void;
+  searchQuery?: string;
+  onSearchQueryChange?: (q: string) => void;
+  searchContextSentence?: string;
+  onSearchContextSentenceChange?: (cs: string) => void;
+  showSearchContextInput?: boolean;
+  onShowSearchContextInputChange?: (show: boolean) => void;
 }
 
 export const LookupView: React.FC<LookupViewProps> = ({
@@ -28,11 +34,17 @@ export const LookupView: React.FC<LookupViewProps> = ({
   isWordInDeck,
   onSearch,
   onSaveToDeck,
+  searchQuery,
+  onSearchQueryChange,
+  searchContextSentence,
+  onSearchContextSentenceChange,
+  showSearchContextInput,
+  onShowSearchContextInputChange,
 }) => {
   const { language, t } = useLanguage();
 
   return (
-    <div className="space-y-7 animate-fade-in">
+    <div className="space-y-7">
       {/* Hero Text */}
       <div className="text-center max-w-xl mx-auto space-y-2">
         <span className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200/80 bg-indigo-50/80 px-3 py-1 text-xs font-semibold text-indigo-700 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-300">
@@ -48,7 +60,17 @@ export const LookupView: React.FC<LookupViewProps> = ({
       </div>
 
       {/* Search Bar */}
-      <SearchBar onSearch={onSearch} isLoading={isSearching} deckWords={allWords} />
+      <SearchBar
+        onSearch={onSearch}
+        isLoading={isSearching}
+        deckWords={allWords}
+        query={searchQuery}
+        onQueryChange={onSearchQueryChange}
+        contextSentence={searchContextSentence}
+        onContextSentenceChange={onSearchContextSentenceChange}
+        showContextInput={showSearchContextInput}
+        onShowContextInputChange={onShowSearchContextInputChange}
+      />
 
       {/* Error state */}
       {searchError && (

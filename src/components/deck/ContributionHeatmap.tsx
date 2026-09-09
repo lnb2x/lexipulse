@@ -24,7 +24,7 @@ interface WeekColumn {
   monthLabel?: string;
 }
 
-export const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
+export const ContributionHeatmap = React.memo<ContributionHeatmapProps>(({
   words,
   dailyStats,
   onReviewDateWords,
@@ -648,4 +648,6 @@ export const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
       )}
     </div>
   );
-};
+});
+
+ContributionHeatmap.displayName = 'ContributionHeatmap';

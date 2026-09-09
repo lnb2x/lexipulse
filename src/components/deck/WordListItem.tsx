@@ -13,7 +13,23 @@ interface WordListItemProps {
   onDelete: () => void;
 }
 
-export const WordListItem: React.FC<WordListItemProps> = ({
+const viDateFormatter = new Intl.DateTimeFormat('vi-VN', {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+const enDateFormatter = new Intl.DateTimeFormat('en-US', {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+function formatCardDate(createdAt: number | undefined, lang: string): string {
+  const d = createdAt && !isNaN(createdAt) ? new Date(createdAt) : new Date();
+  return lang === 'vi' ? viDateFormatter.format(d) : enDateFormatter.format(d);
+}
+
+export const WordListItem = React.memo<WordListItemProps>(({
   word,
   onClick,
   onEdit,
@@ -21,13 +37,7 @@ export const WordListItem: React.FC<WordListItemProps> = ({
 }) => {
   const { language, t } = useLanguage();
   const dueInfo = formatDueText(word.reviewMeta.dueDate);
-  const createdDateStr = new Date(
-    word.createdAt && !isNaN(word.createdAt) ? word.createdAt : Date.now()
-  ).toLocaleDateString(language === 'vi' ? 'vi-VN' : 'en-US', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
+  const createdDateStr = formatCardDate(word.createdAt, language);
 
   return (
     <div
@@ -156,4 +166,6 @@ export const WordListItem: React.FC<WordListItemProps> = ({
       </div>
     </div>
   );
-};
+});
+
+WordListItem.displayName = 'WordListItem';

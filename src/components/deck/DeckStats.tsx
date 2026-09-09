@@ -12,7 +12,7 @@ interface DeckStatsProps {
   };
 }
 
-export const DeckStats: React.FC<DeckStatsProps> = ({ stats }) => {
+export const DeckStats = React.memo<DeckStatsProps>(({ stats }) => {
   const { t } = useLanguage();
 
   const total = stats.total || 1;
@@ -46,7 +46,7 @@ export const DeckStats: React.FC<DeckStatsProps> = ({ stats }) => {
               {stats.due}
             </span>
             {stats.due > 0 && (
-              <span className="inline-block h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
+              <span className="inline-block h-2 w-2 rounded-full bg-rose-500 motion-safe:animate-pulse" />
             )}
           </div>
         </div>
@@ -130,4 +130,6 @@ export const DeckStats: React.FC<DeckStatsProps> = ({ stats }) => {
       )}
     </div>
   );
-};
+});
+
+DeckStats.displayName = 'DeckStats';

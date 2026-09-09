@@ -120,6 +120,66 @@ describe('Morphology & Context UI Integration', () => {
       fireEvent.click(viewLemmaBtn);
       expect(handleLookup).toHaveBeenCalledWith('go');
     });
+
+    it('renders "postponing" correctly with lemma "postpone" and button "Xem từ gốc postpone" (never postpon)', () => {
+      const handleLookup = vi.fn();
+      const postponingWord: WordItem = {
+        id: 'word-postponing-999',
+        word: 'postponing',
+        originalInput: 'postponing',
+        lemma: 'postpone',
+        formLabels: ['Dạng -ing (Hiện tại phân từ)'],
+        pos: ['verb'],
+        phonetics: { us: '/poʊˈspoʊnɪŋ/', uk: '/pəʊˈspəʊnɪŋ/' },
+        vietnameseDefinition: 'Đang trì hoãn, hoãn lại',
+        englishDefinition: 'Putting off to a later time; delaying.',
+        meanings: [
+          {
+            pos: 'verb',
+            vietnameseDefinition: 'Đang trì hoãn',
+            englishDefinition: 'Delaying',
+          },
+        ],
+        collocations: [],
+        wordFamily: [{ word: 'postpone', pos: 'verb' }],
+        examples: [],
+        tags: ['#TOEIC'],
+        status: 'new',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        source: 'local',
+        enrichmentStatus: 'completed',
+      };
+
+      render(
+        <LanguageProvider>
+          <WordCard
+            word={postponingWord}
+            isInDeck={false}
+            onAddToDeck={vi.fn()}
+            onLookupWord={handleLookup}
+          />
+        </LanguageProvider>
+      );
+
+      // Verify surface form is postponing
+      expect(screen.getByText('postponing')).toBeDefined();
+
+      // Verify lemma is postpone
+      expect(screen.getByText(/Từ nguyên mẫu: postpone|Lemma: postpone/i)).toBeDefined();
+
+      // Verify button is "Xem từ gốc 'postpone'"
+      const rootBtn = screen.getByRole('button', { name: /Xem từ gốc "postpone"|View lemma "postpone"/i });
+      expect(rootBtn).toBeDefined();
+
+      // Clicking root button calls lookup with 'postpone'
+      fireEvent.click(rootBtn);
+      expect(handleLookup).toHaveBeenCalledWith('postpone');
+
+      // CRITICAL: Ensure 'postpon' (truncated stem) is nowhere in the document
+      const allText = document.body.textContent || '';
+      expect(allText).not.toMatch(/\bpostpon\b/);
+    });
   });
 
   describe('WordDetailModal Component', () => {

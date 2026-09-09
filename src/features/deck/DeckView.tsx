@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BookOpen, Lightbulb, Loader2, Search, X } from 'lucide-react';
 import { ContributionHeatmap } from '../../components/deck/ContributionHeatmap';
 import { DeckHeader } from '../../components/deck/DeckHeader';
@@ -59,8 +59,91 @@ export const DeckView: React.FC<DeckViewProps> = ({
 }) => {
   const { language, t } = useLanguage();
 
+  // Progressive rendering for instantaneous mount & silky smooth 60fps transitions
+  const INITIAL_BATCH = 30;
+  const BATCH_SIZE = 30;
+  const [visibleCount, setVisibleCount] = useState<number>(INITIAL_BATCH);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  // Reset pagination when search query or filters change
+  useEffect(() => {
+    setVisibleCount(INITIAL_BATCH);
+  }, [
+    filterOptions.search,
+    filterOptions.status,
+    filterOptions.createdDate,
+    filterOptions.tags,
+    filterOptions.sortBy,
+    filterOptions.sortDirection,
+  ]);
+
+  // Progressive infinite scroll: load subsequent batches as user scrolls down
+  useEffect(() => {
+    if (visibleCount >= words.length) return;
+
+    if (typeof IntersectionObserver === 'undefined') {
+      setVisibleCount(words.length);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((prev) => Math.min(prev + BATCH_SIZE, words.length));
+        }
+      },
+      { rootMargin: '300px' }
+    );
+
+    const el = sentinelRef.current;
+    if (el) observer.observe(el);
+
+    return () => {
+      if (el) observer.unobserve(el);
+    };
+  }, [visibleCount, words.length]);
+
+  const visibleWords = useMemo(() => {
+    return words.slice(0, visibleCount);
+  }, [words, visibleCount]);
+
+  const handleReviewDateWords = useCallback(
+    (date: string) => {
+      const dateWords = allWords.filter(
+        (w) => formatLocalDate(w.createdAt) === date
+      );
+      if (dateWords.length > 0) {
+        onStartReviewSession('flashcards', dateWords);
+      } else {
+        showToast(
+          language === 'vi'
+            ? 'Không có từ mới thêm vào ngày này!'
+            : 'No words found for this date!',
+          'error'
+        );
+      }
+    },
+    [allWords, onStartReviewSession, showToast, language]
+  );
+
+  const handleFilterDate = useCallback(
+    (date: string) => {
+      setFilterOptions((prev) => ({
+        ...prev,
+        createdDate: prev.createdDate === date ? undefined : date,
+      }));
+      showToast(
+        language === 'vi'
+          ? `Đã cập nhật bộ lọc từ ngày ${date}`
+          : `Filtered words for ${date}`,
+        'info'
+      );
+    },
+    [setFilterOptions, showToast, language]
+  );
+
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6">
       {/* Quick Metrics */}
       <DeckStats stats={deckStats} />
 
@@ -68,33 +151,8 @@ export const DeckView: React.FC<DeckViewProps> = ({
       <ContributionHeatmap
         words={allWords}
         dailyStats={dailyStats}
-        onReviewDateWords={(date) => {
-          const dateWords = allWords.filter(
-            (w) => formatLocalDate(w.createdAt) === date
-          );
-          if (dateWords.length > 0) {
-            onStartReviewSession('flashcards', dateWords);
-          } else {
-            showToast(
-              language === 'vi'
-                ? 'Không có từ mới thêm vào ngày này!'
-                : 'No words found for this date!',
-              'error'
-            );
-          }
-        }}
-        onFilterDate={(date) => {
-          setFilterOptions((prev) => ({
-            ...prev,
-            createdDate: prev.createdDate === date ? undefined : date,
-          }));
-          showToast(
-            language === 'vi'
-              ? `Đã cập nhật bộ lọc từ ngày ${date}`
-              : `Filtered words for ${date}`,
-            'info'
-          );
-        }}
+        onReviewDateWords={handleReviewDateWords}
+        onFilterDate={handleFilterDate}
       />
 
       {/* Deck Filters & Search */}
@@ -106,21 +164,7 @@ export const DeckView: React.FC<DeckViewProps> = ({
         onOpenImportExport={onOpenImportExport}
         onQuickExportCsv={onQuickExportCsv}
         onQuickExportXlsx={onQuickExportXlsx}
-        onReviewDateWords={(date) => {
-          const dateWords = allWords.filter(
-            (w) => formatLocalDate(w.createdAt) === date
-          );
-          if (dateWords.length > 0) {
-            onStartReviewSession('flashcards', dateWords);
-          } else {
-            showToast(
-              language === 'vi'
-                ? 'Không có từ nào trong ngày này!'
-                : 'No words found for this date!',
-              'error'
-            );
-          }
-        }}
+        onReviewDateWords={handleReviewDateWords}
       />
 
       {/* Fuzzy Deck Search Notice */}
@@ -178,7 +222,7 @@ export const DeckView: React.FC<DeckViewProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-2.5">
-          {words.map((word: WordItem) => (
+          {visibleWords.map((word: WordItem) => (
             <WordListItem
               key={word.id}
               word={word}
@@ -187,6 +231,30 @@ export const DeckView: React.FC<DeckViewProps> = ({
               onDelete={() => onDeleteWord(word.id, word.word)}
             />
           ))}
+
+          {/* Progressive infinite loading sentinel */}
+          {visibleCount < words.length && (
+            <div
+              ref={sentinelRef}
+              className="flex flex-col sm:flex-row items-center justify-center gap-2 py-6 text-xs text-slate-400 dark:text-slate-500"
+            >
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
+                <span>
+                  {language === 'vi'
+                    ? `Đang hiển thị ${visibleWords.length} / ${words.length} từ...`
+                    : `Showing ${visibleWords.length} of ${words.length} words...`}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setVisibleCount(words.length)}
+                className="font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 underline cursor-pointer"
+              >
+                {language === 'vi' ? 'Hiển thị tất cả' : 'Show all'}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

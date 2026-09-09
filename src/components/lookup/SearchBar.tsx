@@ -6,11 +6,17 @@ import { LOCAL_KNOWLEDGE_BASE, getSpellingSuggestions } from '../../services/dic
 import { analyzeMorphology } from '../../services/morphology/lemmatizer';
 import { findFuzzyMatches } from '../../utils/fuzzySearch';
 
-interface SearchBarProps {
+export interface SearchBarProps {
   onSearch: (word: string, contextSentence?: string) => void;
   isLoading: boolean;
   deckWords?: WordItem[];
   initialContextSentence?: string;
+  query?: string;
+  onQueryChange?: (q: string) => void;
+  contextSentence?: string;
+  onContextSentenceChange?: (cs: string) => void;
+  showContextInput?: boolean;
+  onShowContextInputChange?: (show: boolean) => void;
 }
 
 const QUICK_RECOMMENDATIONS = ['negotiate', 'feasible', 'implement', 'compliance', 'facilitate', 'collaborate', 'perspective', 'innovative'];
@@ -30,18 +36,52 @@ const STATIC_LOCAL_KB_ITEMS: KbItem[] = Object.entries(LOCAL_KNOWLEDGE_BASE).map
   meaningVi: val.vi,
   pos: val.pos?.[0] || 'word',
   source: 'builtin' as const,
-}));
+  }));
 
 export const SearchBar: React.FC<SearchBarProps> = ({
   onSearch,
   isLoading,
   deckWords = [],
   initialContextSentence = '',
+  query: controlledQuery,
+  onQueryChange,
+  contextSentence: controlledContextSentence,
+  onContextSentenceChange,
+  showContextInput: controlledShowContextInput,
+  onShowContextInputChange,
 }) => {
   const { language, t } = useLanguage();
-  const [query, setQuery] = useState('');
-  const [contextSentence, setContextSentence] = useState(initialContextSentence);
-  const [showContextInput, setShowContextInput] = useState(Boolean(initialContextSentence));
+  const [internalQuery, setInternalQuery] = useState('');
+  const [internalContextSentence, setInternalContextSentence] = useState(initialContextSentence);
+  const [internalShowContextInput, setInternalShowContextInput] = useState(Boolean(initialContextSentence));
+
+  const query = controlledQuery !== undefined ? controlledQuery : internalQuery;
+  const contextSentence = controlledContextSentence !== undefined ? controlledContextSentence : internalContextSentence;
+  const showContextInput = controlledShowContextInput !== undefined ? controlledShowContextInput : internalShowContextInput;
+
+  const setQuery = (val: string | ((prev: string) => string)) => {
+    const nextVal = typeof val === 'function' ? val(query) : val;
+    if (controlledQuery === undefined) {
+      setInternalQuery(nextVal);
+    }
+    onQueryChange?.(nextVal);
+  };
+
+  const setContextSentence = (val: string | ((prev: string) => string)) => {
+    const nextVal = typeof val === 'function' ? val(contextSentence) : val;
+    if (controlledContextSentence === undefined) {
+      setInternalContextSentence(nextVal);
+    }
+    onContextSentenceChange?.(nextVal);
+  };
+
+  const setShowContextInput = (val: boolean | ((prev: boolean) => boolean)) => {
+    const nextVal = typeof val === 'function' ? val(showContextInput) : val;
+    if (controlledShowContextInput === undefined) {
+      setInternalShowContextInput(nextVal);
+    }
+    onShowContextInputChange?.(nextVal);
+  };
   const deferredQuery = useDeferredValue(query);
   const [isOpen, setIsOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);

@@ -22,14 +22,21 @@ export const ReviewComplete: React.FC<ReviewCompleteProps> = ({
   const { language, t } = useLanguage();
 
   useEffect(() => {
-    // Fire festive confetti animation
+    // Fire festive confetti animation only if user has not requested reduced motion
     try {
-      confetti({
-        particleCount: 80,
-        spread: 70,
-        origin: { y: 0.6 },
-        colors: ['#6366f1', '#10b981', '#f59e0b', '#ec4899'],
-      });
+      const prefersReducedMotion =
+        typeof window !== 'undefined' &&
+        window.matchMedia &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      if (!prefersReducedMotion) {
+        confetti({
+          particleCount: 80,
+          spread: 70,
+          origin: { y: 0.6 },
+          colors: ['#6366f1', '#10b981', '#f59e0b', '#ec4899'],
+        });
+      }
     } catch {
       // Graceful fallback if canvas is unavailable
     }

@@ -1,5 +1,6 @@
 import { analyzeMorphology, type MorphologicalAnalysis } from './morphology/lemmatizer';
 import { enrichWordWithAI, type AIEnrichmentResult } from './ai';
+import { SUSPICIOUS_TRUNCATED_STEMS } from './ai/aiMorphology';
 import { lookupWord } from './dictionary';
 import { getAppSettings } from './db/statsRepo';
 import type { AppSettings, WordItem, VietnameseDefinitionProvenance, ExampleItem, MeaningItem } from '../types/vocab';
@@ -62,7 +63,11 @@ export function mergePipelineSources(params: MergePipelineParams): {
   const lowerQuery = normQuery.toLowerCase();
 
   // 1. Morphological identity & Lemma alignment
-  const lemma = (aiResult?.lemma || analysis.selectedLemma || lowerQuery).toLowerCase();
+  let rawLemma = (aiResult?.lemma || analysis.selectedLemma || lowerQuery).toLowerCase();
+  if (SUSPICIOUS_TRUNCATED_STEMS.has(rawLemma)) {
+    rawLemma = SUSPICIOUS_TRUNCATED_STEMS.get(rawLemma) || analysis.selectedLemma || lowerQuery;
+  }
+  const lemma = rawLemma.toLowerCase();
   const isInflected = lemma !== lowerQuery;
 
   // Variants
@@ -83,10 +88,13 @@ export function mergePipelineSources(params: MergePipelineParams): {
       ? analysis.inflections
       : dictResult?.inflections;
 
-  // Part of speech
-  const pos = Array.from(
-    new Set([...(dictResult?.pos || []), ...(analysis.partOfSpeech || []), 'noun'])
-  ).filter(Boolean);
+  // Part of speech: prefer dictionary, then AI, then morphology analysis, fallback to ['noun']
+  const rawPosList = [
+    ...(dictResult?.pos || []),
+    ...(aiResult?.pos || []),
+    ...(analysis.partOfSpeech || []),
+  ].filter(Boolean);
+  const pos = rawPosList.length > 0 ? Array.from(new Set(rawPosList)) : ['noun'];
   const mainPos = pos[0] || 'noun';
 
   // 2. Phonetics (assigned to the queried form 'query', not mashed with root)
@@ -165,13 +173,18 @@ export function mergePipelineSources(params: MergePipelineParams): {
   // 5. Examples: No fake placeholders!
   const examples: ExampleItem[] = [];
   if (contextSentence?.trim()) {
-    // If AI gave an example translation matching context, use it; otherwise leave translation empty or clean
-    const aiContextExample = aiResult?.examples?.find(
-      (e) => e.en.trim().toLowerCase() === contextSentence.trim().toLowerCase()
-    );
+    // If AI gave an example translation matching context, use it; NEVER borrow an unrelated example's translation
+    const normContext = contextSentence.trim().toLowerCase();
+    const aiContextExample = aiResult?.examples?.find((e) => {
+      const exEn = e.en.trim().toLowerCase();
+      return (
+        exEn === normContext ||
+        (exEn.length > 0 && normContext.length > 0 && (exEn.includes(normContext) || normContext.includes(exEn)))
+      );
+    });
     examples.push({
       en: contextSentence.trim(),
-      vi: aiContextExample?.vi || (aiResult?.examples?.[0]?.vi !== undefined ? aiResult.examples[0].vi : ''),
+      vi: aiContextExample?.vi?.trim() || '',
       context: 'general',
     });
   }

@@ -57,7 +57,6 @@ export const PRIMARY_ING_NOUNS: Record<string, { pos: string; vi: string }> = {
   saving: { pos: 'noun', vi: 'tiền tiết kiệm, khoản tiết kiệm' },
   shipping: { pos: 'noun', vi: 'việc giao nhận, vận chuyển hàng hóa' },
   warning: { pos: 'noun', vi: 'lời cảnh báo, sự báo trước' },
-  writing: { pos: 'noun', vi: 'bài viết, văn bản, chữ viết' },
   ending: { pos: 'noun', vi: 'phần kết thúc, đoạn cuối' },
   beginning: { pos: 'noun', vi: 'sự khởi đầu, lúc bắt đầu' },
   feeling: { pos: 'noun', vi: 'cảm xúc, cảm giác' },
@@ -80,6 +79,16 @@ export interface IrregularVerbFormEntry {
 }
 
 const IRREGULAR_VERBS: Record<string, IrregularVerbFormEntry[]> = {
+  did: [{ lemma: 'do', formLabel: 'Quá khứ đơn (V2)', pos: 'verb', explanationVi: 'Dạng quá khứ của "do" (đã làm)' }],
+  done: [{ lemma: 'do', formLabel: 'Quá khứ phân từ (V3)', pos: 'verb', explanationVi: 'Dạng quá khứ phân từ của "do" (đã hoàn thành)' }],
+  was: [{ lemma: 'be', formLabel: 'Quá khứ đơn số ít (V2)', pos: 'verb', explanationVi: 'Dạng quá khứ của động từ "be" (thì/là/ở)' }],
+  were: [{ lemma: 'be', formLabel: 'Quá khứ đơn số nhiều (V2)', pos: 'verb', explanationVi: 'Dạng quá khứ số nhiều của "be"' }],
+  been: [{ lemma: 'be', formLabel: 'Quá khứ phân từ (V3)', pos: 'verb', explanationVi: 'Dạng quá khứ phân từ của động từ "be"' }],
+  am: [{ lemma: 'be', formLabel: 'Hiện tại đơn (V1 - ngôi thứ nhất)', pos: 'verb', explanationVi: 'Thì/là/ở (ngôi I)' }],
+  is: [{ lemma: 'be', formLabel: 'Hiện tại đơn (V1 - ngôi thứ 3 số ít)', pos: 'verb', explanationVi: 'Thì/là/ở (ngôi he/she/it)' }],
+  are: [{ lemma: 'be', formLabel: 'Hiện tại đơn (V1 - số nhiều)', pos: 'verb', explanationVi: 'Thì/là/ở (ngôi you/we/they)' }],
+  had: [{ lemma: 'have', formLabel: 'Quá khứ / Quá khứ phân từ (V2/V3)', pos: 'verb', explanationVi: 'Dạng quá khứ của "have" (đã có)' }],
+  has: [{ lemma: 'have', formLabel: 'Hiện tại đơn (ngôi thứ 3 số ít)', pos: 'verb', explanationVi: 'Dạng ngôi thứ 3 của "have" (có)' }],
   went: [{ lemma: 'go', formLabel: 'Quá khứ đơn (V2)', pos: 'verb', explanationVi: 'Dạng quá khứ của "go" (đi)' }],
   gone: [{ lemma: 'go', formLabel: 'Quá khứ phân từ (V3)', pos: 'verb', explanationVi: 'Dạng quá khứ phân từ của "go" (đã đi)' }],
   written: [{ lemma: 'write', formLabel: 'Quá khứ phân từ (V3)', pos: 'verb', explanationVi: 'Dạng quá khứ phân từ của "write" (được viết/đã viết)' }],
@@ -455,16 +464,76 @@ function disambiguateWithContext(
         reason: 'Ngữ cảnh động từ chỉ hành động cải thiện',
       };
     }
-    if (/\b(much|far|even|looks|feels|is|are|was|were)\s+better\b/.test(sLower) || /\bbetter\s+than\b/.test(sLower)) {
+    if (/\b(feel|feels|feeling|felt)\s+better\b/.test(sLower) || /\b(getting|become|became)\s+better\b/.test(sLower)) {
+      return {
+        selectedLemma: 'well',
+        filteredCandidates: [
+          {
+            lemma: 'well',
+            pos: 'adverb/adjective',
+            formLabel: 'Dạng so sánh hơn',
+            explanationVi: 'Khỏe hơn, hồi phục tốt hơn (từ "well")',
+          },
+          {
+            lemma: 'good',
+            pos: 'adjective',
+            formLabel: 'Dạng so sánh hơn',
+            explanationVi: 'Tốt hơn, cảm thấy ổn hơn (từ "good")',
+          },
+        ],
+        reason: 'Ngữ cảnh cảm giác / sức khỏe hồi phục',
+      };
+    }
+    if (/\b(much|far|even|looks|is|are|was|were)\s+better\b/.test(sLower) || /\bbetter\s+(than|results?|quality|option|choice|offer)\b/.test(sLower)) {
       return {
         selectedLemma: 'good',
         filteredCandidates: [{
           lemma: 'good',
           pos: 'adjective',
           formLabel: 'Dạng so sánh hơn',
-          explanationVi: 'Tốt hơn, ưu việt hơn',
+          explanationVi: 'Tốt hơn, ưu việt hơn (từ "good")',
         }],
         reason: 'Ngữ cảnh so sánh tính từ (tốt hơn)',
+      };
+    }
+  }
+
+  // 4b. Check for "best": "best results" -> good; "do your best" -> best (noun); "works best" -> well (adverb)
+  if (wLower === 'best') {
+    if (/\b(do|does|did|done|try|tried|trying|his|her|my|your|our|their)\s+best\b/.test(sLower)) {
+      return {
+        selectedLemma: 'best',
+        filteredCandidates: [{
+          lemma: 'best',
+          pos: 'noun',
+          formLabel: 'Từ nguyên mẫu (danh từ)',
+          explanationVi: 'Nỗ lực cao nhất, điều tốt nhất',
+        }],
+        reason: 'Ngữ cảnh nỗ lực hết mình (do one\'s best)',
+      };
+    }
+    if (/\b(works|performed|suited|fits?)\s+best\b/.test(sLower)) {
+      return {
+        selectedLemma: 'well',
+        filteredCandidates: [{
+          lemma: 'well',
+          pos: 'adverb',
+          formLabel: 'Dạng so sánh nhất (trạng từ)',
+          explanationVi: 'Hiệu quả nhất, giỏi nhất (từ "well")',
+        }],
+        reason: 'Ngữ cảnh trạng từ chỉ cách thức tốt nhất',
+      };
+    }
+    if (/\b(the\s+)?best\s+(results?|way|option|choice|quality|student|practice)\b/.test(sLower) || /\b(is|are|was|were)\s+(the\s+)?best\b/.test(sLower)) {
+      return {
+        selectedLemma: 'good',
+        filteredCandidates: [{
+          lemma: 'good',
+          pos: 'adjective',
+          formLabel: 'Dạng so sánh nhất (tính từ)',
+          explanationVi: 'Tốt nhất, xuất sắc nhất (từ "good")',
+        }],
+        reason: 'Ngữ cảnh tính từ so sánh nhất',
       };
     }
   }
@@ -526,6 +595,200 @@ function parsePhrasalVerb(phrase: string): { verbPart: string; particlePart: str
   }
 
   return null;
+}
+
+/**
+ * Comprehensive English verbs ending in silent -e that drop -e before -ing and -ed
+ */
+export const KNOWN_SILENT_E_VERBS = new Set([
+  'postpone', 'make', 'take', 'use', 'write', 'drive', 'hope', 'come', 'give', 'live',
+  'move', 'ride', 'change', 'create', 'decide', 'provide', 'include', 'reduce', 'produce',
+  'introduce', 'require', 'acquire', 'inquire', 'manage', 'improve', 'schedule', 'promote',
+  'continue', 'receive', 'believe', 'achieve', 'agree', 'base', 'like', 'love', 'save',
+  'wave', 'share', 'care', 'stare', 'note', 'vote', 'quote', 'prepare', 'compare',
+  'declare', 'ensure', 'insure', 'assure', 'secure', 'organize', 'realize', 'recognize',
+  'analyze', 'notice', 'practice', 'experience', 'influence', 'increase', 'decrease',
+  'release', 'please', 'involve', 'evolve', 'resolve', 'solve', 'survive', 'arrive',
+  'remove', 'approve', 'arrange', 'charge', 'damage', 'challenge', 'encourage', 'indicate',
+  'operate', 'estimate', 'communicate', 'translate', 'collaborate', 'participate',
+  'generate', 'celebrate', 'activate', 'motivate', 'navigate', 'allocate', 'dedicate',
+  'evaluate', 'fluctuate', 'illustrate', 'migrate', 'terminate', 'dominate', 'execute',
+  'distribute', 'contribute', 'substitute', 'institute', 'constitute', 'pollute',
+  'compose', 'propose', 'expose', 'dispose', 'oppose', 'suppose', 'impose',
+  'waste', 'taste', 'paste', 'chase', 'raise', 'praise', 'browse', 'arise', 'choose',
+  'close', 'lose', 'cause', 'pause', 'refuse', 'excuse', 'amuse', 'abuse',
+  'advise', 'revise', 'devise', 'surprise', 'enterprise', 'compromise', 'promise',
+  'advertise', 'exercise', 'supervise', 'guarantee', 'disagree', 'see', 'flee', 'free',
+  'breathe', 'bathe', 'clothe', 'soothe', 'scale', 'rule', 'file', 'smile', 'pile',
+  'compile', 'profile', 'reconcile', 'bake', 'shake', 'wake', 'choke', 'smoke',
+  'strike', 'type', 'wipe', 'cope', 'slope', 'shape', 'escape', 'scrape',
+  'date', 'state', 'update', 'upgrade', 'trade', 'fade', 'shade', 'guide', 'hide',
+  'slide', 'glide', 'collide', 'divide', 'reside', 'preside', 'abide', 'confide',
+  'negotiate', 'appreciate', 'differentiate', 'initiate', 'hesitate',
+  'facilitate', 'accommodate', 'consolidate', 'anticipate', 'compensate',
+  'concentrate', 'demonstrate', 'frustrate', 'penetrate',
+  'elaborate', 'incorporate', 'tolerate', 'accelerate', 'reiterate',
+]);
+
+/**
+ * English base verbs that do NOT end in silent -e and must NEVER have -e artificially appended
+ * (e.g. work -> working [NEVER worke], read -> reading [NEVER reade], meet -> meeting [NEVER meete])
+ */
+export const KNOWN_NON_E_VERBS = new Set([
+  'work', 'read', 'meet', 'sleep', 'wait', 'speak', 'look', 'cool', 'hear', 'feel',
+  'train', 'rain', 'point', 'float', 'help', 'jump', 'ask', 'send', 'hold', 'start',
+  'park', 'hunt', 'talk', 'walk', 'wish', 'watch', 'teach', 'laugh', 'mark', 'thank',
+  'drink', 'sing', 'bring', 'ring', 'build', 'stand', 'end', 'spend', 'bend', 'lend',
+  'open', 'listen', 'happen', 'threaten', 'fasten', 'soften', 'weaken', 'strengthen',
+  'shorten', 'worsen', 'quicken', 'thicken', 'visit', 'limit', 'benefit', 'develop',
+  'edit', 'credit', 'exhibit', 'prohibit', 'inhibit', 'deposit', 'gather', 'order',
+  'deliver', 'remember', 'consider', 'discover', 'recover', 'wonder', 'enter', 'center',
+  'suffer', 'offer', 'differ', 'answer', 'focus', 'alter', 'bother', 'shiver', 'whisper',
+  'shatter', 'scatter', 'matter', 'flutter', 'master', 'foster', 'bolster', 'shelter',
+  'filter', 'water', 'murder', 'border', 'harbor', 'labor', 'favor', 'honor',
+]);
+
+/**
+ * Resolves the canonical dictionary lemma of an -ing verb using English phonotactic morphology
+ */
+export function resolveBaseVerbFromIng(normalized: string): string {
+  if (!normalized.endsWith('ing') || normalized.length <= 4) return normalized;
+
+  // 1. Primary nouns mapping to base verbs
+  if (normalized === 'meeting') return 'meet';
+  if (normalized === 'writing') return 'write';
+  if (normalized === 'building') return 'build';
+  if (normalized === 'training') return 'train';
+  if (normalized === 'feeling') return 'feel';
+  if (normalized === 'meaning') return 'mean';
+  if (normalized === 'beginning') return 'begin';
+
+  // 2. -ying -> -ie (dying -> die, lying -> lie, tying -> tie, vying -> vie)
+  if (normalized.endsWith('ying')) {
+    const yStem = normalized.slice(0, -4);
+    if (['d', 'l', 't', 'v'].includes(yStem)) {
+      return `${yStem}ie`;
+    }
+  }
+
+  const stem = normalized.slice(0, -3);
+
+  // 3. Double consonant doubling: running -> run, swimming -> swim, planning -> plan, stopping -> stop
+  // Preserve single consonant if doubled (never strip 'ss' e.g. cross, pass, dress)
+  if (/(.)\1$/.test(stem) && !/ss$/.test(stem)) {
+    return stem.slice(0, -1);
+  }
+
+  // 4. Known silent-e verbs (e.g. postponing -> postpone, making -> make, using -> use)
+  const withE = `${stem}e`;
+  if (KNOWN_SILENT_E_VERBS.has(withE) || stem === 'postpon') {
+    return withE;
+  }
+
+  // 5. Known non-e verbs (e.g. working -> work, reading -> read, meeting -> meet)
+  if (KNOWN_NON_E_VERBS.has(stem)) {
+    return stem;
+  }
+
+  // 6. Phonotactic rules:
+  // 6a. Vowel digraph + single consonant (e.g. read, meet, sleep, speak, look, cool, hear, feel, train, rain)
+  // NEVER append 'e' to vowel digraphs!
+  if (/[aeiou]{2}[bcdfghjklmnpqrstvwxyz]$/.test(stem)) {
+    return stem;
+  }
+
+  // 6b. Standard consonant clusters ending in non-silent-e consonants:
+  // e.g. rk (work), lp (help), mp (jump), sk (ask), nd (send), ld (hold), rt (start), nt (plant),
+  // lk (talk/walk), sh (wish), tch (watch), ch (teach), gh (laugh), nk (thank)
+  if (/(rk|lp|mp|sk|nd|ld|rt|nt|lk|sh|tch|ch|gh|nk|ct|pt|ft)$/.test(stem)) {
+    return stem;
+  }
+
+  // 6c. Suffixes that phonotactically REQUIRE silent 'e':
+  // - Soft c: -ce (e.g. producing -> produce, noticing -> notice, practicing -> practice, dancing -> dance)
+  // - Soft g: -ge (e.g. managing -> manage, changing -> change, judging -> judge, charging -> charge)
+  // - v: English words never end in v (improving -> improve, moving -> move, living -> live, giving -> give, driving -> drive)
+  // - z: -ze (organizing -> organize, realizing -> realize)
+  // - ate, ute, ude, use, ire, ore, ure, ive, ave, ove, ise, oze
+  if (
+    stem.endsWith('c') ||
+    stem.endsWith('g') ||
+    stem.endsWith('v') ||
+    stem.endsWith('z') ||
+    stem.endsWith('us') ||
+    stem.endsWith('postpon') ||
+    /(at|ut|ud|ir|or|ur|iv|av|ov|is|oz|ul|os|clos|pos|clud|sid|vid|cid)$/.test(stem)
+  ) {
+    return `${stem}e`;
+  }
+
+  // 6d. Suspicious truncated stems protection (never output worke, reade, meete, postpon)
+  if (stem === 'postpon') return 'postpone';
+  if (stem === 'worke') return 'work';
+  if (stem === 'reade') return 'read';
+  if (stem === 'meete') return 'meet';
+
+  // 7. Open single syllable / multi-syllable V-C verbs take e (e.g. write, take, make, hope, vote)
+  if (!/[aeiou]/.test(stem.slice(-1)) && /[aeiou]/.test(stem.slice(-2, -1))) {
+    return `${stem}e`;
+  }
+
+  return stem;
+}
+
+/**
+ * Resolves the canonical dictionary lemma of an -ed verb using English phonotactic morphology
+ */
+export function resolveBaseVerbFromEd(normalized: string): string {
+  if (!normalized.endsWith('ed') || normalized.length <= 3) return normalized;
+
+  // 1. -ied -> -y (studied -> study, tried -> try, carried -> carry, copied -> copy)
+  if (normalized.endsWith('ied') && normalized.length > 4) {
+    return `${normalized.slice(0, -3)}y`;
+  }
+
+  const stem = normalized.slice(0, -2);
+
+  // 2. Double consonant: stopped -> stop, planned -> plan, dropped -> drop
+  if (/(.)\1$/.test(stem) && !/ss$/.test(stem)) {
+    return stem.slice(0, -1);
+  }
+
+  // 3. If stem is already ending in 'e': e.g. decided -> decide, included -> include
+  if (stem.endsWith('e')) {
+    return stem;
+  }
+
+  // 4. Known silent-e verbs: postponed -> postpone, used -> use, liked -> like, moved -> move
+  const withE = `${stem}e`;
+  if (KNOWN_SILENT_E_VERBS.has(withE) || stem === 'postpon') {
+    return withE;
+  }
+
+  // 5. Known non-e verbs: worked -> work, looked -> look, helped -> help
+  if (KNOWN_NON_E_VERBS.has(stem)) {
+    return stem;
+  }
+
+  // 6. Phonotactics:
+  if (/[aeiou]{2}[bcdfghjklmnpqrstvwxyz]$/.test(stem)) {
+    return stem;
+  }
+  if (/(rk|lp|mp|sk|nd|ld|rt|nt|lk|sh|tch|ch|gh|nk|ct|pt|ft)$/.test(stem)) {
+    return stem;
+  }
+  if (
+    stem.endsWith('c') ||
+    stem.endsWith('g') ||
+    stem.endsWith('v') ||
+    stem.endsWith('z') ||
+    stem.endsWith('us') ||
+    /(at|ut|ud|ir|or|ur|iv|av|ov|is|oz|ul|os|clos|pos|clud|sid|vid|cid)$/.test(stem)
+  ) {
+    return `${stem}e`;
+  }
+
+  return stem;
 }
 
 /**
@@ -687,7 +950,7 @@ export function analyzeMorphology(
     return result;
   }
 
-  // 7. Regular Inflection Rules: -ies / -es / -s (e.g. "studies" -> "study")
+  // 7. Regular Inflection Rules: -ies / -sses / -shes / -ches / -xes / -zes / -ves
   if (normalized.endsWith('ies') && normalized.length > 4) {
     const base = `${normalized.slice(0, -3)}y`;
     const candidates: LemmaCandidate[] = [
@@ -720,21 +983,86 @@ export function analyzeMorphology(
     return result;
   }
 
-  // 8. Regular -ing (e.g. "working" -> "work", "planning" -> "plan", "writing" -> "write")
-  if (normalized.endsWith('ing') && normalized.length > 4) {
-    let candidateBase = normalized.slice(0, -3);
+  // Words ending in -sses (e.g. businesses -> business, processes -> process, classes -> class)
+  if (normalized.endsWith('sses') && normalized.length > 5) {
+    const base = normalized.slice(0, -2);
+    const candidates: LemmaCandidate[] = [
+      {
+        lemma: base,
+        pos: 'noun',
+        formLabel: 'Danh từ số nhiều (-es)',
+        explanationVi: `Danh từ nguyên mẫu: "${base}" (dạng số nhiều)`,
+      },
+      {
+        lemma: base,
+        pos: 'verb',
+        formLabel: 'Động từ ngôi 3 số ít (-es)',
+        explanationVi: `Động từ nguyên mẫu: "${base}" (chia ngôi 3 số ít)`,
+        isAmbiguous: true,
+      },
+    ];
+    const disambiguated = disambiguateWithContext(normalized, candidates, contextSentence);
+    result.selectedLemma = disambiguated.selectedLemma;
+    result.lemmaCandidates = disambiguated.filteredCandidates;
+    result.partOfSpeech = Array.from(new Set(disambiguated.filteredCandidates.map((c) => c.pos)));
+    result.formLabels = disambiguated.filteredCandidates.map((c) => c.formLabel);
+    result.needsDisambiguation = disambiguated.filteredCandidates.length > 1;
+    result.confidenceReason = disambiguated.reason;
+    result.inflections = [
+      { form: base, label: 'Nguyên mẫu' },
+      { form: normalized, label: 'Dạng số nhiều / chia ngôi' },
+    ];
+    return result;
+  }
 
-    // Double consonant: running -> run, stopping -> stop, swimming -> swim, dropping -> drop
-    if (/(.)\1$/.test(candidateBase) && !/ss$/.test(candidateBase)) {
-      candidateBase = candidateBase.slice(0, -1);
-    } else if (!/[aeiou]/.test(candidateBase.slice(-1))) {
-      // E.g. writing -> write, making -> make, hoping -> hope
-      // Only append 'e' if standard English root exists
-      const withE = `${candidateBase}e`;
-      if (['make', 'take', 'write', 'drive', 'hope', 'come', 'give', 'live', 'move', 'ride', 'use', 'change', 'create'].includes(withE)) {
-        candidateBase = withE;
-      }
-    }
+  // Words ending in -shes, -ches, -xes, -zes (e.g. watches -> watch, boxes -> box, wishes -> wish)
+  if (/(shes|ches|xes|zes)$/.test(normalized) && normalized.length > 4) {
+    const base = normalized.slice(0, -2);
+    result.selectedLemma = base;
+    result.lemmaCandidates = [
+      {
+        lemma: base,
+        pos: 'noun',
+        formLabel: 'Số nhiều / Ngôi thứ 3 (-es)',
+        explanationVi: `Từ nguyên mẫu: "${base}"`,
+      },
+    ];
+    result.partOfSpeech = ['noun', 'verb'];
+    result.formLabels = ['Dạng đuôi -es'];
+    result.inflections = [
+      { form: base, label: 'Nguyên mẫu' },
+      { form: normalized, label: 'Dạng -es' },
+    ];
+    return result;
+  }
+
+  // Words ending in -ves (e.g. knives -> knife, lives -> life/live, leaves -> leaf/leave)
+  if (normalized.endsWith('ves') && normalized.length > 4) {
+    const baseV = normalized.slice(0, -3);
+    const candidateFe = `${baseV}fe`;
+    const candidateF = `${baseV}f`;
+    const candidateLemma = ['knife', 'wife', 'life'].includes(candidateFe) ? candidateFe : candidateF;
+    result.selectedLemma = candidateLemma;
+    result.lemmaCandidates = [
+      {
+        lemma: candidateLemma,
+        pos: 'noun',
+        formLabel: 'Danh từ số nhiều (-ves)',
+        explanationVi: `Dạng số nhiều của danh từ "${candidateLemma}"`,
+      },
+    ];
+    result.partOfSpeech = ['noun'];
+    result.formLabels = ['Danh từ số nhiều (-ves)'];
+    result.inflections = [
+      { form: candidateLemma, label: 'Số ít' },
+      { form: normalized, label: 'Số nhiều' },
+    ];
+    return result;
+  }
+
+  // 8. Regular -ing (e.g. "postponing" -> "postpone", "working" -> "work", "planning" -> "plan", "writing" -> "write")
+  if (normalized.endsWith('ing') && normalized.length > 4) {
+    const candidateBase = resolveBaseVerbFromIng(normalized);
 
     const candidates: LemmaCandidate[] = [
       {
@@ -765,24 +1093,9 @@ export function analyzeMorphology(
     return result;
   }
 
-  // 9. Regular -ed (e.g. "worked" -> "work", "studied" -> "study", "stopped" -> "stop")
+  // 9. Regular -ed (e.g. "postponed" -> "postpone", "worked" -> "work", "studied" -> "study", "stopped" -> "stop")
   if (normalized.endsWith('ed') && normalized.length > 3) {
-    let candidateBase = normalized.slice(0, -2);
-    if (normalized.endsWith('ied') && normalized.length > 4) {
-      candidateBase = `${normalized.slice(0, -3)}y`;
-    } else if (/(.)\1$/.test(candidateBase) && !/ss$/.test(candidateBase)) {
-      // stopped -> stop, planned -> plan
-      candidateBase = candidateBase.slice(0, -1);
-    } else if (candidateBase.endsWith('d') && candidateBase.length > 3) {
-      // e.g. decided -> decide
-      candidateBase = candidateBase;
-    } else if (!candidateBase.endsWith('e')) {
-      // liked -> like, moved -> move
-      const withE = `${candidateBase}e`;
-      if (['like', 'move', 'live', 'create', 'base', 'agree', 'receive', 'provide', 'include', 'continue'].includes(withE)) {
-        candidateBase = withE;
-      }
-    }
+    const candidateBase = resolveBaseVerbFromEd(normalized);
 
     result.selectedLemma = candidateBase;
     result.lemmaCandidates = [
@@ -802,7 +1115,33 @@ export function analyzeMorphology(
     return result;
   }
 
-  // 10. Default: Base word (preserve original input)
+  // 10. Regular Plural / 3rd Person Singular -s (e.g. "books" -> "book", "requires" -> "require")
+  if (
+    normalized.endsWith('s') &&
+    normalized.length > 3 &&
+    !NON_STRIPPABLE_S_WORDS.has(normalized) &&
+    !/(ss|us|is|as|os)$/.test(normalized)
+  ) {
+    const candidateBase = normalized.slice(0, -1);
+    result.selectedLemma = candidateBase;
+    result.lemmaCandidates = [
+      {
+        lemma: candidateBase,
+        pos: 'noun/verb',
+        formLabel: 'Số nhiều / Ngôi thứ 3 số ít (-s)',
+        explanationVi: `Dạng số nhiều hoặc chia ngôi 3 số ít của "${candidateBase}"`,
+      },
+    ];
+    result.partOfSpeech = ['noun', 'verb'];
+    result.formLabels = ['Dạng thêm -s'];
+    result.inflections = [
+      { form: candidateBase, label: 'Nguyên mẫu' },
+      { form: normalized, label: 'Dạng đuôi -s' },
+    ];
+    return result;
+  }
+
+  // 11. Default: Base word (preserve original input)
   result.selectedLemma = normalized;
   result.lemmaCandidates = [
     {
