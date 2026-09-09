@@ -29,16 +29,16 @@ test.describe('LexiPulse E2E Suite', () => {
     const wordHeading = page.locator('h1, h2').filter({ hasText: /^negotiate$/i });
     await expect(wordHeading.first()).toBeVisible({ timeout: 10000 });
 
-    // Click "Lưu vào Deck" / "Save to Deck"
-    const saveBtn = page.getByRole('button', { name: /Lưu vào Deck|Save to Deck/i });
+    // Save using the current localized button label.
+    const saveBtn = page.getByRole('button', { name: /Lưu vào bộ từ|Save to Deck/i });
     await expect(saveBtn).toBeVisible();
     await saveBtn.click();
 
-    // Verify button state changes to "Đã có trong Deck" / "Already in Deck"
-    await expect(page.getByRole('button', { name: /Đã có trong Deck|Already in Deck/i })).toBeVisible();
+    // Wait for the temporary success message to settle into the saved state.
+    await expect(page.getByRole('button', { name: /Đã có trong bộ từ|^In Deck$/i })).toBeVisible();
 
     // Switch to Deck tab
-    const deckTabBtn = page.getByRole('button', { name: /Bộ từ vựng|Deck/i }).first();
+    const deckTabBtn = page.getByRole('tab', { name: /Bộ từ vựng|Deck/i });
     await deckTabBtn.click();
 
     // Verify word exists in deck list
@@ -78,7 +78,7 @@ test.describe('LexiPulse E2E Suite', () => {
     });
 
     // Switch to Deck tab
-    const deckNavBtn = page.locator('nav button').filter({ hasText: /Bộ từ vựng|Deck/i }).first();
+    const deckNavBtn = page.getByRole('tab', { name: /Bộ từ vựng|Deck/i });
     await deckNavBtn.click();
     await expect(page.locator('text=collaborate').first()).toBeVisible({ timeout: 10000 });
 
@@ -114,7 +114,7 @@ test.describe('LexiPulse E2E Suite', () => {
 
   test('3. Bulk import hyphenated words accurately', async ({ page }) => {
     // Switch to Deck tab
-    const deckNavBtn = page.locator('nav button').filter({ hasText: /Bộ từ vựng|Deck/i }).first();
+    const deckNavBtn = page.getByRole('tab', { name: /Bộ từ vựng|Deck/i });
     await deckNavBtn.click();
 
     // Click "Nhập nhiều từ" / "Bulk Add"
@@ -186,13 +186,10 @@ test.describe('LexiPulse E2E Suite', () => {
     await page.reload();
 
     // Go to Review tab
-    await page.getByRole('button', { name: /Ôn tập SRS|Review/i }).first().click();
+    await page.getByRole('tab', { name: /Ôn tập SRS|Review/i }).click();
 
-    // Start session if button visible
-    const startBtn = page.getByRole('button', { name: /Bắt đầu ôn tập|Start Review/i });
-    if (await startBtn.isVisible()) {
-      await startBtn.click();
-    }
+    // Start the due-card session from the review dashboard.
+    await page.getByRole('button', { name: /Ôn tập 1 thẻ đến hạn hôm nay|Review 1 Cards Due Today/i }).click();
 
     // Flashcard should display 'innovate'
     await expect(page.locator('text=innovate').first()).toBeVisible();
@@ -200,13 +197,8 @@ test.describe('LexiPulse E2E Suite', () => {
     // Press Space or click to flip
     await page.keyboard.press('Space');
 
-    // Rate card as Good (press 2 or click "Tốt")
-    const goodBtn = page.getByRole('button', { name: /Tốt|Good/i });
-    if (await goodBtn.isVisible()) {
-      await goodBtn.click();
-    } else {
-      await page.keyboard.press('2');
-    }
+    // FSRS uses rating 3 for Good ("Nhớ" in Vietnamese).
+    await page.getByRole('button', { name: /Nhớ|Good/i }).click();
 
     // Review completion screen should appear
     await expect(page.locator('text=/Hoàn thành|Completed|Finished/i').first()).toBeVisible({ timeout: 5000 });
@@ -242,7 +234,7 @@ test.describe('LexiPulse E2E Suite', () => {
     });
 
     await page.reload();
-    await page.getByRole('button', { name: /Bộ từ vựng|Deck/i }).first().click();
+    await page.getByRole('tab', { name: /Bộ từ vựng|Deck/i }).click();
 
     // Click Export/Backup button
     const exportBtn = page.getByRole('button', { name: /Xuất \/ Sao lưu|Export \/ Backup/i });
@@ -306,7 +298,7 @@ test.describe('LexiPulse E2E Suite', () => {
     await expect(page.locator('text=LexiPulse').first()).toBeVisible({ timeout: 10000 });
 
     // Switch to Deck tab and verify IndexedDB word loaded offline
-    const deckNavBtn = page.locator('nav button').filter({ hasText: /Bộ từ vựng|Deck/i }).first();
+    const deckNavBtn = page.getByRole('tab', { name: /Bộ từ vựng|Deck/i });
     await deckNavBtn.click();
     await expect(page.locator('text=resilience').first()).toBeVisible();
 
