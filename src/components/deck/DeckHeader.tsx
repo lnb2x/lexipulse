@@ -1,5 +1,5 @@
 import { ArrowUpDown, Calendar, Database, Download, FileSpreadsheet, Play, Plus, Search, Tag, X } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
 import type { FilterOptions, WordStatus } from '../../types/vocab';
 
@@ -28,6 +28,8 @@ export const DeckHeader: React.FC<DeckHeaderProps> = ({
 }) => {
   const { language, t } = useLanguage();
   const [localSearch, setLocalSearch] = useState(filterOptions.search);
+  const filterOptionsRef = useRef(filterOptions);
+  filterOptionsRef.current = filterOptions;
 
   useEffect(() => {
     setLocalSearch(filterOptions.search);
@@ -35,48 +37,50 @@ export const DeckHeader: React.FC<DeckHeaderProps> = ({
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (localSearch !== filterOptions.search) {
-        onFilterChange({ ...filterOptions, search: localSearch });
+      if (localSearch !== filterOptionsRef.current.search) {
+        onFilterChange({ ...filterOptionsRef.current, search: localSearch });
       }
     }, 150);
     return () => clearTimeout(timer);
-  }, [localSearch]);
+  }, [localSearch, onFilterChange]);
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setLocalSearch(e.target.value);
   };
 
   const handleStatusChange = (status: WordStatus | 'all') => {
-    onFilterChange({ ...filterOptions, status });
+    onFilterChange({ ...filterOptionsRef.current, search: localSearch, status });
   };
 
   const handleDateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedDate = e.target.value;
     onFilterChange({
-      ...filterOptions,
+      ...filterOptionsRef.current,
+      search: localSearch,
       createdDate: selectedDate === 'all' ? undefined : selectedDate,
     });
   };
 
   const handleClearDate = () => {
-    onFilterChange({ ...filterOptions, createdDate: undefined });
+    onFilterChange({ ...filterOptionsRef.current, search: localSearch, createdDate: undefined });
   };
 
   const handleTagToggle = (tag: string) => {
-    const isSelected = filterOptions.tags.includes(tag);
+    const isSelected = filterOptionsRef.current.tags.includes(tag);
     const newTags = isSelected
-      ? filterOptions.tags.filter((t) => t !== tag)
-      : [...filterOptions.tags, tag];
-    onFilterChange({ ...filterOptions, tags: newTags });
+      ? filterOptionsRef.current.tags.filter((t) => t !== tag)
+      : [...filterOptionsRef.current.tags, tag];
+    onFilterChange({ ...filterOptionsRef.current, search: localSearch, tags: newTags });
   };
 
   const handleClearTags = () => {
-    onFilterChange({ ...filterOptions, tags: [] });
+    onFilterChange({ ...filterOptionsRef.current, search: localSearch, tags: [] });
   };
 
   const handleSortChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     onFilterChange({
-      ...filterOptions,
+      ...filterOptionsRef.current,
+      search: localSearch,
       sortBy: e.target.value as any,
     });
   };

@@ -1,6 +1,7 @@
 import { Edit3, Tag, Trash2, X } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
+import { playPronunciation } from '../../services/audio';
 import { formatDueText, formatInterval } from '../../services/sm2';
 import type { WordItem } from '../../types/vocab';
 import { AudioButton } from '../common/AudioButton';
@@ -33,7 +34,45 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
 }) => {
   const { language, t } = useLanguage();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const modalRef = useModalA11y({ isOpen: !!word, onClose });
+
+  const handlePlayWordAudio = useCallback(async (preferredAccent: 'US' | 'UK' = 'US') => {
+    if (!word) return;
+    setIsPlayingAudio(true);
+    try {
+      const audioUrl = preferredAccent === 'UK'
+        ? (word.phonetics.audioUk || word.phonetics.audioUs)
+        : (word.phonetics.audioUs || word.phonetics.audioUk);
+      await playPronunciation(word.word, preferredAccent, audioUrl);
+    } catch (err) {
+      console.warn('WordDetailModal audio playback error:', err);
+    } finally {
+      setIsPlayingAudio(false);
+    }
+  }, [word]);
+
+  React.useEffect(() => {
+    if (!word) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isInput = target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable);
+      const isCtrlOrMeta = e.ctrlKey || e.metaKey;
+
+      const isAudioShortcut =
+        (!isInput && (e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'a') && !isCtrlOrMeta && !e.altKey) ||
+        (isCtrlOrMeta && e.code === 'Space');
+
+      if (isAudioShortcut) {
+        e.preventDefault();
+        const accent: 'US' | 'UK' = e.shiftKey ? 'UK' : 'US';
+        handlePlayWordAudio(accent);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [word, handlePlayWordAudio]);
 
   if (!word) return null;
 
@@ -111,7 +150,14 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            <AudioButton text={word.word} accent="US" audioUrl={word.phonetics.audioUs} size="sm" />
+            <AudioButton
+              text={word.word}
+              accent="US"
+              audioUrl={word.phonetics.audioUs}
+              size="sm"
+              shortcutHint="R"
+              isPlaying={isPlayingAudio}
+            />
             <button
               type="button"
               onClick={onClose}

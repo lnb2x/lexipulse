@@ -18,12 +18,16 @@ export {
 } from './db/statsRepo';
 export {
   exportDeckToJson,
+  exportFullBackupToJson,
   exportDeckToCsv,
   exportDeckToXlsx,
+  type BackupEnvelope,
+  type ExportDeckOptions,
 } from './db/backup';
 export {
   importDeckFromJson,
   type ImportDeckOptions,
+  type ImportDeckResult,
   saveOrUpdateWord,
   bulkUpsertWords,
   findWordByTerm,

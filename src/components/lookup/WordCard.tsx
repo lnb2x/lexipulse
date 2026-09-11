@@ -1,8 +1,9 @@
 import { Bookmark, BookmarkCheck, Edit3, Tag } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
 import type { WordItem } from '../../types/vocab';
 import { lookupWord } from '../../services/dictionary';
+import { playPronunciation } from '../../services/audio';
 import { createInitialReviewMeta } from '../../services/sm2';
 import { AudioButton } from '../common/AudioButton';
 import { WordFamilyInteractive } from '../common/WordFamilyInteractive';
@@ -36,12 +37,51 @@ export const WordCard: React.FC<WordCardProps> = ({
   const [newTagInput, setNewTagInput] = useState('');
   const [isSaved, setIsSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [playingAccent, setPlayingAccent] = useState<'US' | 'UK'>('US');
 
   // Sync state when word prop changes
   React.useEffect(() => {
     setCurrentWord(word);
     setIsSaved(false);
   }, [word]);
+
+  const handlePlayWordAudio = useCallback(async (preferredAccent: 'US' | 'UK' = 'US') => {
+    setIsPlayingAudio(true);
+    setPlayingAccent(preferredAccent);
+    try {
+      const audioUrl = preferredAccent === 'UK'
+        ? (currentWord.phonetics.audioUk || currentWord.phonetics.audioUs)
+        : (currentWord.phonetics.audioUs || currentWord.phonetics.audioUk);
+      await playPronunciation(currentWord.word, preferredAccent, audioUrl);
+    } catch (err) {
+      console.warn('WordCard audio playback error:', err);
+    } finally {
+      setIsPlayingAudio(false);
+    }
+  }, [currentWord]);
+
+  // Keyboard shortcut listener: R / A / Ctrl+Space for audio playback
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isInput = target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable);
+      const isCtrlOrMeta = e.ctrlKey || e.metaKey;
+
+      const isAudioShortcut =
+        (!isInput && (e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'a') && !isCtrlOrMeta && !e.altKey) ||
+        (isCtrlOrMeta && e.code === 'Space');
+
+      if (isAudioShortcut) {
+        e.preventDefault();
+        const accent: 'US' | 'UK' = e.shiftKey ? 'UK' : 'US';
+        handlePlayWordAudio(accent);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handlePlayWordAudio]);
 
   const handleToggleTag = (tag: string) => {
     const exists = currentWord.tags.includes(tag);
@@ -162,6 +202,8 @@ export const WordCard: React.FC<WordCardProps> = ({
                 audioUrl={currentWord.phonetics.audioUs}
                 size="sm"
                 showLabel={false}
+                shortcutHint="R"
+                isPlaying={isPlayingAudio && playingAccent === 'US'}
               />
             </div>
 
@@ -184,6 +226,8 @@ export const WordCard: React.FC<WordCardProps> = ({
                 audioUrl={currentWord.phonetics.audioUk}
                 size="sm"
                 showLabel={false}
+                shortcutHint="Shift+R"
+                isPlaying={isPlayingAudio && playingAccent === 'UK'}
               />
             </div>
             {/* Missing phonetics indicator */}

@@ -1,14 +1,79 @@
 import { db } from './schema';
-import type { WordItem } from '../../types/vocab';
+import type { AppSettings, DailyStats, WordItem } from '../../types/vocab';
 import { formatLocalDate } from '../../utils/dateUtils';
+import { getAppSettings, getAllDailyStats } from './statsRepo';
+
+export interface BackupEnvelope {
+  version: number;
+  type: 'lexipulse-backup';
+  exportedAt: string;
+  words: WordItem[];
+  settings?: AppSettings;
+  dailyStats?: DailyStats[];
+}
+
+export interface ExportDeckOptions {
+  fullBackup?: boolean;
+  includeSettings?: boolean;
+  includeDailyStats?: boolean;
+}
 
 /**
- * Export deck to formatted JSON string (either all or provided subset)
+ * Export deck to formatted JSON string.
+ * - When fullBackup is true (or when exporting all without a specific subset), returns a structured BackupEnvelope
+ *   containing words, sanitized appSettings, and dailyStats.
+ * - When a specific word subset is provided without fullBackup, returns a bare WordItem[] array for compatibility.
  */
-export async function exportDeckToJson(wordsToExport?: WordItem[]): Promise<string> {
+export async function exportDeckToJson(
+  wordsToExport?: WordItem[],
+  options: ExportDeckOptions = {}
+): Promise<string> {
+  const isFullBackup = options.fullBackup ?? (wordsToExport === undefined);
+
+  if (isFullBackup) {
+    const words = wordsToExport ?? (await db.words.toArray());
+    const includeSettings = options.includeSettings ?? true;
+    const includeDailyStats = options.includeDailyStats ?? true;
+
+    let settings: AppSettings | undefined = undefined;
+    if (includeSettings) {
+      const rawSettings = await getAppSettings();
+      // Always sanitize API keys before exporting
+      settings = {
+        ...rawSettings,
+        aiApiKey: '',
+        geminiApiKey: '',
+      };
+    }
+
+    let dailyStats: DailyStats[] | undefined = undefined;
+    if (includeDailyStats) {
+      dailyStats = await getAllDailyStats();
+    }
+
+    const envelope: BackupEnvelope = {
+      version: 1,
+      type: 'lexipulse-backup',
+      exportedAt: new Date().toISOString(),
+      words,
+      settings,
+      dailyStats,
+    };
+
+    return JSON.stringify(envelope, null, 2);
+  }
+
   const words = wordsToExport ?? (await db.words.toArray());
   return JSON.stringify(words, null, 2);
 }
+
+/**
+ * Explicit full database backup export to JSON string.
+ */
+export async function exportFullBackupToJson(): Promise<string> {
+  return await exportDeckToJson(undefined, { fullBackup: true });
+}
+
 
 /**
  * Export deck to CSV string with UTF-8 BOM for reliable Excel & Sheets display

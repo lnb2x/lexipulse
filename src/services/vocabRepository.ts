@@ -1,6 +1,7 @@
 import { db } from './db';
-import type { WordItem } from '../types/vocab';
+import type { DailyStats, WordItem } from '../types/vocab';
 import { createInitialReviewMeta, migrateLegacyMetaToFSRS } from './fsrs/fsrsService';
+import { saveAppSettings } from './db/statsRepo';
 import { warmSearchCache } from './dictionary';
 
 export type MergePolicy = 'preserve-progress' | 'replace-progress';
@@ -401,35 +402,100 @@ export interface ImportDeckOptions {
   replaceProgress?: boolean;
 }
 
+export interface ImportDeckResult {
+  imported: number;
+  skipped: number;
+  errors: string[];
+  restoredSettings?: boolean;
+  restoredDailyStats?: number;
+}
+
 /**
- * Imports words from a JSON string.
+ * Imports words and optional backup data (settings, dailyStats) from a JSON string.
+ * Supports both:
+ * - Bare array of vocabulary cards: [ WordItem, ... ]
+ * - Full LexiPulse backup envelope: { version, type, words, settings?, dailyStats? }
+ *
  * Preserves user learning progress by default unless replaceProgress is explicitly enabled.
+ * For existing modern FSRS cards, preserves exact scheduler parameters without degrading into re-estimates.
  */
 export async function importDeckFromJson(
   jsonString: string,
   options: ImportDeckOptions = {}
-): Promise<{ imported: number; skipped: number; errors: string[] }> {
+): Promise<ImportDeckResult> {
   const errors: string[] = [];
   try {
     const parsed = JSON.parse(jsonString);
-    if (!Array.isArray(parsed)) {
-      throw new Error('Import data must be a JSON array of vocabulary cards');
+    let rawWords: any[] | null = null;
+    let rawSettings: any = null;
+    let rawDailyStats: any[] | null = null;
+
+    if (Array.isArray(parsed)) {
+      rawWords = parsed;
+    } else if (parsed && typeof parsed === 'object') {
+      if (Array.isArray(parsed.words)) {
+        rawWords = parsed.words;
+      } else if (Array.isArray(parsed.deck)) {
+        rawWords = parsed.deck;
+      } else if (Array.isArray(parsed.vocab)) {
+        rawWords = parsed.vocab;
+      }
+
+      if (parsed.settings && typeof parsed.settings === 'object') {
+        rawSettings = parsed.settings;
+      }
+      if (Array.isArray(parsed.dailyStats)) {
+        rawDailyStats = parsed.dailyStats;
+      }
+    }
+
+    if (!rawWords) {
+      throw new Error('Import data must be a JSON array of vocabulary cards or a valid backup envelope');
     }
 
     const validItems: WordItem[] = [];
     let skipped = 0;
 
-    for (const item of parsed) {
-      if (!item.word || typeof item.word !== 'string') {
+    for (const item of rawWords) {
+      if (!item || !item.word || typeof item.word !== 'string') {
         skipped++;
         continue;
       }
 
       const wordLower = normalizeWordTerm(item.word);
+      const createdAt = item.createdAt && !isNaN(item.createdAt) ? item.createdAt : Date.now();
+
+      // Determine reviewMeta accurately
+      let reviewMeta = createInitialReviewMeta(createdAt);
+      if (item.reviewMeta) {
+        // If the card already has modern FSRS metadata, preserve it accurately
+        if (
+          item.reviewMeta.fsrs &&
+          (item.reviewMeta.schedulerVersion === 'fsrs-v5' || typeof item.reviewMeta.fsrs.stability === 'number')
+        ) {
+          reviewMeta = {
+            repetition: typeof item.reviewMeta.repetition === 'number' ? item.reviewMeta.repetition : item.reviewMeta.fsrs.reps,
+            interval: typeof item.reviewMeta.interval === 'number' ? item.reviewMeta.interval : item.reviewMeta.fsrs.scheduled_days,
+            easeFactor: typeof item.reviewMeta.easeFactor === 'number' ? item.reviewMeta.easeFactor : 2.5,
+            dueDate: typeof item.reviewMeta.dueDate === 'number' ? item.reviewMeta.dueDate : item.reviewMeta.fsrs.due,
+            lastReviewedDate: item.reviewMeta.lastReviewedDate ?? item.reviewMeta.fsrs.last_review ?? null,
+            history: Array.isArray(item.reviewMeta.history) ? item.reviewMeta.history : [],
+            fsrs: item.reviewMeta.fsrs,
+            schedulerVersion: 'fsrs-v5',
+            legacyBackup: item.reviewMeta.legacyBackup,
+          };
+        } else {
+          // Legacy SM2 card migration
+          reviewMeta = migrateLegacyMetaToFSRS(item.reviewMeta, createdAt, item.reviewMeta.dueDate);
+        }
+      }
+
       const wordRecord: WordItem = {
-        id: item.id || `word-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        id: item.id && typeof item.id === 'string' && item.id.trim()
+          ? item.id.trim()
+          : `word-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         word: wordLower,
-        phonetics: item.phonetics || {},
+        phonetics: item.phonetics && typeof item.phonetics === 'object' ? item.phonetics : {},
         pos: Array.isArray(item.pos) && item.pos.length > 0 ? item.pos : ['noun'],
         vietnameseDefinition: item.vietnameseDefinition || item.meaningVi || 'Chưa có định nghĩa',
         englishDefinition: item.englishDefinition || item.definition || '',
@@ -439,22 +505,73 @@ export async function importDeckFromJson(
         examples: Array.isArray(item.examples) ? item.examples : [],
         tags: Array.isArray(item.tags) ? item.tags : ['#Imported'],
         status: item.status || 'new',
-        notes: item.notes || '',
-        createdAt: item.createdAt || Date.now(),
+        notes: typeof item.notes === 'string' ? item.notes : '',
+        createdAt,
         updatedAt: Date.now(),
-        reviewMeta: item.reviewMeta
-          ? migrateLegacyMetaToFSRS(item.reviewMeta, item.createdAt || Date.now(), item.reviewMeta.dueDate)
-          : createInitialReviewMeta(item.createdAt || Date.now()),
+        reviewMeta,
+        // Preserve rich linguistic & morphological properties
+        lemma: typeof item.lemma === 'string' ? item.lemma : undefined,
+        originalInput: typeof item.originalInput === 'string' ? item.originalInput : undefined,
+        formLabels: Array.isArray(item.formLabels) ? item.formLabels : undefined,
+        linkedVariants: Array.isArray(item.linkedVariants) ? item.linkedVariants : undefined,
+        contextSentence: typeof item.contextSentence === 'string' ? item.contextSentence : undefined,
+        inflections: Array.isArray(item.inflections) ? item.inflections : undefined,
+        vietnameseDefinitionProvenance: item.vietnameseDefinitionProvenance && typeof item.vietnameseDefinitionProvenance === 'object'
+          ? item.vietnameseDefinitionProvenance
+          : undefined,
+        isUserEdited: Boolean(item.isUserEdited),
+        source: item.source || 'manual',
+        enrichmentStatus: item.enrichmentStatus || 'completed',
+        suggestions: Array.isArray(item.suggestions) ? item.suggestions : undefined,
       };
       validItems.push(wordRecord);
     }
 
     const res = await bulkUpsertWords(validItems, { replaceProgress: options.replaceProgress });
-    return { imported: res.added + res.updated, skipped: skipped + res.skipped, errors };
+
+    let restoredSettings = false;
+    if (rawSettings) {
+      try {
+        await saveAppSettings(rawSettings);
+        restoredSettings = true;
+      } catch (e: any) {
+        errors.push(`Settings restoration notice: ${e.message || 'failed to restore settings'}`);
+      }
+    }
+
+    let restoredDailyStats = 0;
+    if (rawDailyStats && rawDailyStats.length > 0) {
+      try {
+        const validStats: DailyStats[] = rawDailyStats
+          .filter((s: any) => s && typeof s.date === 'string' && typeof s.cardsReviewed === 'number')
+          .map((s: any) => ({
+            date: s.date,
+            cardsReviewed: Number(s.cardsReviewed) || 0,
+            streak: Number(s.streak) || 0,
+            lastActiveDate: s.lastActiveDate || s.date,
+          }));
+
+        if (validStats.length > 0) {
+          await db.dailyStats.bulkPut(validStats);
+          restoredDailyStats = validStats.length;
+        }
+      } catch (e: any) {
+        errors.push(`DailyStats restoration notice: ${e.message || 'failed to restore dailyStats'}`);
+      }
+    }
+
+    return {
+      imported: res.added + res.updated,
+      skipped: skipped + res.skipped,
+      errors,
+      restoredSettings: restoredSettings || undefined,
+      restoredDailyStats: restoredDailyStats > 0 ? restoredDailyStats : undefined,
+    };
   } catch (err: any) {
     errors.push(err.message || 'Failed to parse JSON file');
     return { imported: 0, skipped: 0, errors };
   }
 }
+
 
 

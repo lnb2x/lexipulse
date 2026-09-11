@@ -1,7 +1,7 @@
 import { Calendar, Check, Copy, Download, FileSpreadsheet, Layers, Loader2, Plus, Sparkles, Upload, X } from 'lucide-react';
 import React, { useRef, useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
-import { exportDeckToCsv, exportDeckToJson, exportDeckToXlsx, importDeckFromJson } from '../../services/db';
+import { exportDeckToCsv, exportDeckToJson, exportDeckToXlsx, importDeckFromJson, type ImportDeckResult } from '../../services/db';
 import { runBulkEnrichment, createUnenrichedWordItem } from '../../services/bulkEnrichment';
 import { bulkUpsertWords } from '../../services/vocabRepository';
 import { parseBulkImportInput } from '../../utils/importParser';
@@ -58,7 +58,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
 
   // JSON Import state
   const [importText, setImportText] = useState('');
-  const [importResult, setImportResult] = useState<{ imported: number; skipped: number; errors: string[] } | null>(null);
+  const [importResult, setImportResult] = useState<ImportDeckResult | null>(null);
 
   if (!isOpen) return null;
 
@@ -83,8 +83,11 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   };
 
   const handleDownloadJson = async () => {
+    const isAll = exportScope === 'all';
     const targetWords = getWordsToExport();
-    const json = await exportDeckToJson(targetWords);
+    const json = isAll
+      ? await exportDeckToJson(undefined, { fullBackup: true })
+      : await exportDeckToJson(targetWords, { fullBackup: false });
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -121,8 +124,11 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   };
 
   const handleCopyJson = async () => {
+    const isAll = exportScope === 'all';
     const targetWords = getWordsToExport();
-    const json = await exportDeckToJson(targetWords);
+    const json = isAll
+      ? await exportDeckToJson(undefined, { fullBackup: true })
+      : await exportDeckToJson(targetWords, { fullBackup: false });
     await navigator.clipboard.writeText(json);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -612,10 +618,27 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
                 }`}
               >
                 {importResult.imported > 0 ? (
-                  <p>
-                    {language === 'vi' ? 'Thành công! Đã nhập / cập nhật' : 'Success! Imported / updated'}{' '}
-                    <strong>{importResult.imported}</strong> {language === 'vi' ? 'từ vào Deck.' : 'words into Deck.'}
-                  </p>
+                  <div className="space-y-1">
+                    <p>
+                      {language === 'vi' ? 'Thành công! Đã nhập / cập nhật' : 'Success! Imported / updated'}{' '}
+                      <strong>{importResult.imported}</strong> {language === 'vi' ? 'từ vào Deck.' : 'words into Deck.'}
+                    </p>
+                    {(importResult.restoredSettings || (importResult.restoredDailyStats ?? 0) > 0) && (
+                      <p className="text-[11px] text-emerald-700/90 dark:text-emerald-300/90">
+                        {language === 'vi' ? 'Đã phục hồi: ' : 'Restored: '}
+                        {[
+                          importResult.restoredSettings ? (language === 'vi' ? 'Cài đặt ứng dụng' : 'App settings') : null,
+                          (importResult.restoredDailyStats ?? 0) > 0
+                            ? (language === 'vi'
+                                ? `${importResult.restoredDailyStats} ngày lịch sử học & streak`
+                                : `${importResult.restoredDailyStats} daily stats & streaks`)
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(', ')}
+                      </p>
+                    )}
+                  </div>
                 ) : (
                   <p>
                     {language === 'vi' ? 'Lỗi nhập file:' : 'Import error:'} {importResult.errors[0] || 'Invalid file'}

@@ -205,18 +205,19 @@ test.describe('LexiPulse E2E Suite', () => {
   });
 
   test('5. Export and import round-trip', async ({ page }) => {
-    // Seed 1 word
+    // Seed 1 word, custom settings, and daily stats
     await page.evaluate(async () => {
-      await (window as any).__db.words.put({
+      const db = (window as any).__db;
+      await db.words.put({
         id: 'export-test-word',
         word: 'benchmark',
         pos: ['noun'],
         phonetics: { us: '/ˈbentʃ.mɑːrk/' },
         meanings: [{ pos: 'noun', englishDefinition: 'A standard against which things may be compared.', vietnameseDefinition: 'Tiêu chuẩn đối sánh' }],
-        collocations: [],
-        examples: [],
+        collocations: [{ phrase: 'set a benchmark', meaningVi: 'đặt ra chuẩn mực' }],
+        examples: [{ en: 'This score sets the benchmark.', vi: 'Điểm số này đặt ra tiêu chuẩn.', context: 'general' }],
         wordFamily: [],
-        tags: ['#metric'],
+        tags: ['#metric', '#qa'],
         status: 'learning',
         reviewMeta: {
           repetition: 3,
@@ -225,16 +226,71 @@ test.describe('LexiPulse E2E Suite', () => {
           dueDate: Date.now() + 86400000,
           lastReviewedDate: Date.now(),
           history: [],
+          fsrs: {
+            due: Date.now() + 86400000,
+            stability: 6.0,
+            difficulty: 4.5,
+            elapsed_days: 2,
+            scheduled_days: 6,
+            reps: 3,
+            lapses: 0,
+            state: 2,
+            last_review: Date.now(),
+          },
+          schedulerVersion: 'fsrs-v5',
         },
         createdAt: Date.now(),
         updatedAt: Date.now(),
         source: 'local_dictionary',
         enrichmentStatus: 'enriched',
       });
+      await db.settingsTable.put({
+        key: 'appSettings',
+        value: {
+          dailyQuota: 30,
+          preferredAccent: 'UK',
+          theme: 'dark',
+        },
+      });
+      await db.dailyStats.put({
+        date: '2026-09-10',
+        cardsReviewed: 12,
+        streak: 4,
+        lastActiveDate: '2026-09-10',
+      });
     });
 
     await page.reload();
     await page.getByRole('tab', { name: /Bộ từ vựng|Deck/i }).click();
+
+    // Generate full backup payload from IndexedDB
+    const backupJson = await page.evaluate(async () => {
+      const db = (window as any).__db;
+      const words = await db.words.toArray();
+      const settings = await db.settingsTable.get('appSettings');
+      const dailyStats = await db.dailyStats.toArray();
+      return JSON.stringify({
+        version: 1,
+        type: 'lexipulse-backup',
+        exportedAt: new Date().toISOString(),
+        words,
+        settings: settings ? settings.value : undefined,
+        dailyStats,
+      });
+    });
+
+    // Clear all tables in IndexedDB completely
+    await page.evaluate(async () => {
+      const db = (window as any).__db;
+      await db.words.clear();
+      await db.settingsTable.clear();
+      await db.dailyStats.clear();
+    });
+
+    // Reload and verify deck is empty
+    await page.reload();
+    await page.getByRole('tab', { name: /Bộ từ vựng|Deck/i }).click();
+    await expect(page.locator('text=benchmark')).not.toBeVisible();
 
     // Click Export/Backup button
     const exportBtn = page.getByRole('button', { name: /Xuất \/ Sao lưu|Export \/ Backup/i });
@@ -243,12 +299,42 @@ test.describe('LexiPulse E2E Suite', () => {
     const dialog = page.locator('[role="dialog"]');
     await expect(dialog).toBeVisible();
 
-    // Verify export format options exist
-    await expect(page.locator('text=/JSON/i').first()).toBeVisible();
+    // Switch to Tab "Sao lưu JSON" / "JSON Backup"
+    const backupTabBtn = dialog.getByRole('button', { name: /^(Sao lưu JSON|JSON Backup)$/i });
+    await backupTabBtn.click();
 
-    // Close modal
-    await page.keyboard.press('Escape');
-    await expect(dialog).not.toBeVisible();
+    // Paste backup JSON into textarea
+    const jsonTextarea = dialog.locator('textarea');
+    await jsonTextarea.fill(backupJson);
+
+    // Click restore button
+    const restoreBtn = dialog.getByRole('button', { name: /Phân tích và Khôi phục|Import & Restore/i });
+    await restoreBtn.click();
+
+    // Modal closes automatically on successful import
+    await expect(dialog).not.toBeVisible({ timeout: 5000 });
+
+    // Verify restored word in Deck
+    await expect(page.locator('text=benchmark').first()).toBeVisible({ timeout: 5000 });
+
+    // Verify in IndexedDB that all 3 tables were restored faithfully
+    const restoredData = await page.evaluate(async () => {
+      const db = (window as any).__db;
+      const word = await db.words.get('export-test-word');
+      const settings = await db.settingsTable.get('appSettings');
+      const stats = await db.dailyStats.get('2026-09-10');
+      return { word, settings, stats };
+    });
+
+    expect(restoredData.word).toBeDefined();
+    expect(restoredData.word.word).toBe('benchmark');
+    expect(restoredData.word.reviewMeta.repetition).toBe(3);
+    expect(restoredData.word.reviewMeta.interval).toBe(6);
+    expect(restoredData.word.tags).toContain('#metric');
+    expect(restoredData.word.examples.length).toBe(1);
+    expect(restoredData.word.collocations.length).toBe(1);
+    expect(restoredData.settings.value.dailyQuota).toBe(30);
+    expect(restoredData.stats.streak).toBe(4);
   });
 
   test('6. Offline reload using cached assets and IndexedDB', async ({ page, context }) => {

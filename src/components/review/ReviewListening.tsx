@@ -47,12 +47,22 @@ export const ReviewListening: React.FC<ReviewListeningProps> = ({
     }, 150);
   }, [word.id]);
 
-  // Global keyboard shortcuts: Ctrl+Space (play audio), Enter (submit or next)
+  // Global keyboard shortcuts: Ctrl+Space / Alt+R (play audio, Shift = slow 0.75x), R/A when not in input
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.code === 'Space') {
+      const isInput = ['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName);
+      const isCtrlOrMeta = e.ctrlKey || e.metaKey;
+
+      const isAudioReplayCombo =
+        (isCtrlOrMeta && (e.code === 'Space' || e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'p')) ||
+        (e.altKey && (e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'a' || e.key.toLowerCase() === 'p'));
+
+      const isDirectKey = !isInput && !isCtrlOrMeta && !e.altKey && (e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'a' || e.key.toLowerCase() === 'p');
+
+      if (isAudioReplayCombo || isDirectKey) {
         e.preventDefault();
-        handlePlayAudio(1.0);
+        const rate = e.shiftKey ? 0.75 : 1.0;
+        handlePlayAudio(rate);
       }
     };
 
@@ -126,7 +136,11 @@ export const ReviewListening: React.FC<ReviewListeningProps> = ({
 
         <span className="inline-flex items-center gap-1 text-[11px] text-slate-400">
           <Headphones className="h-3.5 w-3.5 text-indigo-500" />
-          <span>{language === 'vi' ? 'Nhấn Ctrl + Space để nghe lại' : 'Press Ctrl + Space to replay'}</span>
+          <span>
+            {language === 'vi'
+              ? 'Ctrl+Space hoặc Alt+R để nghe lại (Shift: phát chậm)'
+              : 'Ctrl+Space or Alt+R to replay (Shift: slow)'}
+          </span>
         </span>
       </div>
 
@@ -141,7 +155,7 @@ export const ReviewListening: React.FC<ReviewListeningProps> = ({
             className={`group relative flex h-20 w-20 items-center justify-center rounded-3xl bg-indigo-600 text-white shadow-md shadow-indigo-600/30 transition-all hover:bg-indigo-500 active:scale-95 ${
               isPlayingAudio ? 'animate-pulse ring-4 ring-indigo-300 dark:ring-indigo-800' : ''
             }`}
-            title="Play Audio (Ctrl+Space)"
+            title="Play Audio (Ctrl+Space / Alt+R)"
           >
             <Volume2 className="h-9 w-9 text-white transition-transform group-hover:scale-110" />
           </button>
@@ -151,6 +165,7 @@ export const ReviewListening: React.FC<ReviewListeningProps> = ({
               type="button"
               onClick={() => handlePlayAudio(1.0)}
               className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 shadow-sm transition-colors"
+              title="Ctrl+Space / Alt+R"
             >
               <Volume2 className="h-3.5 w-3.5 text-indigo-500" />
               <span>{t.review.playAudio} (1.0x)</span>
@@ -160,6 +175,7 @@ export const ReviewListening: React.FC<ReviewListeningProps> = ({
               type="button"
               onClick={() => handlePlayAudio(0.75)}
               className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 shadow-sm transition-colors"
+              title="Ctrl+Shift+Space / Alt+Shift+R"
             >
               <RotateCcw className="h-3.5 w-3.5 text-amber-500" />
               <span>{t.review.playSlow}</span>

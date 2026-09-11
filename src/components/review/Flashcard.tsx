@@ -1,6 +1,7 @@
-import { ChevronLeft, ChevronRight, RotateCw } from 'lucide-react';
-import React, { useEffect, useMemo, useState } from 'react';
+import { ChevronLeft, ChevronRight, RotateCw, Volume2 } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
+import { playPronunciation } from '../../services/audio';
 import { previewFSRS } from '../../services/fsrs/fsrsService';
 import type { ReviewRating, WordItem } from '../../types/vocab';
 import { AudioButton } from '../common/AudioButton';
@@ -42,6 +43,8 @@ export const Flashcard: React.FC<FlashcardProps> = ({
 }) => {
   const { language, t } = useLanguage();
   const [isFlipped, setIsFlipped] = useState(false);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [playingAccent, setPlayingAccent] = useState<'US' | 'UK'>('US');
 
   // Compute live FSRS scheduling previews
   const preview = useMemo(() => {
@@ -53,11 +56,37 @@ export const Flashcard: React.FC<FlashcardProps> = ({
     setIsFlipped(false);
   }, [word.id]);
 
-  // Keyboard shortcut listener: Space (flip), 1/2/3/4 (grade, only after flipped), Arrows (nav)
+  const handlePlayWordAudio = useCallback(async (preferredAccent: 'US' | 'UK' = 'US') => {
+    setIsPlayingAudio(true);
+    setPlayingAccent(preferredAccent);
+    try {
+      const audioUrl = preferredAccent === 'UK'
+        ? (word.phonetics.audioUk || word.phonetics.audioUs)
+        : (word.phonetics.audioUs || word.phonetics.audioUk);
+      await playPronunciation(word.word, preferredAccent, audioUrl);
+    } catch (err) {
+      console.warn('Flashcard audio playback error:', err);
+    } finally {
+      setIsPlayingAudio(false);
+    }
+  }, [word]);
+
+  // Keyboard shortcut listener: Space (flip), R/A/Ctrl+Space (audio), 1/2/3/4 (grade, only after flipped), Arrows (nav)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't trigger if user is typing in an input
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) {
+        return;
+      }
+
+      const isAudioShortcut =
+        ((e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'a') && !e.ctrlKey && !e.altKey && !e.metaKey) ||
+        ((e.ctrlKey || e.metaKey) && e.code === 'Space');
+
+      if (isAudioShortcut) {
+        e.preventDefault();
+        const accent: 'US' | 'UK' = e.shiftKey ? 'UK' : 'US';
+        handlePlayWordAudio(accent);
         return;
       }
 
@@ -89,7 +118,7 @@ export const Flashcard: React.FC<FlashcardProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isFlipped, isSubmitting, onGrade, onPrevCard, onNextCard]);
+  }, [isFlipped, isSubmitting, onGrade, onPrevCard, onNextCard, handlePlayWordAudio]);
 
   // Highlight target word in example sentence
   const renderHighlightedExample = (sentence: string, target: string) => {
@@ -211,23 +240,35 @@ export const Flashcard: React.FC<FlashcardProps> = ({
                   accent="US"
                   audioUrl={word.phonetics.audioUs}
                   size="sm"
+                  shortcutHint="R"
+                  isPlaying={isPlayingAudio && playingAccent === 'US'}
                 />
                 <AudioButton
                   text={word.word}
                   accent="UK"
                   audioUrl={word.phonetics.audioUk}
                   size="sm"
+                  shortcutHint="Shift+R"
+                  isPlaying={isPlayingAudio && playingAccent === 'UK'}
                 />
               </div>
             </div>
 
             {/* Bottom hint */}
             <div className="flex items-center justify-between border-t border-slate-100 pt-3.5 text-xs text-slate-400 dark:border-slate-800">
-              <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
-                <RotateCw className="h-3.5 w-3.5 text-indigo-500" />
-                <span>{t.review.flipPrompt}</span>
-                <kbd className="kbd-shortcut hidden sm:inline-block">Space</kbd>
-              </span>
+              <div className="flex flex-wrap items-center gap-3 text-slate-500 dark:text-slate-400">
+                <span className="flex items-center gap-1.5">
+                  <RotateCw className="h-3.5 w-3.5 text-indigo-500" />
+                  <span>{t.review.flipPrompt}</span>
+                  <kbd className="kbd-shortcut hidden sm:inline-block">Space</kbd>
+                </span>
+                <span className="hidden sm:inline-block text-slate-300 dark:text-slate-600">•</span>
+                <span className="flex items-center gap-1.5" title={language === 'vi' ? 'Phát âm (R: US, Shift+R: UK)' : 'Play audio (R: US, Shift+R: UK)'}>
+                  <Volume2 className="h-3.5 w-3.5 text-indigo-500" />
+                  <span>{language === 'vi' ? 'Phát âm' : 'Audio'}</span>
+                  <kbd className="kbd-shortcut hidden sm:inline-block">R</kbd>
+                </span>
+              </div>
               <span className="text-slate-400 text-[11px] font-medium">
                 {word.tags.slice(0, 2).join(' ')}
               </span>
@@ -246,7 +287,13 @@ export const Flashcard: React.FC<FlashcardProps> = ({
                 <span className="font-display text-lg font-bold text-slate-900 dark:text-white">
                   {word.word}
                 </span>
-                <AudioButton text={word.word} size="sm" showLabel={false} />
+                <AudioButton
+                  text={word.word}
+                  size="sm"
+                  showLabel={false}
+                  shortcutHint="R"
+                  isPlaying={isPlayingAudio}
+                />
               </div>
               <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
                 {language === 'vi' ? 'Mặt sau (Đáp án)' : 'Back Card'}
@@ -342,8 +389,14 @@ export const Flashcard: React.FC<FlashcardProps> = ({
             </div>
 
             {/* Bottom Flip Reminder */}
-            <div className="text-center text-[11px] text-slate-400 border-t border-slate-100 pt-2 dark:border-slate-800">
-              {t.review.flipPrompt}
+            <div className="flex items-center justify-center gap-3 text-center text-[11px] text-slate-400 border-t border-slate-100 pt-2 dark:border-slate-800">
+              <span>{t.review.flipPrompt}</span>
+              <span className="text-slate-300 dark:text-slate-600">•</span>
+              <span className="inline-flex items-center gap-1">
+                <Volume2 className="h-3 w-3 text-indigo-500" />
+                <span>{language === 'vi' ? 'Phát âm' : 'Audio'}</span>
+                <kbd className="kbd-shortcut">R</kbd>
+              </span>
             </div>
           </div>
         </div>

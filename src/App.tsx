@@ -426,7 +426,7 @@ export function App() {
       isCompleted: false,
       sessionType: sessionType ?? (isDue ? 'due' : 'cram'),
     });
-    setActiveTab('review');
+    handleTabChange('review');
   };
 
   // Switch review mode on the fly

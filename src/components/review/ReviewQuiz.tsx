@@ -1,6 +1,7 @@
 import { ArrowRight, CheckCircle2, XCircle } from 'lucide-react';
 import React, { useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
+import { playPronunciation } from '../../services/audio';
 import type { ClozeQuestion, ReviewRating } from '../../types/vocab';
 import { AudioButton } from '../common/AudioButton';
 
@@ -51,6 +52,29 @@ export const ReviewQuiz: React.FC<ReviewQuizProps> = ({
     setIsSubmitted(false);
     setIsCorrect(false);
   };
+
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isInput = ['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName);
+      const isCtrlOrMeta = e.ctrlKey || e.metaKey;
+
+      const isAudioShortcut =
+        ((e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'a') && !isInput && !isCtrlOrMeta && !e.altKey) ||
+        (isCtrlOrMeta && e.code === 'Space');
+
+      if (isAudioShortcut && isSubmitted) {
+        e.preventDefault();
+        const accent = e.shiftKey ? 'UK' : 'US';
+        const audioUrl = accent === 'UK'
+          ? (question.word.phonetics.audioUk || question.word.phonetics.audioUs)
+          : (question.word.phonetics.audioUs || question.word.phonetics.audioUk);
+        playPronunciation(question.targetWord, accent, audioUrl);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isSubmitted, question]);
 
   return (
     <div className="w-full max-w-2xl mx-auto space-y-5 animate-slide-up">
@@ -128,7 +152,7 @@ export const ReviewQuiz: React.FC<ReviewQuizProps> = ({
                 {question.word.phonetics.us}
               </span>
             </div>
-            <AudioButton text={question.targetWord} size="sm" />
+            <AudioButton text={question.targetWord} size="sm" shortcutHint="R" />
           </div>
         )}
 

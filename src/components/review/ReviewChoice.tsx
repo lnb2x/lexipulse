@@ -1,6 +1,7 @@
 import { ArrowRight, CheckCircle2, XCircle } from 'lucide-react';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
+import { playPronunciation } from '../../services/audio';
 import { AudioButton } from '../common/AudioButton';
 import type { ReviewRating, WordItem } from '../../types/vocab';
 
@@ -23,6 +24,7 @@ export const ReviewChoice: React.FC<ReviewChoiceProps> = ({
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
   // Generate 4 shuffled options (1 correct, 3 distractors)
   const options = useMemo(() => {
@@ -60,10 +62,35 @@ export const ReviewChoice: React.FC<ReviewChoiceProps> = ({
     setIsCorrect(false);
   }, [word.id]);
 
-  // Keyboard shortcut listener: 1, 2, 3, 4 to select options; Enter/Space to advance
+  const handlePlayWordAudio = useCallback(async (preferredAccent: 'US' | 'UK' = 'US') => {
+    setIsPlayingAudio(true);
+    try {
+      const audioUrl = preferredAccent === 'UK'
+        ? (word.phonetics.audioUk || word.phonetics.audioUs)
+        : (word.phonetics.audioUs || word.phonetics.audioUk);
+      await playPronunciation(word.word, preferredAccent, audioUrl);
+    } catch (err) {
+      console.warn('ReviewChoice audio playback error:', err);
+    } finally {
+      setIsPlayingAudio(false);
+    }
+  }, [word]);
+
+  // Keyboard shortcut listener: 1, 2, 3, 4 to select options; Enter/Space to advance; R/A/Ctrl+Space to play audio
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) {
+        return;
+      }
+
+      const isAudioShortcut =
+        ((e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'a') && !e.ctrlKey && !e.altKey && !e.metaKey) ||
+        ((e.ctrlKey || e.metaKey) && e.code === 'Space');
+
+      if (isAudioShortcut) {
+        e.preventDefault();
+        const accent: 'US' | 'UK' = e.shiftKey ? 'UK' : 'US';
+        handlePlayWordAudio(accent);
         return;
       }
 
@@ -85,7 +112,7 @@ export const ReviewChoice: React.FC<ReviewChoiceProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [options, isSubmitted, isCorrect]);
+  }, [options, isSubmitted, isCorrect, handlePlayWordAudio]);
 
   const handleSelectOption = (chosen: string) => {
     if (isSubmitted) return;
@@ -110,7 +137,7 @@ export const ReviewChoice: React.FC<ReviewChoiceProps> = ({
         </span>
 
         <span className="text-[11px] text-slate-400">
-          {language === 'vi' ? 'Nhấn phím 1, 2, 3, 4 để chọn' : 'Press keys 1, 2, 3, 4'}
+          {language === 'vi' ? 'Phím 1-4 để chọn • R phát âm' : 'Keys 1-4 to select • R for audio'}
         </span>
       </div>
 
@@ -137,7 +164,13 @@ export const ReviewChoice: React.FC<ReviewChoiceProps> = ({
             <span className="font-mono text-sm text-slate-500 dark:text-slate-400">
               {word.phonetics.us || word.phonetics.uk}
             </span>
-            <AudioButton text={word.word} size="sm" showLabel={false} />
+            <AudioButton
+              text={word.word}
+              size="sm"
+              showLabel={false}
+              shortcutHint="R"
+              isPlaying={isPlayingAudio}
+            />
           </div>
 
           <p className="text-xs text-slate-500 dark:text-slate-400 pt-1">

@@ -9,6 +9,8 @@ interface AudioButtonProps {
   showLabel?: boolean;
   size?: 'sm' | 'md' | 'lg';
   className?: string;
+  shortcutHint?: string;
+  isPlaying?: boolean;
 }
 
 export const AudioButton: React.FC<AudioButtonProps> = ({
@@ -18,20 +20,23 @@ export const AudioButton: React.FC<AudioButtonProps> = ({
   showLabel = true,
   size = 'md',
   className = '',
+  shortcutHint,
+  isPlaying: externalIsPlaying,
 }) => {
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [internalIsPlaying, setInternalIsPlaying] = useState(false);
+  const isPlaying = externalIsPlaying !== undefined ? externalIsPlaying : internalIsPlaying;
 
-  const handlePlay = async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handlePlay = async (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     if (isPlaying) return;
 
-    setIsPlaying(true);
+    setInternalIsPlaying(true);
     try {
       await playPronunciation(text, accent, audioUrl);
     } catch (err) {
       console.warn('Playback error:', err);
     } finally {
-      setIsPlaying(false);
+      setInternalIsPlaying(false);
     }
   };
 
@@ -47,13 +52,16 @@ export const AudioButton: React.FC<AudioButtonProps> = ({
     lg: 'px-3.5 py-2 text-sm',
   };
 
+  const tooltip = `Pronounce ${text} (${accent})${shortcutHint ? ` [${shortcutHint}]` : ''}`;
+
   return (
     <button
       type="button"
       onClick={handlePlay}
       disabled={isPlaying}
-      title={`Pronounce ${text} (${accent})`}
-      aria-label={`Pronounce ${text} (${accent})`}
+      title={tooltip}
+      aria-label={tooltip}
+      aria-keyshortcuts={shortcutHint}
       className={`inline-flex items-center gap-1.5 rounded-lg border transition-all duration-200 active:scale-95 ${
         accent === 'US'
           ? 'border-indigo-200 bg-indigo-50/70 text-indigo-700 hover:bg-indigo-100 hover:border-indigo-300 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-900/60'
