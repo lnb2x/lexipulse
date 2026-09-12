@@ -3,6 +3,7 @@ import type { DailyStats, WordItem } from '../types/vocab';
 import { createInitialReviewMeta, migrateLegacyMetaToFSRS } from './fsrs/fsrsService';
 import { saveAppSettings } from './db/statsRepo';
 import { warmSearchCache } from './dictionary';
+import { isPlaceholderDefinition } from './quizlet/quizletNormalizer';
 
 export type MergePolicy = 'preserve-progress' | 'replace-progress';
 
@@ -49,28 +50,36 @@ export function mergeWordRecords(
   // Merge collocations uniquely by phrase
   const existingCollocations = Array.isArray(existing.collocations) ? existing.collocations : [];
   const incomingCollocations = Array.isArray(incoming.collocations) ? incoming.collocations : [];
-  const collocationPhrases = new Set(existingCollocations.map((c) => c.phrase.toLowerCase()));
+  const getCollocPhrase = (c: any) =>
+    (typeof c === 'string' ? c : (c?.phrase || '')).trim().toLowerCase();
+  const collocationPhrases = new Set(existingCollocations.map(getCollocPhrase));
   const mergedCollocations = [
     ...existingCollocations,
-    ...incomingCollocations.filter((c) => !collocationPhrases.has(c.phrase.toLowerCase())),
+    ...incomingCollocations.filter((c) => !collocationPhrases.has(getCollocPhrase(c))),
   ];
 
-  // Merge word families uniquely by word + pos
+  // Merge word families uniquely by word + pos, never repeating the term itself
   const existingWf = Array.isArray(existing.wordFamily) ? existing.wordFamily : [];
   const incomingWf = Array.isArray(incoming.wordFamily) ? incoming.wordFamily : [];
   const wfKeys = new Set(existingWf.map((w) => `${w.word.toLowerCase()}-${w.pos}`));
+  const cleanWordLower = existing.word.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
   const mergedWf = [
     ...existingWf,
     ...incomingWf.filter((w) => !wfKeys.has(`${w.word.toLowerCase()}-${w.pos}`)),
-  ];
+  ].filter((wf) => {
+    const famClean = wf.word.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
+    return famClean !== cleanWordLower;
+  });
 
   // Merge examples uniquely by English sentence text
   const existingExamples = Array.isArray(existing.examples) ? existing.examples : [];
   const incomingExamples = Array.isArray(incoming.examples) ? incoming.examples : [];
-  const exampleKeys = new Set(existingExamples.map((e) => e.en.trim().toLowerCase()));
+  const getExampleEn = (e: any) =>
+    (typeof e === 'string' ? e : (e?.en || e?.sentence || '')).trim().toLowerCase();
+  const exampleKeys = new Set(existingExamples.map(getExampleEn));
   const mergedExamples = [
     ...existingExamples,
-    ...incomingExamples.filter((e) => !exampleKeys.has(e.en.trim().toLowerCase())),
+    ...incomingExamples.filter((e) => !exampleKeys.has(getExampleEn(e))),
   ];
 
   const mergedPhonetics = {
@@ -84,7 +93,7 @@ export function mergeWordRecords(
       : existing.phonetics?.audioUk,
   };
 
-  // Protect user-edited Vietnamese definition from background overwrite
+  // Protect user-edited and valid AI Vietnamese definition from background/dictionary overwrite
   const isExistingUserEdited = Boolean(
     existing.isUserEdited ||
     existing.vietnameseDefinitionProvenance?.isUserEdited ||
@@ -97,24 +106,45 @@ export function mergeWordRecords(
     (typeof incoming.vietnameseDefinitionProvenance === 'object' && incoming.vietnameseDefinitionProvenance?.source === 'user_edit') ||
     (incoming.vietnameseDefinitionProvenance as unknown) === 'user_edit'
   );
+  const isExistingAiProtected = Boolean(
+    (existing.vietnameseDefinitionProvenance?.source === 'ai' || existing.source === 'ai') &&
+    existing.vietnameseDefinition &&
+    !isPlaceholderDefinition(existing.vietnameseDefinition)
+  );
+  const isIncomingAi = Boolean(
+    incoming.vietnameseDefinitionProvenance?.source === 'ai' || incoming.source === 'ai'
+  );
+  const isIncomingPlaceholder = isPlaceholderDefinition(incoming.vietnameseDefinition);
 
   let vietnameseDef = existing.vietnameseDefinition;
   let mergedProvenance = existing.vietnameseDefinitionProvenance;
 
-  if (policy === 'replace-progress' || isIncomingUserEdited || !isExistingUserEdited) {
-    if (incoming.vietnameseDefinition && incoming.vietnameseDefinition.trim()) {
-      vietnameseDef = incoming.vietnameseDefinition;
-      mergedProvenance = incoming.vietnameseDefinitionProvenance || (
-        isIncomingUserEdited
-          ? { source: 'user_edit', isUserEdited: true, createdAt: Date.now() }
+  // Allow overwrite if:
+  // - User requested replace-progress
+  // - Incoming is user-edited
+  // - Existing is NOT user-edited, AND (existing is not AI-protected OR incoming is a new valid AI translation), AND incoming is not placeholder
+  const canOverwriteDef = Boolean(
+    policy === 'replace-progress' ||
+    isIncomingUserEdited ||
+    (!isExistingUserEdited && (!isExistingAiProtected || isIncomingAi) && !isIncomingPlaceholder)
+  );
+
+  if (canOverwriteDef && incoming.vietnameseDefinition && incoming.vietnameseDefinition.trim()) {
+    vietnameseDef = incoming.vietnameseDefinition.trim();
+    mergedProvenance = incoming.vietnameseDefinitionProvenance || (
+      isIncomingUserEdited
+        ? { source: 'user_edit', isUserEdited: true, createdAt: Date.now() }
+        : isIncomingAi
+          ? { source: 'ai', createdAt: Date.now() }
           : existing.vietnameseDefinitionProvenance
-      );
-    }
+    );
   }
 
-  const englishDef = incoming.englishDefinition && incoming.englishDefinition.trim()
-    ? incoming.englishDefinition
-    : existing.englishDefinition;
+  const englishDef = incoming.englishDefinition && incoming.englishDefinition.trim() && !isPlaceholderDefinition(incoming.englishDefinition)
+    ? incoming.englishDefinition.trim()
+    : existing.englishDefinition && !isPlaceholderDefinition(existing.englishDefinition)
+      ? existing.englishDefinition
+      : '';
 
   const meanings = incoming.meanings && incoming.meanings.length > 0
     ? incoming.meanings
@@ -138,6 +168,20 @@ export function mergeWordRecords(
   const originalInput = incoming.originalInput || existing.originalInput;
   const contextSentence = incoming.contextSentence || existing.contextSentence;
   const inflections = incoming.inflections || existing.inflections;
+
+  // Merge quizletSetIds uniquely
+  const existingSetIds = Array.isArray(existing.quizletSetIds) ? existing.quizletSetIds : [];
+  const incomingSetIds = Array.isArray(incoming.quizletSetIds) ? incoming.quizletSetIds : [];
+  const mergedSetIds = Array.from(new Set([...existingSetIds, ...incomingSetIds]));
+
+  // Merge quizletSets uniquely by set id
+  const existingSets = Array.isArray(existing.quizletSets) ? existing.quizletSets : [];
+  const incomingSets = Array.isArray(incoming.quizletSets) ? incoming.quizletSets : [];
+  const setMap = new Map(existingSets.map((s) => [s.id, s]));
+  for (const s of incomingSets) {
+    setMap.set(s.id, s);
+  }
+  const mergedSets = Array.from(setMap.values());
 
   if (policy === 'replace-progress') {
     return {
@@ -166,6 +210,10 @@ export function mergeWordRecords(
       linkedVariants: mergedVariants.length > 0 ? mergedVariants : undefined,
       contextSentence,
       inflections,
+      quizletSetIds: mergedSetIds.length > 0 ? mergedSetIds : undefined,
+      quizletSets: mergedSets.length > 0 ? mergedSets : undefined,
+      rawQuizletTerm: incoming.rawQuizletTerm || existing.rawQuizletTerm,
+      rawQuizletDefinition: incoming.rawQuizletDefinition || existing.rawQuizletDefinition,
     };
   }
 
@@ -197,16 +245,58 @@ export function mergeWordRecords(
     linkedVariants: mergedVariants.length > 0 ? mergedVariants : undefined,
     contextSentence,
     inflections,
+    quizletSetIds: mergedSetIds.length > 0 ? mergedSetIds : undefined,
+    quizletSets: mergedSets.length > 0 ? mergedSets : undefined,
+    rawQuizletTerm: incoming.rawQuizletTerm || existing.rawQuizletTerm,
+    rawQuizletDefinition: incoming.rawQuizletDefinition || existing.rawQuizletDefinition,
   };
 }
 
 /**
  * Finds a word in IndexedDB by normalized term.
+ * Optionally matches by specific POS or meaning when multiple records exist for the same term.
  */
-export async function findWordByTerm(term: string): Promise<WordItem | undefined> {
+export async function findWordByTerm(
+  term: string,
+  pos?: string,
+  meaning?: string
+): Promise<WordItem | undefined> {
   const normalized = normalizeWordTerm(term);
   if (!normalized) return undefined;
-  return await db.words.where('word').equals(normalized).first();
+
+  const matches = await db.words.where('word').equals(normalized).toArray();
+  if (matches.length === 0) return undefined;
+  if (matches.length === 1) return matches[0];
+
+  // If multiple candidates exist, match by POS if provided
+  if (pos) {
+    const cleanPos = pos.toLowerCase();
+    const posMatch = matches.find((m) => m.pos && m.pos.some((p) => p.toLowerCase() === cleanPos));
+    if (posMatch) return posMatch;
+  }
+
+  // Match by meaning if provided
+  if (meaning) {
+    const cleanMeaning = meaning.trim().toLowerCase();
+    const meaningMatch = matches.find(
+      (m) =>
+        m.vietnameseDefinition &&
+        (m.vietnameseDefinition.toLowerCase().includes(cleanMeaning) ||
+          cleanMeaning.includes(m.vietnameseDefinition.toLowerCase()))
+    );
+    if (meaningMatch) return meaningMatch;
+  }
+
+  // Fallback: prefer protected AI or user-edited record
+  const protectedMatch = matches.find(
+    (m) =>
+      m.isUserEdited ||
+      m.vietnameseDefinitionProvenance?.isUserEdited ||
+      m.vietnameseDefinitionProvenance?.source === 'ai'
+  );
+  if (protectedMatch) return protectedMatch;
+
+  return matches[0];
 }
 
 /**
@@ -248,17 +338,28 @@ export async function saveOrUpdateWord(
             ? `word-${crypto.randomUUID()}`
             : `word-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
+      const cleanedEnDef = isPlaceholderDefinition(word.englishDefinition) ? '' : (word.englishDefinition || '');
+      const cleanedViDef = isPlaceholderDefinition(word.vietnameseDefinition) ? '' : (word.vietnameseDefinition || '');
+      const rawFamilies = Array.isArray(word.wordFamily) ? word.wordFamily : [];
+      const cleanWordLower = normalized.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
+      const cleanedWordFamily = rawFamilies.filter((wf) => {
+        const famClean = wf.word.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
+        return famClean !== cleanWordLower;
+      });
+
       finalRecord = {
         ...word,
         id: finalId,
         word: normalized,
+        englishDefinition: cleanedEnDef,
+        vietnameseDefinition: cleanedViDef,
         status: word.status || 'new',
         createdAt: word.createdAt && !isNaN(word.createdAt) ? word.createdAt : Date.now(),
         updatedAt: Date.now(),
         reviewMeta: word.reviewMeta || createInitialReviewMeta(),
         tags: Array.isArray(word.tags) ? word.tags : ['#Manual'],
         collocations: Array.isArray(word.collocations) ? word.collocations : [],
-        wordFamily: Array.isArray(word.wordFamily) ? word.wordFamily : [],
+        wordFamily: cleanedWordFamily,
         examples: Array.isArray(word.examples) ? word.examples : [],
         meanings: Array.isArray(word.meanings) ? word.meanings : [],
         pos: Array.isArray(word.pos) && word.pos.length > 0 ? word.pos : ['noun'],

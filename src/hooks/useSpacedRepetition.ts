@@ -23,9 +23,13 @@ export function useSpacedRepetition(deckWords?: WordItem[]) {
   }, []);
 
   // Load app settings
-  useEffect(() => {
-    getAppSettings().then(setSettings);
+  const refreshSettings = useCallback(() => {
+    return getAppSettings().then(setSettings);
   }, []);
+
+  useEffect(() => {
+    refreshSettings();
+  }, [refreshSettings]);
 
   // Today stats reactively
   const todayStats = useLiveQuery(async () => {
@@ -235,5 +239,6 @@ export function useSpacedRepetition(deckWords?: WordItem[]) {
     restartSession,
     isSubmitting,
     settings,
+    refreshSettings,
   };
 }

@@ -8,7 +8,19 @@ import {
   SUSPICIOUS_TRUNCATED_STEMS,
 } from './ai/aiMorphology';
 
+import { getAppSettings } from './db/statsRepo';
+
 export { analyzeWordMorphologyWithAI, validateAIMorphologyResult, type AIMorphologyResult };
+
+export async function isAiAvailable(): Promise<boolean> {
+  try {
+    const s = await getAppSettings();
+    const key = (s.aiApiKey || s.geminiApiKey || '').trim();
+    return s.aiProvider === 'custom' || key.length >= 5;
+  } catch {
+    return false;
+  }
+}
 
 export interface AIProviderConfig {
   id: AIProvider;
@@ -251,7 +263,7 @@ function extractJsonFromResponse(rawText: string): unknown {
  * Validates and normalizes raw JSON data from AI models against our strict schema.
  * Replaces any/unknown with typed, sanitised structures.
  */
-export function validateAndNormalizeAIResponse(data: unknown): AIEnrichmentResult | null {
+export function validateAndNormalizeAIResponse(data: unknown, queriedWord?: string): AIEnrichmentResult | null {
   if (!data || typeof data !== 'object') {
     return null;
   }
@@ -283,8 +295,9 @@ export function validateAndNormalizeAIResponse(data: unknown): AIEnrichmentResul
     }
   }
 
-  // Word family
+  // Word family - never repeat queried word itself
   const wordFamily: WordFamilyItem[] = [];
+  const lowerQuery = (queriedWord || '').trim().toLowerCase();
   if (Array.isArray(obj.wordFamily)) {
     for (const item of obj.wordFamily) {
       if (item && typeof item === 'object') {
@@ -292,7 +305,7 @@ export function validateAndNormalizeAIResponse(data: unknown): AIEnrichmentResul
         const word = typeof wf.word === 'string' ? wf.word.trim().toLowerCase() : '';
         const pos = typeof wf.pos === 'string' ? wf.pos.trim().toLowerCase() : 'noun';
         const meaningVi = typeof wf.meaningVi === 'string' ? wf.meaningVi.trim() : undefined;
-        if (word) {
+        if (word && (!lowerQuery || word !== lowerQuery)) {
           wordFamily.push({ word, pos, meaningVi });
         }
       }
@@ -546,7 +559,8 @@ export async function enrichWordWithAI(
   word: string,
   pos: string,
   config: AIRequestConfig,
-  contextSentence?: string
+  contextSentence?: string,
+  userMeaning?: string
 ): Promise<AIEnrichmentResult | null> {
   const provider = config.provider || 'gemini';
   const providerInfo = AI_PROVIDERS[provider] || AI_PROVIDERS.gemini;
@@ -565,6 +579,14 @@ export async function enrichWordWithAI(
     return cached;
   }
 
+  const meaningPrompt = userMeaning?.trim()
+    ? `\nTARGET LEARNING SENSE: "${userMeaning.trim()}".
+CRITICAL SENSE REQUIREMENT:
+- The user is specifically learning this vocabulary item with the meaning: "${userMeaning.trim()}".
+- The "vietnameseDefinition" MUST prioritize and match this exact intended meaning. Do not replace it with an unrelated alternate sense.
+- Collocations and examples should reflect this intended sense.\n`
+    : '';
+
   const contextPrompt = contextSentence?.trim()
     ? `\nSentence context: "${contextSentence.trim()}".
 CRITICAL CONTEXT REQUIREMENT:
@@ -575,6 +597,7 @@ CRITICAL CONTEXT REQUIREMENT:
 - If "${word}" is polysemous (e.g. pool, plant, board, address), clearly number and explain its primary meanings (1. [Nghĩa 1]; 2. [Nghĩa 2]). Do not falsely claim only a single meaning exists.\n`;
 
   const prompt = `You are an expert English linguist and TOEIC/IELTS instructor. Analyze the English word or phrase "${word}" (primary part of speech: ${pos}).
+${meaningPrompt}
 ${contextPrompt}
 CRITICAL MORPHOLOGY REQUIREMENT:
 - Determine the canonical dictionary lemma of "${word}".
@@ -587,6 +610,11 @@ CRITICAL MORPHOLOGY REQUIREMENT:
 - Never invent a word.
 - Identify the grammatical form of "${word}" in "formLabels" (e.g. ["Hiện tại phân từ (V-ing)"] or ["Quá khứ đơn (V2)"] or ["Danh từ số nhiều"]).
 - Provide an inflection overview in "inflections" (e.g. V1, V2, V3, V-ing, Plural).
+
+CRITICAL WORD FAMILY REQUIREMENT:
+- "wordFamily" must ONLY contain distinct, derived words (e.g. for "contract", word family could be "contractor", "contractual").
+- Do NOT include "${word}" itself in "wordFamily".
+- If no distinct derived forms exist (especially for multi-word phrases or idioms), return an empty array [].
 
 Respond ONLY with a valid JSON object matching this exact TypeScript structure:
 {
@@ -711,7 +739,7 @@ Do not include markdown code block fences like \`\`\`json. Return raw JSON stric
 
     if (!rawText) return null;
     const parsed = extractJsonFromResponse(rawText);
-    const normalized = validateAndNormalizeAIResponse(parsed);
+    const normalized = validateAndNormalizeAIResponse(parsed, word);
     if (normalized) {
       setCachedAIEnrichment(word, normalized, contextSentence, provider, model, pos, baseUrl);
       if (normalized.lemma) {

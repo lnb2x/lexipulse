@@ -5,6 +5,7 @@ import {
   EyeOff,
   Globe,
   Loader2,
+  Repeat,
   RotateCcw,
   Settings,
   Sparkles,
@@ -46,6 +47,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     preferredAccent: 'US',
     dailyQuota: 10,
     theme: 'dark',
+    loopInterval: 1.5,
   });
   const [showKey, setShowKey] = useState(false);
   const [showBaseUrl, setShowBaseUrl] = useState(false);
@@ -529,6 +531,51 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <span>0.7x ({language === 'vi' ? 'Chậm' : 'Slower'})</span>
               <span>0.95x ({language === 'vi' ? 'Tự nhiên' : 'Natural'})</span>
               <span>1.3x ({language === 'vi' ? 'Nhanh' : 'Faster'})</span>
+            </div>
+          </div>
+
+          {/* Loop Interval (Delay between pronunciations) */}
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs font-semibold text-slate-700 dark:text-slate-300">
+              <span className="flex items-center gap-1.5">
+                <Repeat className="h-3.5 w-3.5 text-indigo-500" />
+                {t.modals.loopIntervalLabel}
+              </span>
+              <span className="font-mono text-indigo-600 dark:text-indigo-400 font-bold">
+                {settings.loopInterval ?? 1.5}s
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0.5"
+              max="5.0"
+              step="0.25"
+              value={settings.loopInterval ?? 1.5}
+              onChange={(e) => setSettings({ ...settings, loopInterval: parseFloat(e.target.value) })}
+              className="w-full accent-indigo-600"
+              aria-label={t.modals.loopIntervalLabel}
+            />
+            <div className="flex justify-between text-[10px] text-slate-400">
+              <span>0.5s ({language === 'vi' ? 'Nhanh' : 'Fast'})</span>
+              <span>1.5s ({language === 'vi' ? 'Mặc định' : 'Default'})</span>
+              <span>5.0s ({language === 'vi' ? 'Nghỉ lâu' : 'Long pause'})</span>
+            </div>
+            {/* Quick preset suggestion chips */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+              {[0.5, 1.0, 1.5, 2.0, 3.0].map((val) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setSettings({ ...settings, loopInterval: val })}
+                  className={`rounded-lg px-2 py-0.5 text-[11px] font-medium transition-all ${
+                    (settings.loopInterval ?? 1.5) === val
+                      ? 'bg-indigo-600 text-white font-semibold shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {val}s
+                </button>
+              ))}
             </div>
           </div>
 

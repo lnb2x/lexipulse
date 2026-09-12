@@ -1,7 +1,7 @@
-import { ChevronLeft, ChevronRight, RotateCw, Volume2 } from 'lucide-react';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ChevronLeft, ChevronRight, Repeat, RotateCw, Volume2 } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
-import { playPronunciation } from '../../services/audio';
+import { playPronunciation, stopPronunciation } from '../../services/audio';
 import { previewFSRS } from '../../services/fsrs/fsrsService';
 import type { ReviewRating, WordItem } from '../../types/vocab';
 import { AudioButton } from '../common/AudioButton';
@@ -29,6 +29,10 @@ interface FlashcardProps {
   onNextCard?: () => void;
   isSubmitting?: boolean;
   desiredRetention?: number;
+  isLooping?: boolean;
+  onToggleLoop?: (looping: boolean) => void;
+  loopInterval?: number;
+  onLoopIntervalChange?: (interval: number) => void;
 }
 
 export const Flashcard: React.FC<FlashcardProps> = ({
@@ -40,45 +44,210 @@ export const Flashcard: React.FC<FlashcardProps> = ({
   onNextCard,
   isSubmitting = false,
   desiredRetention = 0.90,
+  isLooping: externalIsLooping,
+  onToggleLoop,
+  loopInterval,
+  onLoopIntervalChange,
 }) => {
   const { language, t } = useLanguage();
-  const [isFlipped, setIsFlipped] = useState(false);
+
+  // Synchronous flip state derivation: guaranteed front face on frame 0 of any new card
+  const [flippedCardId, setFlippedCardId] = useState<string | null>(null);
+  const [prevWordId, setPrevWordId] = useState(word.id);
+  const [shouldAnimateFlip, setShouldAnimateFlip] = useState(false);
+
+  if (prevWordId !== word.id) {
+    setPrevWordId(word.id);
+    setFlippedCardId(null);
+    setShouldAnimateFlip(false);
+  }
+
+  const isFlipped = flippedCardId === word.id;
+
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [playingAccent, setPlayingAccent] = useState<'US' | 'UK'>('US');
+
+  // Loop mode state: supports both external (session-level) and internal fallback
+  const [localIsLooping, setLocalIsLooping] = useState(false);
+  const isLooping = externalIsLooping !== undefined ? externalIsLooping : localIsLooping;
+
+  // Loop interval state (in seconds): supports external prop and internal state
+  const [localLoopInterval, setLocalLoopInterval] = useState(loopInterval ?? 1.5);
+  const currentLoopInterval = loopInterval !== undefined ? loopInterval : localLoopInterval;
+  const loopIntervalRef = useRef(currentLoopInterval);
+  loopIntervalRef.current = currentLoopInterval;
+
+  const PRESET_INTERVALS = [0.5, 1.0, 1.5, 2.0, 3.0];
+  const handleCycleLoopInterval = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    const cur = loopIntervalRef.current;
+    const currentIdx = PRESET_INTERVALS.findIndex((val) => Math.abs(val - cur) < 0.05);
+    const nextIdx = (currentIdx + 1) % PRESET_INTERVALS.length;
+    const nextVal = PRESET_INTERVALS[nextIdx >= 0 ? nextIdx : 2];
+    setLocalLoopInterval(nextVal);
+    onLoopIntervalChange?.(nextVal);
+  }, [onLoopIntervalChange]);
+
+  const loopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const playIdRef = useRef(0);
+  const isLoopingRef = useRef(isLooping);
+  isLoopingRef.current = isLooping;
+
+  const setIsLooping = useCallback((nextVal: boolean) => {
+    isLoopingRef.current = nextVal;
+    setLocalIsLooping(nextVal);
+    onToggleLoop?.(nextVal);
+  }, [onToggleLoop]);
+
+  const clearLoopTimer = useCallback(() => {
+    if (loopTimerRef.current) {
+      clearTimeout(loopTimerRef.current);
+      loopTimerRef.current = null;
+    }
+  }, []);
 
   // Compute live FSRS scheduling previews
   const preview = useMemo(() => {
     return previewFSRS(word.reviewMeta, Date.now(), desiredRetention);
   }, [word.id, word.reviewMeta, desiredRetention]);
 
-  // Reset flip state when card changes
-  useEffect(() => {
-    setIsFlipped(false);
-  }, [word.id]);
+  // Core pronunciation playback with concurrency protection
+  const playWordAudio = useCallback(async (preferredAccent: 'US' | 'UK' = 'US'): Promise<boolean> => {
+    const playId = ++playIdRef.current;
+    clearLoopTimer();
+    stopPronunciation();
 
-  const handlePlayWordAudio = useCallback(async (preferredAccent: 'US' | 'UK' = 'US') => {
     setIsPlayingAudio(true);
     setPlayingAccent(preferredAccent);
+
     try {
       const audioUrl = preferredAccent === 'UK'
         ? (word.phonetics.audioUk || word.phonetics.audioUs)
         : (word.phonetics.audioUs || word.phonetics.audioUk);
       await playPronunciation(word.word, preferredAccent, audioUrl);
+      return playId === playIdRef.current;
     } catch (err) {
       console.warn('Flashcard audio playback error:', err);
+      return false;
     } finally {
+      if (playId === playIdRef.current) {
+        setIsPlayingAudio(false);
+      }
+    }
+  }, [word, clearLoopTimer]);
+
+  // Recursive loop iteration with ~1.5s pause
+  const runLoopStep = useCallback(async () => {
+    if (!isLoopingRef.current) return;
+
+    const playId = playIdRef.current + 1;
+    const completed = await playWordAudio('US');
+
+    if (!isLoopingRef.current || playId !== playIdRef.current || !completed) {
+      return;
+    }
+
+    // Pause for customizable loopInterval between playback iterations
+    const delayMs = Math.round(Math.max(0.2, loopIntervalRef.current) * 1000);
+    loopTimerRef.current = setTimeout(() => {
+      if (isLoopingRef.current && playId === playIdRef.current) {
+        runLoopStep();
+      }
+    }, delayMs);
+  }, [playWordAudio]);
+
+  // Handle playing word once (cancels loop so P strictly plays once)
+  const handlePlayOnce = useCallback((accent: 'US' | 'UK' = 'US') => {
+    if (isLoopingRef.current) {
+      setIsLooping(false);
+    }
+    clearLoopTimer();
+    playWordAudio(accent);
+  }, [clearLoopTimer, playWordAudio, setIsLooping]);
+
+  // Handle toggling loop mode (Shift+P)
+  const handleToggleLoop = useCallback(() => {
+    const nextVal = !isLoopingRef.current;
+    setIsLooping(nextVal);
+    clearLoopTimer();
+
+    if (nextVal) {
+      runLoopStep();
+    } else {
+      playIdRef.current++;
+      stopPronunciation();
       setIsPlayingAudio(false);
     }
-  }, [word]);
+  }, [clearLoopTimer, runLoopStep, setIsLooping]);
 
-  // Keyboard shortcut listener: Space (flip), R/A/Ctrl+Space (audio), 1/2/3/4 (grade, only after flipped), Arrows (nav)
+  // When card changes: stop previous audio; if loop mode is ON, play the new card's pronunciation
+  useEffect(() => {
+    playIdRef.current++;
+    clearLoopTimer();
+    stopPronunciation();
+    setIsPlayingAudio(false);
+
+    if (isLoopingRef.current) {
+      runLoopStep();
+    }
+
+    return () => {
+      playIdRef.current++;
+      clearLoopTimer();
+      stopPronunciation();
+      setIsPlayingAudio(false);
+    };
+  }, [word.id, clearLoopTimer, runLoopStep]);
+
+  // When exiting or opening any modal/dialog: stop audio and disable loop mode
+  useEffect(() => {
+    const handleModalOpened = () => {
+      if (isLoopingRef.current) {
+        setIsLooping(false);
+      }
+      playIdRef.current++;
+      clearLoopTimer();
+      stopPronunciation();
+      setIsPlayingAudio(false);
+    };
+
+    window.addEventListener('lexipulse:modal-opened', handleModalOpened);
+    return () => {
+      window.removeEventListener('lexipulse:modal-opened', handleModalOpened);
+    };
+  }, [clearLoopTimer, setIsLooping]);
+
+  // Keyboard shortcut listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger if user is typing in an input
-      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) {
+      // Don't trigger if user is typing in an input, textarea, or contenteditable
+      const target = e.target as HTMLElement | null;
+      const isTyping =
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.isContentEditable ||
+        (typeof target?.closest === 'function' && Boolean(target.closest('[contenteditable="true"]')));
+      if (isTyping) {
         return;
       }
 
+      // Don't trigger shortcuts if a modal dialog is open
+      if (document.querySelector('[role="dialog"], [aria-modal="true"]')) {
+        return;
+      }
+
+      // Shortcut: P (play once) and Shift+P (toggle loop mode)
+      if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleToggleLoop();
+        } else {
+          handlePlayOnce('US');
+        }
+        return;
+      }
+
+      // Existing audio shortcuts: R/A (play), Shift+R (UK), Ctrl+Space
       const isAudioShortcut =
         ((e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'a') && !e.ctrlKey && !e.altKey && !e.metaKey) ||
         ((e.ctrlKey || e.metaKey) && e.code === 'Space');
@@ -86,13 +255,14 @@ export const Flashcard: React.FC<FlashcardProps> = ({
       if (isAudioShortcut) {
         e.preventDefault();
         const accent: 'US' | 'UK' = e.shiftKey ? 'UK' : 'US';
-        handlePlayWordAudio(accent);
+        handlePlayOnce(accent);
         return;
       }
 
       if (e.code === 'Space') {
         e.preventDefault();
-        setIsFlipped((prev) => !prev);
+        setShouldAnimateFlip(true);
+        setFlippedCardId((prev) => (prev === word.id ? null : word.id));
       } else if (isFlipped && !isSubmitting) {
         if (e.key === '1') {
           e.preventDefault();
@@ -118,7 +288,8 @@ export const Flashcard: React.FC<FlashcardProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isFlipped, isSubmitting, onGrade, onPrevCard, onNextCard, handlePlayWordAudio]);
+  }, [isFlipped, isSubmitting, onGrade, onPrevCard, onNextCard, handlePlayOnce, handleToggleLoop, word.id]);
+
 
   // Highlight target word in example sentence
   const renderHighlightedExample = (sentence: string, target: string) => {
@@ -195,10 +366,15 @@ export const Flashcard: React.FC<FlashcardProps> = ({
       </div>
 
       {/* 3D Flashcard Container */}
-      <div className="perspective-1000 w-full min-h-[380px] sm:min-h-[420px]">
+      <div className="perspective-1000 w-full min-h-[380px] sm:min-h-[420px] animate-fade-in">
         <div
-          onClick={() => setIsFlipped(!isFlipped)}
-          className={`relative w-full h-full min-h-[380px] sm:min-h-[420px] rounded-2xl border border-slate-200 bg-white p-7 shadow-sm transition-all duration-500 transform-style-3d cursor-pointer select-none dark:border-slate-800 dark:bg-[#111622] ${
+          onClick={() => {
+            setShouldAnimateFlip(true);
+            setFlippedCardId(isFlipped ? null : word.id);
+          }}
+          className={`relative w-full h-full min-h-[380px] sm:min-h-[420px] rounded-2xl border border-slate-200 bg-white p-7 shadow-sm transform-style-3d cursor-pointer select-none dark:border-slate-800 dark:bg-[#111622] ${
+            shouldAnimateFlip ? 'transition-transform duration-500' : ''
+          } ${
             isFlipped ? 'rotate-y-180' : 'hover:border-slate-300 dark:hover:border-slate-700'
           }`}
         >
@@ -225,14 +401,14 @@ export const Flashcard: React.FC<FlashcardProps> = ({
               </div>
             </div>
 
-            {/* Center: Word + IPA */}
+            {/* Center: Word + IPA + Audio Controls */}
             <div className="my-auto text-center space-y-4">
               <h2 className="font-display text-4xl sm:text-5xl font-black tracking-tight text-slate-900 dark:text-white">
                 {word.word}
               </h2>
 
-              <div className="flex items-center justify-center gap-3">
-                <span className="font-mono text-sm text-slate-500 dark:text-slate-400">
+              <div className="flex flex-wrap items-center justify-center gap-2.5">
+                <span className="font-mono text-sm text-slate-500 dark:text-slate-400 mr-1">
                   {word.phonetics.us || word.phonetics.uk}
                 </span>
                 <AudioButton
@@ -240,7 +416,7 @@ export const Flashcard: React.FC<FlashcardProps> = ({
                   accent="US"
                   audioUrl={word.phonetics.audioUs}
                   size="sm"
-                  shortcutHint="R"
+                  shortcutHint="P"
                   isPlaying={isPlayingAudio && playingAccent === 'US'}
                 />
                 <AudioButton
@@ -251,6 +427,64 @@ export const Flashcard: React.FC<FlashcardProps> = ({
                   shortcutHint="Shift+R"
                   isPlaying={isPlayingAudio && playingAccent === 'UK'}
                 />
+                {/* Loop Mode Toggle & Delay Button */}
+                <div className={`inline-flex items-center rounded-lg border shadow-xs transition-all ${
+                  isLooping
+                    ? 'border-indigo-500 bg-indigo-50/70 text-indigo-700 ring-2 ring-indigo-500/20 dark:border-indigo-500 dark:bg-indigo-950/60 dark:text-indigo-300'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-slate-700'
+                }`}>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleToggleLoop();
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold active:scale-95 transition-transform ${
+                      isLooping ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                    }`}
+                    title={
+                      language === 'vi'
+                        ? `Phát âm lặp lại [Shift+P]: ${isLooping ? 'Đang BẬT' : 'Đang TẮT'}`
+                        : `Loop pronunciation [Shift+P]: ${isLooping ? 'ON' : 'OFF'}`
+                    }
+                    aria-label={
+                      language === 'vi'
+                        ? `Phát âm lặp lại: ${isLooping ? 'Bật' : 'Tắt'}`
+                        : `Loop pronunciation: ${isLooping ? 'On' : 'Off'}`
+                    }
+                    aria-pressed={isLooping}
+                  >
+                    <Repeat className={`h-3.5 w-3.5 ${isLooping ? 'text-indigo-600 dark:text-indigo-400 animate-pulse' : ''}`} />
+                    <span>
+                      {isLooping
+                        ? (language === 'vi' ? 'Lặp: Bật' : 'Loop: On')
+                        : (language === 'vi' ? 'Lặp lại' : 'Loop')}
+                    </span>
+                    <kbd className="kbd-shortcut hidden sm:inline-block text-[10px]">Shift+P</kbd>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCycleLoopInterval}
+                    className={`inline-flex items-center border-l px-2 py-1 text-xs font-mono font-bold transition-colors ${
+                      isLooping
+                        ? 'border-indigo-200/80 hover:bg-indigo-100/70 text-indigo-700 dark:border-indigo-800/80 dark:hover:bg-indigo-900/60 dark:text-indigo-300'
+                        : 'border-slate-200 hover:bg-slate-100 text-slate-500 hover:text-indigo-600 dark:border-slate-800 dark:hover:bg-slate-800 dark:text-slate-400 dark:hover:text-indigo-400'
+                    }`}
+                    title={
+                      language === 'vi'
+                        ? `Độ trễ lặp: ${currentLoopInterval}s (nhấn để đổi: 0.5s, 1s, 1.5s, 2s, 3s)`
+                        : `Loop delay: ${currentLoopInterval}s (click to cycle: 0.5s, 1s, 1.5s, 2s, 3s)`
+                    }
+                    aria-label={
+                      language === 'vi'
+                        ? `Độ trễ giữa 2 lần loop: ${currentLoopInterval} giây`
+                        : `Pronunciation loop delay: ${currentLoopInterval} seconds`
+                    }
+                  >
+                    <span>{currentLoopInterval}s</span>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -263,10 +497,32 @@ export const Flashcard: React.FC<FlashcardProps> = ({
                   <kbd className="kbd-shortcut hidden sm:inline-block">Space</kbd>
                 </span>
                 <span className="hidden sm:inline-block text-slate-300 dark:text-slate-600">•</span>
-                <span className="flex items-center gap-1.5" title={language === 'vi' ? 'Phát âm (R: US, Shift+R: UK)' : 'Play audio (R: US, Shift+R: UK)'}>
+                <span
+                  className="flex items-center gap-1.5 cursor-pointer hover:text-indigo-600 transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handlePlayOnce('US');
+                  }}
+                  title={language === 'vi' ? 'Phát âm (P: US, Shift+R: UK)' : 'Play audio (P: US, Shift+R: UK)'}
+                >
                   <Volume2 className="h-3.5 w-3.5 text-indigo-500" />
                   <span>{language === 'vi' ? 'Phát âm' : 'Audio'}</span>
-                  <kbd className="kbd-shortcut hidden sm:inline-block">R</kbd>
+                  <kbd className="kbd-shortcut hidden sm:inline-block">P</kbd>
+                </span>
+                <span className="hidden sm:inline-block text-slate-300 dark:text-slate-600">•</span>
+                <span
+                  className={`flex items-center gap-1.5 cursor-pointer transition-colors ${
+                    isLooping ? 'text-indigo-600 font-semibold dark:text-indigo-400' : 'hover:text-indigo-600'
+                  }`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleToggleLoop();
+                  }}
+                  title={language === 'vi' ? 'Bật/tắt phát âm lặp lại (nghỉ 1.5s)' : 'Toggle loop pronunciation (1.5s delay)'}
+                >
+                  <Repeat className="h-3.5 w-3.5 text-indigo-500" />
+                  <span>{language === 'vi' ? 'Lặp lại' : 'Loop'}</span>
+                  <kbd className="kbd-shortcut hidden sm:inline-block">Shift+P</kbd>
                 </span>
               </div>
               <span className="text-slate-400 text-[11px] font-medium">
@@ -278,8 +534,9 @@ export const Flashcard: React.FC<FlashcardProps> = ({
           {/* BACK SIDE */}
           <div
             className={`absolute inset-0 flex flex-col justify-between p-7 backface-hidden rotate-y-180 overflow-y-auto ${
-              !isFlipped ? 'pointer-events-none' : ''
-            }`}
+              !isFlipped ? 'pointer-events-none opacity-0 invisible select-none' : 'opacity-100 visible'
+            } transition-opacity duration-150`}
+            aria-hidden={!isFlipped}
           >
             {/* Top row */}
             <div className="flex items-center justify-between text-xs text-slate-400 border-b border-slate-100 pb-3 dark:border-slate-800">
@@ -291,9 +548,53 @@ export const Flashcard: React.FC<FlashcardProps> = ({
                   text={word.word}
                   size="sm"
                   showLabel={false}
-                  shortcutHint="R"
+                  shortcutHint="P"
                   isPlaying={isPlayingAudio}
                 />
+                <div className={`inline-flex items-center rounded-lg border text-[11px] font-semibold transition-all ${
+                  isLooping
+                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-500 dark:bg-indigo-950/60 dark:text-indigo-300'
+                    : 'border-slate-200 bg-slate-50 text-slate-500 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400'
+                }`}>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleToggleLoop();
+                    }}
+                    className="inline-flex items-center gap-1 px-2 py-0.5"
+                    title={
+                      language === 'vi'
+                        ? `Phát âm lặp lại [Shift+P]: ${isLooping ? 'Đang BẬT' : 'Đang TẮT'}`
+                        : `Loop pronunciation [Shift+P]: ${isLooping ? 'ON' : 'OFF'}`
+                    }
+                    aria-pressed={isLooping}
+                  >
+                    <Repeat className="h-3 w-3" />
+                    <span>{isLooping ? (language === 'vi' ? 'Lặp: Bật' : 'Loop: On') : (language === 'vi' ? 'Lặp lại' : 'Loop')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCycleLoopInterval}
+                    className={`border-l px-1.5 py-0.5 font-mono text-[10px] font-bold ${
+                      isLooping
+                        ? 'border-indigo-200 text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:text-indigo-300'
+                        : 'border-slate-200 text-slate-500 hover:text-indigo-600 dark:border-slate-700 dark:text-slate-400'
+                    }`}
+                    title={
+                      language === 'vi'
+                        ? `Độ trễ lặp: ${currentLoopInterval}s (nhấn để đổi)`
+                        : `Loop delay: ${currentLoopInterval}s (click to cycle)`
+                    }
+                    aria-label={
+                      language === 'vi'
+                        ? `Độ trễ giữa 2 lần loop: ${currentLoopInterval} giây`
+                        : `Pronunciation loop delay: ${currentLoopInterval} seconds`
+                    }
+                  >
+                    {currentLoopInterval}s
+                  </button>
+                </div>
               </div>
               <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
                 {language === 'vi' ? 'Mặt sau (Đáp án)' : 'Back Card'}
@@ -392,10 +693,30 @@ export const Flashcard: React.FC<FlashcardProps> = ({
             <div className="flex items-center justify-center gap-3 text-center text-[11px] text-slate-400 border-t border-slate-100 pt-2 dark:border-slate-800">
               <span>{t.review.flipPrompt}</span>
               <span className="text-slate-300 dark:text-slate-600">•</span>
-              <span className="inline-flex items-center gap-1">
+              <span
+                className="inline-flex items-center gap-1 cursor-pointer hover:text-indigo-600 transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePlayOnce('US');
+                }}
+              >
                 <Volume2 className="h-3 w-3 text-indigo-500" />
                 <span>{language === 'vi' ? 'Phát âm' : 'Audio'}</span>
-                <kbd className="kbd-shortcut">R</kbd>
+                <kbd className="kbd-shortcut">P</kbd>
+              </span>
+              <span className="text-slate-300 dark:text-slate-600">•</span>
+              <span
+                className={`inline-flex items-center gap-1 cursor-pointer transition-colors ${
+                  isLooping ? 'text-indigo-600 font-semibold dark:text-indigo-400' : 'hover:text-indigo-600'
+                }`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleToggleLoop();
+                }}
+              >
+                <Repeat className="h-3 w-3 text-indigo-500" />
+                <span>{language === 'vi' ? 'Lặp lại' : 'Loop'}</span>
+                <kbd className="kbd-shortcut">Shift+P</kbd>
               </span>
             </div>
           </div>

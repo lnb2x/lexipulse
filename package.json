@@ -1,7 +1,20 @@
 {
   "name": "lexipulse",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "Local-first English–Vietnamese vocabulary learning with Quizlet import, optional AI enrichment, and FSRS spaced repetition.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lnb2x/lexipulse.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lnb2x/lexipulse/issues"
+  },
+  "homepage": "https://github.com/lnb2x/lexipulse#readme",
+  "engines": {
+    "node": "^22.18.0 || ^24.0.0 || >=26.0.0"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,7 +23,9 @@
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "server": "node server/index.ts",
+    "check": "npm run lint && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",

@@ -14,6 +14,8 @@ dist-ssr
 scratch/
 test-results/
 playwright-report/
+coverage/
+*.tsbuildinfo
 
 # Local environment files and credentials
 .env

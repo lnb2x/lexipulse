@@ -1,4 +1,4 @@
-import { Bookmark, BookmarkCheck, Edit3, Tag } from 'lucide-react';
+import { Bookmark, BookmarkCheck, Edit3, Loader2, Sparkles, Tag } from 'lucide-react';
 import React, { useCallback, useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
 import type { WordItem } from '../../types/vocab';
@@ -9,6 +9,7 @@ import { AudioButton } from '../common/AudioButton';
 import { WordFamilyInteractive } from '../common/WordFamilyInteractive';
 import { ProvenanceBadge } from '../common/ProvenanceBadge';
 import { parseMultipleMeanings } from '../../utils/definitionUtils';
+import { isPlaceholderDefinition } from '../../services/quizlet/quizletNormalizer';
 
 const EditableWordModal = React.lazy(() =>
   import('./EditableWordModal').then((m) => ({ default: m.EditableWordModal }))
@@ -19,6 +20,7 @@ interface WordCardProps {
   onSaveToDeck: (word: WordItem) => void;
   isAlreadyInDeck: boolean;
   onLookupWord?: (word: string, contextSentence?: string) => void;
+  onReTranslateWithAI?: (word: WordItem) => Promise<void> | void;
   deckWords?: WordItem[];
 }
 
@@ -29,6 +31,7 @@ export const WordCard: React.FC<WordCardProps> = ({
   onSaveToDeck,
   isAlreadyInDeck,
   onLookupWord,
+  onReTranslateWithAI,
   deckWords = [],
 }) => {
   const { language, t } = useLanguage();
@@ -39,6 +42,17 @@ export const WordCard: React.FC<WordCardProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [playingAccent, setPlayingAccent] = useState<'US' | 'UK'>('US');
+  const [isReTranslating, setIsReTranslating] = useState(false);
+
+  const handleReTranslate = async () => {
+    if (!onReTranslateWithAI || isReTranslating) return;
+    setIsReTranslating(true);
+    try {
+      await onReTranslateWithAI(currentWord);
+    } finally {
+      setIsReTranslating(false);
+    }
+  };
 
   // Sync state when word prop changes
   React.useEffect(() => {
@@ -341,7 +355,29 @@ export const WordCard: React.FC<WordCardProps> = ({
           <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
             <span>{t.lookup.meaningLabel}</span>
           </div>
-          <ProvenanceBadge provenance={currentWord.vietnameseDefinitionProvenance} />
+          <div className="flex items-center gap-2">
+            {onReTranslateWithAI && (
+              <button
+                type="button"
+                onClick={handleReTranslate}
+                disabled={isReTranslating}
+                className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 transition-colors disabled:opacity-50"
+                title={language === 'vi' ? 'Dịch lại bằng AI theo chuẩn schema' : 'Re-translate with AI'}
+              >
+                {isReTranslating ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3 w-3" />
+                )}
+                <span>
+                  {isReTranslating
+                    ? (language === 'vi' ? 'Đang dịch AI...' : 'Translating...')
+                    : (language === 'vi' ? 'Dịch lại bằng AI' : 'Re-translate AI')}
+                </span>
+              </button>
+            )}
+            <ProvenanceBadge provenance={currentWord.vietnameseDefinitionProvenance} />
+          </div>
         </div>
         {(() => {
           if (!currentWord.vietnameseDefinition || !currentWord.vietnameseDefinition.trim()) {
@@ -374,7 +410,7 @@ export const WordCard: React.FC<WordCardProps> = ({
             </p>
           );
         })()}
-        {currentWord.englishDefinition && (
+        {currentWord.englishDefinition && !isPlaceholderDefinition(currentWord.englishDefinition) && (
           <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
             {currentWord.englishDefinition}
           </p>
@@ -429,40 +465,56 @@ export const WordCard: React.FC<WordCardProps> = ({
       )}
 
       {/* Grid: Collocations & Word Family */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Collocations */}
-        <div className="rounded-xl border border-slate-200/80 bg-slate-50/50 p-4 dark:border-slate-800/80 dark:bg-slate-900/40 min-w-0">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            {t.lookup.collocations}
-          </h3>
-          <ul className="mt-2.5 space-y-2">
-            {currentWord.collocations.slice(0, 4).map((c, idx) => (
-              <li key={idx} className="flex items-start justify-between text-xs gap-2 min-w-0">
-                <span className="font-semibold text-indigo-600 dark:text-indigo-400 shrink-0">
-                  {c.phrase}
-                </span>
-                <span className="text-slate-500 dark:text-slate-400 text-right line-clamp-1 min-w-0">
-                  {c.meaningVi}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
+      {(() => {
+        const distinctWordFamily = (currentWord.wordFamily || []).filter(
+          (wf) => wf.word.trim().toLowerCase() !== currentWord.word.trim().toLowerCase()
+        );
+        const hasWordFamily = distinctWordFamily.length > 0;
+        const hasCollocations = (currentWord.collocations || []).length > 0;
 
-        {/* Word Family */}
-        <div className="rounded-xl border border-slate-200/80 bg-slate-50/50 p-4 dark:border-slate-800/80 dark:bg-slate-900/40 min-w-0">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
-            {t.lookup.wordFamily}
-          </h3>
-          <WordFamilyInteractive
-            wordFamily={currentWord.wordFamily}
-            currentWord={currentWord.word}
-            deckWords={deckWords}
-            onLookupWord={onLookupWord}
-            onAddWordToDeck={handleAddFamilyMemberToDeck}
-          />
-        </div>
-      </div>
+        if (!hasCollocations && !hasWordFamily) return null;
+
+        return (
+          <div className={`grid gap-4 ${hasCollocations && hasWordFamily ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
+            {/* Collocations */}
+            {hasCollocations && (
+              <div className="rounded-xl border border-slate-200/80 bg-slate-50/50 p-4 dark:border-slate-800/80 dark:bg-slate-900/40 min-w-0">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  {t.lookup.collocations}
+                </h3>
+                <ul className="mt-2.5 space-y-2">
+                  {currentWord.collocations.slice(0, 4).map((c, idx) => (
+                    <li key={idx} className="flex items-start justify-between text-xs gap-2 min-w-0">
+                      <span className="font-semibold text-indigo-600 dark:text-indigo-400 shrink-0">
+                        {c.phrase}
+                      </span>
+                      <span className="text-slate-500 dark:text-slate-400 text-right line-clamp-1 min-w-0">
+                        {c.meaningVi}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Word Family */}
+            {hasWordFamily && (
+              <div className="rounded-xl border border-slate-200/80 bg-slate-50/50 p-4 dark:border-slate-800/80 dark:bg-slate-900/40 min-w-0">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
+                  {t.lookup.wordFamily}
+                </h3>
+                <WordFamilyInteractive
+                  wordFamily={distinctWordFamily}
+                  currentWord={currentWord.word}
+                  deckWords={deckWords}
+                  onLookupWord={onLookupWord}
+                  onAddWordToDeck={handleAddFamilyMemberToDeck}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Practical Example Sentences (1 General + 1 TOEIC/Workplace) */}
       <div className="space-y-2.5">

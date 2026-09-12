@@ -5,12 +5,15 @@ import { lookupWord } from './dictionary';
 import { getAppSettings } from './db/statsRepo';
 import type { AppSettings, WordItem, VietnameseDefinitionProvenance, ExampleItem, MeaningItem } from '../types/vocab';
 import { createInitialReviewMeta } from './fsrs/fsrsService';
+import { isPlaceholderDefinition } from './quizlet/quizletNormalizer';
 
 export interface PipelineOptions {
   query: string;
   contextSentence?: string;
+  userMeaning?: string;
   signal?: AbortSignal;
   settings?: AppSettings;
+  forceReTranslate?: boolean;
   onStageUpdate?: (update: {
     stage: 'morphology' | 'ai' | 'dictionary' | 'done';
     analysis: MorphologicalAnalysis;
@@ -106,8 +109,16 @@ export function mergePipelineSources(params: MergePipelineParams): {
   };
 
   // 3. Deterministic Vietnamese Definition & Provenance Policy
-  const hasAiDef = Boolean(aiResult?.vietnameseDefinition && aiResult.vietnameseDefinition.trim());
-  const hasDictDef = Boolean(dictResult?.vietnameseDefinition && dictResult.vietnameseDefinition.trim());
+  const hasAiDef = Boolean(
+    aiResult?.vietnameseDefinition &&
+    aiResult.vietnameseDefinition.trim() &&
+    !isPlaceholderDefinition(aiResult.vietnameseDefinition)
+  );
+  const hasDictDef = Boolean(
+    dictResult?.vietnameseDefinition &&
+    dictResult.vietnameseDefinition.trim() &&
+    !isPlaceholderDefinition(dictResult.vietnameseDefinition)
+  );
 
   let vietnameseDefinition = '';
   let provenance: VietnameseDefinitionProvenance = { source: 'unknown' };
@@ -153,10 +164,13 @@ export function mergePipelineSources(params: MergePipelineParams): {
   }
 
   // 4. English definition & meanings
-  const englishDefinition =
+  let englishDefinition =
     dictResult?.englishDefinition?.trim() ||
     dictResult?.meanings?.[0]?.englishDefinition?.trim() ||
     '';
+  if (isPlaceholderDefinition(englishDefinition)) {
+    englishDefinition = '';
+  }
 
   const meanings: MeaningItem[] = dictResult?.meanings && dictResult.meanings.length > 0
     ? dictResult.meanings
@@ -215,9 +229,12 @@ export function mergePipelineSources(params: MergePipelineParams): {
     ? aiResult.collocations
     : dictResult?.collocations || [];
 
-  const wordFamily = aiResult?.wordFamily?.length
+  const rawWordFamily = aiResult?.wordFamily?.length
     ? aiResult.wordFamily
     : dictResult?.wordFamily || [];
+  const wordFamily = rawWordFamily.filter(
+    (wf) => wf.word.trim().toLowerCase() !== lowerQuery
+  );
 
   const tags = Array.from(
     new Set(['#TOEIC', ...(dictResult?.tags || []), ...(aiResult?.tags || [])])
@@ -314,7 +331,8 @@ export async function runEnrichmentPipeline(options: PipelineOptions): Promise<P
             signal: options.signal,
             timeoutMs: 8000,
           },
-          contextSentence
+          contextSentence,
+          options.userMeaning
         );
 
         if (aiRes && !options.signal?.aborted) {

@@ -10,6 +10,7 @@ import { WordFamilyInteractive } from '../common/WordFamilyInteractive';
 import { ProvenanceBadge } from '../common/ProvenanceBadge';
 import { parseMultipleMeanings } from '../../utils/definitionUtils';
 import { useModalA11y } from '../../hooks/useModalA11y';
+import { isPlaceholderDefinition } from '../../services/quizlet/quizletNormalizer';
 
 interface WordDetailModalProps {
   word: WordItem | null;
@@ -203,7 +204,7 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
                 </p>
               );
             })()}
-            {word.englishDefinition && (
+            {word.englishDefinition && !isPlaceholderDefinition(word.englishDefinition) && (
               <p className="mt-2 text-xs text-slate-600 dark:text-slate-400 leading-relaxed border-t border-emerald-200/60 pt-2 dark:border-emerald-900/40">
                 {word.englishDefinition}
               </p>
@@ -313,35 +314,51 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
           </div>
 
           {/* Collocations & Word Family */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            <div className="rounded-xl border border-slate-200/80 p-3.5 dark:border-slate-800 bg-white/40 dark:bg-slate-900/30 min-w-0">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                {t.lookup.collocations}
-              </span>
-              <ul className="mt-2 space-y-1.5 text-xs">
-                {word.collocations.map((c, i) => (
-                  <li key={i} className="flex justify-between items-baseline gap-2 min-w-0">
-                    <span className="font-semibold text-indigo-600 dark:text-indigo-400 shrink-0">{c.phrase}</span>
-                    <span className="text-slate-500 text-[11px] text-right line-clamp-1 min-w-0">{c.meaningVi}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+          {(() => {
+            const distinctWordFamily = (word.wordFamily || []).filter(
+              (wf) => wf.word.trim().toLowerCase() !== word.word.trim().toLowerCase()
+            );
+            const hasWordFamily = distinctWordFamily.length > 0;
+            const hasCollocations = (word.collocations || []).length > 0;
 
-            <div className="rounded-xl border border-slate-200/80 p-3.5 dark:border-slate-800 bg-white/40 dark:bg-slate-900/30 min-w-0">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1.5">
-                {t.lookup.wordFamily}
-              </span>
-              <WordFamilyInteractive
-                wordFamily={word.wordFamily}
-                currentWord={word.word}
-                deckWords={deckWords}
-                onLookupWord={onLookupWord}
-                onSelectDeckWord={onSelectDeckWord}
-                onAddWordToDeck={onAddWordToDeck}
-              />
-            </div>
-          </div>
+            if (!hasCollocations && !hasWordFamily) return null;
+
+            return (
+              <div className={`grid gap-3.5 ${hasCollocations && hasWordFamily ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
+                {hasCollocations && (
+                  <div className="rounded-xl border border-slate-200/80 p-3.5 dark:border-slate-800 bg-white/40 dark:bg-slate-900/30 min-w-0">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      {t.lookup.collocations}
+                    </span>
+                    <ul className="mt-2 space-y-1.5 text-xs">
+                      {word.collocations.map((c, i) => (
+                        <li key={i} className="flex justify-between items-baseline gap-2 min-w-0">
+                          <span className="font-semibold text-indigo-600 dark:text-indigo-400 shrink-0">{c.phrase}</span>
+                          <span className="text-slate-500 text-[11px] text-right line-clamp-1 min-w-0">{c.meaningVi}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {hasWordFamily && (
+                  <div className="rounded-xl border border-slate-200/80 p-3.5 dark:border-slate-800 bg-white/40 dark:bg-slate-900/30 min-w-0">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1.5">
+                      {t.lookup.wordFamily}
+                    </span>
+                    <WordFamilyInteractive
+                      wordFamily={distinctWordFamily}
+                      currentWord={word.word}
+                      deckWords={deckWords}
+                      onLookupWord={onLookupWord}
+                      onSelectDeckWord={onSelectDeckWord}
+                      onAddWordToDeck={onAddWordToDeck}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Examples */}
           <div className="space-y-2">

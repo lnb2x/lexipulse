@@ -10,10 +10,11 @@ import { usePrefersReducedMotion } from './hooks/usePrefersReducedMotion';
 import { useSpacedRepetition } from './hooks/useSpacedRepetition';
 import { useTheme } from './hooks/useTheme';
 import { useVocabulary } from './hooks/useVocabulary';
-import { db, exportDeckToCsv, exportDeckToXlsx, initializeDatabase } from './services/db';
+import { db, exportDeckToCsv, exportDeckToXlsx, initializeDatabase, saveAppSettings } from './services/db';
 import { WordNotFoundError, lookupWord, warmSearchCache } from './services/dictionary';
 import { runEnrichmentPipeline } from './services/enrichmentPipeline';
 import { vocabRepository } from './services/vocabRepository';
+import { inspectTodayWordsScope, migrateTodayWords } from './services/quizlet/quizletMigration';
 import { formatLocalDate } from './utils/dateUtils';
 import type { ClozeQuestion, ReviewMode, ReviewRating, SpellingSuggestion, WordItem } from './types/vocab';
 
@@ -122,7 +123,7 @@ export function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isImportExportOpen, setIsImportExportOpen] = useState(false);
-  const [importExportTab, setImportExportTab] = useState<'bulk' | 'export' | 'import'>('bulk');
+  const [importExportTab, setImportExportTab] = useState<'bulk' | 'quizlet' | 'export' | 'import'>('bulk');
   const [editingWord, setEditingWord] = useState<WordItem | null>(null);
   const [detailWord, setDetailWord] = useState<WordItem | null>(null);
 
@@ -169,6 +170,7 @@ export function App() {
     queueStats,
     isSubmitting,
     settings,
+    refreshSettings,
     submitRating,
     generateClozeQuestions,
   } = useSpacedRepetition(allWords);
@@ -206,6 +208,13 @@ export function App() {
 
   // Initialize DB on first launch
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).__lexipulse = {
+        db,
+        inspectTodayWordsScope,
+        migrateTodayWords,
+      };
+    }
     initializeDatabase().then(() => {
       refresh();
     });
@@ -258,7 +267,7 @@ export function App() {
   }, [handleTabChange]);
 
   // Handle Lookup submission with enrichment pipeline, contextSentence, cancellation & latest request wins
-  const handleSearch = useCallback(async (query: string, contextSentence?: string) => {
+  const handleSearch = useCallback(async (query: string, contextSentence?: string, options?: { forceReTranslate?: boolean }) => {
     const trimmed = query.trim();
     if (!trimmed) return;
 
@@ -284,9 +293,41 @@ export function App() {
     setSearchTypoInfo(null);
 
     try {
+      // 1. Database-first check: if already saved in deck with valid AI translation or user edit, return directly unless forceReTranslate
+      if (!options?.forceReTranslate) {
+        const existing = await vocabRepository.findWordByTerm(trimmed);
+        if (existing) {
+          const hasProtectedAi = Boolean(
+            existing.vietnameseDefinition &&
+            existing.vietnameseDefinitionProvenance?.source === 'ai'
+          );
+          const hasUserEdit = Boolean(existing.vietnameseDefinitionProvenance?.isUserEdited);
+
+          if (hasProtectedAi || hasUserEdit) {
+            // Already has valid AI translation or user edit: return immediately without background re-enrichment or re-translation
+            if (currentSearchId === searchIdRef.current && !abortController.signal.aborted) {
+              setLookupResult(existing);
+              setIsSearching(false);
+            }
+            return;
+          }
+
+          // If it exists in deck but only has dictionary/quizlet source, display existing first as immediate baseline
+          if (currentSearchId === searchIdRef.current && !abortController.signal.aborted) {
+            setLookupResult(existing);
+          }
+        }
+      }
+
+      // Check if existing record had a preferred meaning/context (e.g. from Quizlet or existing notes)
+      const existingForContext = await vocabRepository.findWordByTerm(trimmed);
+      const userMeaning = existingForContext?.vietnameseDefinition || existingForContext?.rawQuizletDefinition;
+
       const pipelineResult = await runEnrichmentPipeline({
         query: trimmed,
         contextSentence,
+        userMeaning,
+        forceReTranslate: options?.forceReTranslate,
         signal: abortController.signal,
         onStageUpdate: (update) => {
           if (
@@ -307,10 +348,18 @@ export function App() {
                   tags: prev.tags.length > 0 ? prev.tags : update.word.tags,
                 };
               }
+              // If current result already has protected AI translation and stage update is only morphology/dictionary, do not downgrade
+              if (
+                prev.vietnameseDefinition &&
+                prev.vietnameseDefinitionProvenance?.source === 'ai' &&
+                update.stage !== 'ai'
+              ) {
+                return prev;
+              }
               return update.word;
             });
 
-            // If this word is already saved in deck, non-destructively update background enrichments
+            // If this word is already saved in deck, protect AI records from lower-stage overwrite
             vocabRepository
               .findWordByTerm(update.word.word)
               .then((existing: WordItem | undefined) => {
@@ -319,7 +368,14 @@ export function App() {
                   currentSearchId === searchIdRef.current &&
                   !abortController.signal.aborted
                 ) {
-                  vocabRepository.updateWord(existing.id, update.word);
+                  const isExistingProtected =
+                    Boolean(existing.vietnameseDefinition && existing.vietnameseDefinitionProvenance?.source === 'ai') ||
+                    Boolean(existing.vietnameseDefinitionProvenance?.isUserEdited);
+
+                  // Only update DB if not protected, or if this stage is an AI update
+                  if (!isExistingProtected || update.stage === 'ai') {
+                    vocabRepository.updateWord(existing.id, update.word);
+                  }
                 }
               })
               .catch(() => {});
@@ -348,6 +404,15 @@ export function App() {
           }
           return pipelineResult.word;
         });
+
+        // If forceReTranslate was set and word exists in deck, save the updated AI record
+        if (options?.forceReTranslate) {
+          const existing = await vocabRepository.findWordByTerm(pipelineResult.word.word);
+          if (existing) {
+            await vocabRepository.updateWord(existing.id, pipelineResult.word);
+            await refresh();
+          }
+        }
       } else {
         setSearchError(`No definitions found for "${trimmed}". Try another word!`);
       }
@@ -377,7 +442,33 @@ export function App() {
         setIsSearching(false);
       }
     }
-  }, [language]);
+  }, [language, refresh]);
+
+  // Handle re-translating an existing word with AI
+  const handleReTranslateWithAI = useCallback(async (wordToTranslate: WordItem) => {
+    showToast(
+      language === 'vi'
+        ? `Đang dịch lại "${wordToTranslate.word}" bằng AI...`
+        : `Re-translating "${wordToTranslate.word}" with AI...`,
+      'info'
+    );
+    try {
+      await handleSearch(wordToTranslate.word, undefined, { forceReTranslate: true });
+      showToast(
+        language === 'vi'
+          ? `Đã hoàn tất dịch AI cho "${wordToTranslate.word}"!`
+          : `AI translation completed for "${wordToTranslate.word}"!`,
+        'success'
+      );
+    } catch {
+      showToast(
+        language === 'vi'
+          ? 'Lỗi khi dịch lại bằng AI. Bản dịch cũ vẫn được giữ nguyên.'
+          : 'Failed to re-translate with AI. Existing translation kept.',
+        'error'
+      );
+    }
+  }, [handleSearch, language, showToast]);
 
   // Handle Saving to Deck
   const handleSaveToDeck = useCallback(async (wordToSave: WordItem) => {
@@ -553,6 +644,7 @@ export function App() {
               isWordInDeck={isWordInDeck}
               onSearch={handleSearch}
               onSaveToDeck={handleSaveToDeck}
+              onReTranslateWithAI={handleReTranslateWithAI}
               searchQuery={searchQuery}
               onSearchQueryChange={setSearchQuery}
               searchContextSentence={searchContextSentence}
@@ -644,6 +736,11 @@ export function App() {
               queueStats={queueStats}
               isSubmitting={isSubmitting}
               desiredRetention={settings?.desiredRetention}
+              loopInterval={settings?.loopInterval}
+              onLoopIntervalChange={async (interval) => {
+                await saveAppSettings({ loopInterval: interval });
+                refreshSettings();
+              }}
             />
           )}
         </div>
@@ -658,6 +755,7 @@ export function App() {
             onSettingsUpdated={() => {
               showToast('Settings saved successfully');
               refresh();
+              refreshSettings();
             }}
           />
         )}
@@ -678,6 +776,7 @@ export function App() {
             filteredWords={words}
             availableDates={availableDates}
             activeFilterDate={filterOptions.createdDate}
+            onStartReviewSession={handleStartReviewSession}
             onImportComplete={(addedDate?: string) => {
               showToast(
                 language === 'vi'

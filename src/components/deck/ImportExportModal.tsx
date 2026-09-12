@@ -8,6 +8,8 @@ import { parseBulkImportInput } from '../../utils/importParser';
 import type { WordItem } from '../../types/vocab';
 import { formatLocalDate, parseLocalDateToTimestamp } from '../../utils/dateUtils';
 import { useModalA11y } from '../../hooks/useModalA11y';
+import { QuizletImportView } from './QuizletImportView';
+import type { ReviewMode } from '../../types/vocab';
 
 interface ImportExportModalProps {
   isOpen: boolean;
@@ -17,7 +19,8 @@ interface ImportExportModalProps {
   filteredWords?: WordItem[];
   availableDates?: Array<{ date: string; count: number }>;
   activeFilterDate?: string;
-  initialTab?: 'bulk' | 'export' | 'import';
+  initialTab?: 'bulk' | 'quizlet' | 'export' | 'import';
+  onStartReviewSession?: (mode: ReviewMode, cards: WordItem[], sessionType?: 'due' | 'cram') => void;
 }
 
 export const ImportExportModal: React.FC<ImportExportModalProps> = ({
@@ -29,10 +32,11 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   availableDates = [],
   activeFilterDate = '',
   initialTab = 'bulk',
+  onStartReviewSession,
 }) => {
   const { language, t } = useLanguage();
   const modalRef = useModalA11y({ isOpen, onClose });
-  const [activeTab, setActiveTab] = useState<'bulk' | 'export' | 'import'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'bulk' | 'quizlet' | 'export' | 'import'>(initialTab);
   const [copied, setCopied] = useState(false);
 
   // Bulk Import state
@@ -295,6 +299,20 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
           <button
             type="button"
             onClick={() => {
+              setActiveTab('quizlet');
+              setBulkSuccessMsg(null);
+            }}
+            className={`flex-1 rounded-lg py-2 text-xs font-semibold transition-all ${
+              activeTab === 'quizlet'
+                ? 'bg-white text-indigo-600 shadow-sm dark:bg-slate-900 dark:text-indigo-400'
+                : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
+            }`}
+          >
+            {t.modals.quizletTab}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
               setActiveTab('export');
               setBulkSuccessMsg(null);
             }}
@@ -458,6 +476,20 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
                 </>
               )}
             </button>
+          </div>
+        )}
+
+        {/* TAB: FROM QUIZLET */}
+        {activeTab === 'quizlet' && (
+          <div className="mt-5">
+            <QuizletImportView
+              allWords={allWords}
+              onImportSuccess={() => {
+                onImportComplete();
+              }}
+              onStartReviewSession={onStartReviewSession}
+              onCloseModal={onClose}
+            />
           </div>
         )}
 

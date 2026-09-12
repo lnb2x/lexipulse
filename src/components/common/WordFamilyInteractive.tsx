@@ -108,12 +108,12 @@ export const WordFamilyInteractive: React.FC<WordFamilyInteractiveProps> = ({
     }
   };
 
-  if (!wordFamily || wordFamily.length === 0) {
-    return (
-      <div className={`text-xs text-slate-400 italic ${className}`}>
-        {t.lookup.noWordFamily}
-      </div>
-    );
+  const distinctFamily = (wordFamily || []).filter(
+    (wf) => !currentWord || wf.word.trim().toLowerCase() !== currentWord.trim().toLowerCase()
+  );
+
+  if (distinctFamily.length === 0) {
+    return null;
   }
 
   return (
@@ -126,16 +126,14 @@ export const WordFamilyInteractive: React.FC<WordFamilyInteractiveProps> = ({
             {t.lookup.wordFamilyHint}
           </span>
           <span className="hidden sm:inline text-[10px] text-slate-400">
-            {wordFamily.length} {language === 'vi' ? 'dạng từ' : 'forms'}
+            {distinctFamily.length} {language === 'vi' ? 'dạng từ' : 'forms'}
           </span>
         </div>
       )}
 
       {/* Word Family Pills Container */}
       <div className="flex flex-wrap gap-2">
-        {wordFamily.map((wf, idx) => {
-          const isCurrent =
-            !!currentWord && wf.word.toLowerCase() === currentWord.toLowerCase();
+        {distinctFamily.map((wf, idx) => {
           const inDeckWord = deckWords.find(
             (w) => w.word.toLowerCase() === wf.word.toLowerCase()
           );
@@ -143,6 +141,7 @@ export const WordFamilyInteractive: React.FC<WordFamilyInteractiveProps> = ({
           const posInfo = getPosBadgeStyle(wf.pos);
           const isAudioPlaying = playingWord === wf.word;
           const meaning = wf.meaningVi || inDeckWord?.vietnameseDefinition;
+          const isCurrent = currentWord ? wf.word.toLowerCase() === currentWord.toLowerCase() : false;
 
           return (
             <div

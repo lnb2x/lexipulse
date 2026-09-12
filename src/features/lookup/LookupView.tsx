@@ -23,6 +23,7 @@ export interface LookupViewProps {
   onSearchContextSentenceChange?: (cs: string) => void;
   showSearchContextInput?: boolean;
   onShowSearchContextInputChange?: (show: boolean) => void;
+  onReTranslateWithAI?: (word: WordItem) => Promise<void> | void;
 }
 
 export const LookupView: React.FC<LookupViewProps> = ({
@@ -40,6 +41,7 @@ export const LookupView: React.FC<LookupViewProps> = ({
   onSearchContextSentenceChange,
   showSearchContextInput,
   onShowSearchContextInputChange,
+  onReTranslateWithAI,
 }) => {
   const { language, t } = useLanguage();
 
@@ -189,6 +191,7 @@ export const LookupView: React.FC<LookupViewProps> = ({
           onSaveToDeck={onSaveToDeck}
           isAlreadyInDeck={isWordInDeck(lookupResult.word)}
           onLookupWord={onSearch}
+          onReTranslateWithAI={onReTranslateWithAI}
           deckWords={allWords}
         />
       )}

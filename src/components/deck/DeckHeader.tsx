@@ -8,7 +8,7 @@ interface DeckHeaderProps {
   onFilterChange: (options: FilterOptions) => void;
   allTags: Array<{ tag: string; count: number }>;
   availableDates?: Array<{ date: string; count: number }>;
-  onOpenImportExport: (tab?: 'bulk' | 'export' | 'import') => void;
+  onOpenImportExport: (tab?: 'bulk' | 'quizlet' | 'export' | 'import') => void;
   onAddNewWord?: () => void;
   onQuickExportCsv?: () => void;
   onQuickExportXlsx?: () => void;
@@ -86,125 +86,147 @@ export const DeckHeader: React.FC<DeckHeaderProps> = ({
   };
 
   return (
-    <div className="space-y-3.5">
-      {/* Search & Action Row */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-        {/* Search bar */}
-        <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 dark:text-slate-500" />
-          <input
-            type="text"
-            value={localSearch}
-            onChange={handleSearchChange}
-            placeholder={t.deck.searchPlaceholder}
-            className="w-full rounded-xl border border-slate-200/90 bg-white py-2 pl-10 pr-9 text-xs sm:text-sm text-slate-900 placeholder-slate-400 shadow-subtle focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-800 dark:bg-[#121824] dark:text-slate-100 dark:placeholder-slate-500"
-          />
-          {localSearch && (
-            <button
-              onClick={() => {
-                setLocalSearch('');
-                onFilterChange({ ...filterOptions, search: '' });
-              }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-
-        {/* Action Controls Toolbar */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Sort Dropdown */}
-          <div className="relative flex items-center">
-            <ArrowUpDown className="pointer-events-none absolute left-3 h-3.5 w-3.5 text-slate-400" />
-            <select
-              value={filterOptions.sortBy}
-              onChange={handleSortChange}
-              className="rounded-xl border border-slate-200/90 bg-white py-2 pl-8 pr-3 text-xs font-medium text-slate-700 shadow-subtle focus:border-indigo-500 focus:outline-none dark:border-slate-800 dark:bg-[#121824] dark:text-slate-300 cursor-pointer"
-            >
-              <option value="urgency">{t.deck.sortUrgency}</option>
-              <option value="date_added">{t.deck.sortDateAdded}</option>
-              <option value="alpha">{t.deck.sortAlpha}</option>
-              <option value="repetition">{t.deck.sortRepetition}</option>
-            </select>
-          </div>
-
-          {/* Date Added Filter */}
-          <div className="relative flex items-center">
-            <Calendar className="pointer-events-none absolute left-3 h-3.5 w-3.5 text-indigo-500" />
-            <select
-              value={filterOptions.createdDate || 'all'}
-              onChange={handleDateChange}
-              className={`rounded-xl border py-2 pl-8 pr-7 text-xs font-medium shadow-subtle focus:border-indigo-500 focus:outline-none transition-colors cursor-pointer ${
-                filterOptions.createdDate
-                  ? 'border-indigo-300 bg-indigo-50/80 text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300'
-                  : 'border-slate-200/90 bg-white text-slate-700 dark:border-slate-800 dark:bg-[#121824] dark:text-slate-300'
-              }`}
-            >
-              <option value="all">{t.deck.allDates}</option>
-              {availableDates.map(({ date, count }) => (
-                <option key={date} value={date}>
-                  {date} ({count} {t.deck.wordsCount})
-                </option>
-              ))}
-            </select>
-            {filterOptions.createdDate && (
+    <div className="space-y-4">
+      {/* TOOLBAR SECTION: Two distinct rows */}
+      <div className="space-y-2.5 sm:space-y-3">
+        {/* ROW 1: Search & Filter Controls (Sort, Date) */}
+        <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-2.5 sm:gap-3">
+          {/* Search bar: Auto-expanding, min 280px on desktop */}
+          <div className="relative flex-1 min-w-0 sm:min-w-[280px] lg:min-w-[340px]">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 dark:text-slate-500" />
+            <input
+              type="text"
+              value={localSearch}
+              onChange={handleSearchChange}
+              placeholder={t.deck.searchPlaceholder}
+              className="h-[44px] w-full rounded-xl border border-slate-200/90 bg-white py-2.5 pl-10 pr-9 text-xs sm:text-sm text-slate-900 placeholder-slate-400 shadow-subtle transition-all duration-150 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 dark:border-slate-800 dark:bg-[#121824] dark:text-slate-100 dark:placeholder-slate-500 dark:focus:border-indigo-500 dark:focus:ring-indigo-500/30"
+            />
+            {localSearch && (
               <button
                 type="button"
-                onClick={handleClearDate}
-                title={t.deck.clearDateFilter}
-                className="absolute right-2 p-0.5 text-indigo-500 hover:text-indigo-700 dark:text-indigo-400"
+                onClick={() => {
+                  setLocalSearch('');
+                  onFilterChange({ ...filterOptions, search: '' });
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                title={t.deck.clearSearch || 'Xóa tìm kiếm'}
               >
-                <X className="h-3.5 w-3.5" />
+                <X className="h-4 w-4" />
               </button>
             )}
           </div>
 
-          {/* Direct Add Word Button */}
+          {/* Filter Controls (Sort & Date): 2 columns on mobile, auto-width on tablet/desktop */}
+          <div className="grid grid-cols-2 sm:flex sm:items-center gap-2.5 sm:gap-3 shrink-0">
+            {/* Sort Dropdown */}
+            <div className="relative flex items-center min-w-0 w-full sm:w-auto">
+              <ArrowUpDown className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 dark:text-slate-500 shrink-0" />
+              <select
+                value={filterOptions.sortBy}
+                onChange={handleSortChange}
+                className="h-[44px] w-full sm:w-auto rounded-xl border border-slate-200/90 bg-white py-2 pl-10 pr-8 text-xs sm:text-sm font-medium text-slate-700 shadow-subtle transition-colors focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 dark:border-slate-800 dark:bg-[#121824] dark:text-slate-300 dark:focus:border-indigo-500 dark:focus:ring-indigo-500/30 cursor-pointer truncate"
+              >
+                <option value="urgency">{t.deck.sortUrgency}</option>
+                <option value="date_added">{t.deck.sortDateAdded}</option>
+                <option value="alpha">{t.deck.sortAlpha}</option>
+                <option value="repetition">{t.deck.sortRepetition}</option>
+              </select>
+            </div>
+
+            {/* Date Added Filter Dropdown */}
+            <div className="relative flex items-center min-w-0 w-full sm:w-auto">
+              <Calendar className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-indigo-500 shrink-0" />
+              <select
+                value={filterOptions.createdDate || 'all'}
+                onChange={handleDateChange}
+                className={`h-[44px] w-full sm:w-auto sm:max-w-[210px] md:max-w-[230px] rounded-xl border py-2 pl-10 pr-8 text-xs sm:text-sm font-medium shadow-subtle transition-colors focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 dark:focus:ring-indigo-500/30 cursor-pointer truncate ${
+                  filterOptions.createdDate
+                    ? 'border-indigo-300 bg-indigo-50/80 text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300'
+                    : 'border-slate-200/90 bg-white text-slate-700 dark:border-slate-800 dark:bg-[#121824] dark:text-slate-300'
+                }`}
+              >
+                <option value="all">{t.deck.allDates}</option>
+                {availableDates.map(({ date, count }) => (
+                  <option key={date} value={date}>
+                    {date} ({count} {t.deck.wordsCount})
+                  </option>
+                ))}
+              </select>
+              {filterOptions.createdDate && (
+                <button
+                  type="button"
+                  onClick={handleClearDate}
+                  title={t.deck.clearDateFilter}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-indigo-500 hover:text-indigo-700 dark:text-indigo-400"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ROW 2: Action Buttons */}
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+          {/* Thêm từ mới (Direct Add Word Button) */}
           {onAddNewWord && (
             <button
               type="button"
               onClick={onAddNewWord}
-              className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-500 active:scale-95 transition-all"
+              className="h-[44px] flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-xs sm:text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 active:scale-[0.98] transition-all shrink-0"
             >
-              <Plus className="h-3.5 w-3.5" />
+              <Plus className="h-4 w-4 shrink-0" />
               <span>{language === 'vi' ? 'Thêm từ mới' : 'Add Word'}</span>
             </button>
           )}
 
-          {/* Bulk Import Button */}
+          {/* Nhập từ / Nhập nhiều từ (Bulk Import Button) */}
           <button
             type="button"
             onClick={() => onOpenImportExport('bulk')}
-            className="flex items-center gap-1.5 rounded-xl border border-indigo-200/80 bg-indigo-50/70 px-3 py-2 text-xs font-semibold text-indigo-700 hover:bg-indigo-100/70 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-900/50 active:scale-95 transition-all"
+            className="h-[44px] flex items-center justify-center gap-2 rounded-xl border border-indigo-200/90 bg-indigo-50/70 px-3.5 sm:px-4 text-xs sm:text-sm font-semibold text-indigo-700 shadow-subtle hover:bg-indigo-100/80 active:scale-[0.98] dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-900/50 transition-all shrink-0"
           >
+            <Plus className="h-4 w-4 shrink-0 text-indigo-600 dark:text-indigo-400" />
             <span>{t.deck.bulkAddBtn}</span>
           </button>
 
-          {/* Quick Export Excel button */}
+          {/* Nhập Quizlet (Quizlet Button) */}
+          <button
+            type="button"
+            onClick={() => onOpenImportExport('quizlet')}
+            className="h-[44px] flex items-center justify-center gap-2 rounded-xl border border-sky-200/90 bg-sky-50/70 px-3.5 sm:px-4 text-xs sm:text-sm font-semibold text-sky-700 shadow-subtle hover:bg-sky-100/80 active:scale-[0.98] dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-300 dark:hover:bg-sky-900/50 transition-all shrink-0"
+          >
+            <Database className="h-4 w-4 text-sky-600 dark:text-sky-400 shrink-0" />
+            <span>{t.deck.quizletBtn}</span>
+          </button>
+
+          {/* Xuất Excel (Quick Export Excel button) */}
           {onQuickExportXlsx && (
             <button
               type="button"
               onClick={onQuickExportXlsx}
               title={language === 'vi' ? 'Xuất danh sách từ hiện tại ra Excel (.xlsx)' : 'Export current words to Excel (.xlsx)'}
-              className="flex items-center gap-1.5 rounded-xl border border-emerald-200/80 bg-emerald-50/70 px-3 py-2 text-xs font-semibold text-emerald-700 shadow-subtle hover:bg-emerald-100/70 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/50 transition-all active:scale-95"
+              className="h-[44px] flex items-center justify-center gap-2 rounded-xl border border-emerald-200/90 bg-emerald-50/70 px-3.5 sm:px-4 text-xs sm:text-sm font-semibold text-emerald-700 shadow-subtle hover:bg-emerald-100/80 active:scale-[0.98] dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/50 transition-all shrink-0"
             >
-              <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span className="hidden sm:inline">{language === 'vi' ? 'Xuất Excel' : 'Export Excel'}</span>
+              <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span>{language === 'vi' ? 'Xuất Excel' : 'Export Excel'}</span>
             </button>
           )}
 
-          {/* Export / Backup button */}
+          {/* Xuất & Sao lưu (Export / Backup button) */}
           <button
             type="button"
             onClick={() => onOpenImportExport('export')}
-            className="flex items-center gap-1.5 rounded-xl border border-slate-200/90 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-subtle hover:bg-slate-50 dark:border-slate-800 dark:bg-[#121824] dark:text-slate-300 dark:hover:bg-slate-800/80 transition-all"
+            className="h-[44px] flex items-center justify-center gap-2 rounded-xl border border-slate-200/90 bg-white px-3.5 sm:px-4 text-xs sm:text-sm font-semibold text-slate-700 shadow-subtle hover:bg-slate-50 active:scale-[0.98] dark:border-slate-800 dark:bg-[#121824] dark:text-slate-300 dark:hover:bg-slate-800/80 transition-all shrink-0"
           >
-            <Database className="h-3.5 w-3.5 text-indigo-500" />
-            <span className="hidden sm:inline">{t.deck.exportBackupBtn}</span>
+            <Download className="h-4 w-4 text-indigo-500 shrink-0" />
+            <span>{t.deck.exportBackupBtn}</span>
           </button>
         </div>
       </div>
+
+      {/* VISUAL SEPARATION: DIVIDER TO STATUS TABS & TAGS */}
+      <div className="pt-2.5 sm:pt-3 border-t border-slate-200/80 dark:border-slate-800/80 space-y-3">
 
       {/* Filter Tabs: Status & Quick Export if Date Selected */}
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -318,6 +340,7 @@ export const DeckHeader: React.FC<DeckHeaderProps> = ({
           })}
         </div>
       )}
+      </div>
     </div>
   );
 };

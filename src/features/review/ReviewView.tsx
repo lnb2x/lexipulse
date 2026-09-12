@@ -1,8 +1,10 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { ArrowLeft, Headphones, HelpCircle, Layers, ListChecks, Loader2, Zap } from 'lucide-react';
 import { ReviewDashboard } from '../../components/review/ReviewDashboard';
 import { useLanguage } from '../../context/LanguageContext';
+import { stopPronunciation } from '../../services/audio';
 import type { ClozeQuestion, ReviewMode, ReviewRating, WordItem } from '../../types/vocab';
+
 
 // Code-split interactive review modes so they are loaded on-demand
 const Flashcard = lazy(() =>
@@ -52,6 +54,8 @@ export interface ReviewViewProps {
   isSubmitting?: boolean;
   desiredRetention?: number;
   queueStats?: import('../../types/vocab').ReviewQueueStats;
+  loopInterval?: number;
+  onLoopIntervalChange?: (interval: number) => void;
 }
 
 export const ReviewView: React.FC<ReviewViewProps> = ({
@@ -71,8 +75,19 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
   isSubmitting,
   desiredRetention,
   queueStats,
+  loopInterval,
+  onLoopIntervalChange,
 }) => {
   const { language } = useLanguage();
+  const [isAudioLooping, setIsAudioLooping] = useState(false);
+
+  // Stop audio playback and cancel loop mode when review ends, pauses, or switches
+  useEffect(() => {
+    if (!reviewState.inProgress || reviewState.isCompleted) {
+      setIsAudioLooping(false);
+      stopPronunciation();
+    }
+  }, [reviewState.inProgress, reviewState.isCompleted]);
 
   if (!reviewState.inProgress) {
     return (
@@ -118,7 +133,11 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setReviewState((prev) => ({ ...prev, inProgress: false }))}
+                onClick={() => {
+                  setIsAudioLooping(false);
+                  stopPronunciation();
+                  setReviewState((prev) => ({ ...prev, inProgress: false }));
+                }}
                 className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 shadow-sm transition-colors"
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
@@ -150,7 +169,11 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
                     key={m.id}
                     type="button"
                     aria-label={language === 'vi' ? m.labelVi : m.labelEn}
-                    onClick={() => onSwitchReviewMode(m.id)}
+                    onClick={() => {
+                      setIsAudioLooping(false);
+                      stopPronunciation();
+                      onSwitchReviewMode(m.id);
+                    }}
                     className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all ${
                       isActive
                         ? 'bg-white text-indigo-600 shadow-sm dark:bg-slate-800 dark:text-indigo-400'
@@ -177,12 +200,17 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
           >
             {reviewState.mode === 'flashcards' && reviewState.cards[reviewState.currentIndex] && (
               <Flashcard
+                key={reviewState.cards[reviewState.currentIndex].id}
                 word={reviewState.cards[reviewState.currentIndex]}
                 currentIndex={reviewState.currentIndex}
                 totalCards={reviewState.cards.length}
                 onGrade={onGradeReview}
                 isSubmitting={isSubmitting}
                 desiredRetention={desiredRetention}
+                isLooping={isAudioLooping}
+                onToggleLoop={setIsAudioLooping}
+                loopInterval={loopInterval}
+                onLoopIntervalChange={onLoopIntervalChange}
                 onPrevCard={
                   reviewState.currentIndex > 0
                     ? () =>

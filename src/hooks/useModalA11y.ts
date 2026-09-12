@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { stopPronunciation } from '../services/audio';
 
 export interface UseModalA11yOptions {
   isOpen: boolean;
@@ -19,6 +20,10 @@ export function useModalA11y({ isOpen, onClose, initialFocusRef }: UseModalA11yO
 
   useEffect(() => {
     if (!isOpen) return;
+
+    // Immediately stop any ongoing audio playback and signal modal open
+    stopPronunciation();
+    window.dispatchEvent(new CustomEvent('lexipulse:modal-opened'));
 
     previouslyFocusedElementRef.current = document.activeElement as HTMLElement | null;
 

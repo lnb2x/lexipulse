@@ -5,6 +5,7 @@ import { vocabRepository } from './vocabRepository';
 import { analyzeMorphology } from './morphology/lemmatizer';
 import type { MeaningItem, SpellingSuggestion, WordFamilyItem, WordItem } from '../types/vocab';
 import { findFuzzyMatches, stringSimilarity } from '../utils/fuzzySearch';
+import { isPlaceholderDefinition } from './quizlet/quizletNormalizer';
 
 // Re-exports from submodules for 100% backward compatibility
 export {
@@ -280,6 +281,15 @@ async function scheduleBackgroundEnrichment(
         }));
       }
 
+      // Check if definition is already protected (user-edited or valid AI translation)
+      const isDefinitionProtected = Boolean(
+        baseWord.isUserEdited ||
+        baseWord.vietnameseDefinitionProvenance?.isUserEdited ||
+        (baseWord.vietnameseDefinitionProvenance?.source === 'ai' &&
+          baseWord.vietnameseDefinition &&
+          !isPlaceholderDefinition(baseWord.vietnameseDefinition))
+      );
+
       // 2. AI Enrichment if configured
       let aiData: any = null;
       try {
@@ -299,7 +309,9 @@ async function scheduleBackgroundEnrichment(
             if (aiData.ipaUs) richUsIpa = aiData.ipaUs;
             if (aiData.ipaUk) richUkIpa = aiData.ipaUk;
             if (!richUkIpa && richUsIpa) richUkIpa = richUsIpa;
-            if (aiData.vietnameseDefinition) richVietnameseDef = aiData.vietnameseDefinition;
+            if (!isDefinitionProtected && aiData.vietnameseDefinition && !isPlaceholderDefinition(aiData.vietnameseDefinition)) {
+              richVietnameseDef = aiData.vietnameseDefinition;
+            }
             if (aiData.collocations?.length) richCollocations = aiData.collocations;
             if (aiData.wordFamily?.length) richWordFamily = aiData.wordFamily;
             if (aiData.examples?.length) richExamples = aiData.examples;
@@ -309,6 +321,11 @@ async function scheduleBackgroundEnrichment(
       } catch {
         // AI failure is non-fatal
       }
+
+      // Filter out any word family item that duplicates the queried word
+      richWordFamily = richWordFamily.filter(
+        (wf) => wf.word.trim().toLowerCase() !== query.toLowerCase()
+      );
 
       if (signal?.aborted) return;
 
@@ -407,7 +424,14 @@ export async function lookupWord(rawWord: string, options?: LookupOptions): Prom
       const existingInDb = await db.words.where('word').equals(query).first();
       if (existingInDb) {
         WORD_LRU_CACHE.set(query, existingInDb);
-        if (options?.onEnriched && !options?.skipBackgroundAi) {
+        const isDbProtected = Boolean(
+          existingInDb.isUserEdited ||
+          existingInDb.vietnameseDefinitionProvenance?.isUserEdited ||
+          (existingInDb.vietnameseDefinitionProvenance?.source === 'ai' &&
+            existingInDb.vietnameseDefinition &&
+            !isPlaceholderDefinition(existingInDb.vietnameseDefinition))
+        );
+        if (options?.onEnriched && !options?.skipBackgroundAi && !isDbProtected) {
           scheduleBackgroundEnrichment(existingInDb, signal, options.onEnriched);
         }
         return existingInDb;
@@ -552,11 +576,7 @@ export async function lookupWord(rawWord: string, options?: LookupOptions): Prom
       }
     }
     if (!englishDef) {
-      if (isPhrase && directTrans) {
-        englishDef = `Idiom/collocation: "${query}" (${directTrans})`;
-      } else {
-        englishDef = `Definition for "${query}"`;
-      }
+      englishDef = '';
     }
 
     // Check if word is not recognized in standard dictionaries and is likely a typo
@@ -586,17 +606,17 @@ export async function lookupWord(rawWord: string, options?: LookupOptions): Prom
     let vietnameseDef = '';
     if (openVnData?.vietnameseDef) {
       vietnameseDef = openVnData.vietnameseDef;
-      if (directTrans && directTrans.length >= 2 && !vietnameseDef.toLowerCase().includes(directTrans.toLowerCase())) {
+      if (directTrans && directTrans.length >= 2 && !vietnameseDef.toLowerCase().includes(directTrans.toLowerCase()) && !isPlaceholderDefinition(directTrans)) {
         if (vietnameseDef.startsWith('(')) {
           vietnameseDef = vietnameseDef.replace(/^(\([^)]+\))\s*/, `$1 ${directTrans}, `);
         } else {
           vietnameseDef = `${directTrans}, ${vietnameseDef}`;
         }
       }
-    } else if (directTrans) {
+    } else if (directTrans && !isPlaceholderDefinition(directTrans)) {
       vietnameseDef = directTrans;
     } else {
-      vietnameseDef = `Từ vựng "${query}"`;
+      vietnameseDef = '';
     }
 
     // Authentic collocations & examples ONLY — NO fake filler sentences!
@@ -610,7 +630,7 @@ export async function lookupWord(rawWord: string, options?: LookupOptions): Prom
         ? openVnData.examples.slice(0, 2)
         : [];
 
-    const wordFamily: WordFamilyItem[] = [{ word: query, pos: mainPos }];
+    const wordFamily: WordFamilyItem[] = [];
 
     const now = Date.now();
     const morphology = analyzeMorphology(query);

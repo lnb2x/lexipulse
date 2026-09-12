@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   preferredAccent: 'US',
   dailyQuota: 10,
   theme: 'dark',
+  loopInterval: 1.5,
 };
 
 const SESSION_KEY_STORAGE = 'lexipulse_session_ai_key';

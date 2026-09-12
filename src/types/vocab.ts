@@ -171,6 +171,11 @@ export interface WordItem {
   // Provenance tracking for Vietnamese translation
   vietnameseDefinitionProvenance?: VietnameseDefinitionProvenance;
   isUserEdited?: boolean;
+  // Quizlet integration
+  quizletSetIds?: string[];
+  quizletSets?: QuizletSetRef[];
+  rawQuizletTerm?: string;
+  rawQuizletDefinition?: string;
 }
 
 export interface DailyStats {
@@ -197,6 +202,7 @@ export interface AppSettings {
   dailyQuota: number;
   theme: 'dark' | 'light' | 'system';
   desiredRetention?: 0.85 | 0.90 | 0.95; // default 0.90
+  loopInterval?: number; // Delay in seconds between loop pronunciations (default 1.5)
 }
 
 export interface ReviewQueueStats {
@@ -255,5 +261,45 @@ export interface DayActivity {
   reviewsCount: number;
   wordsAddedCount: number;
   level: 0 | 1 | 2 | 3 | 4;
+}
+
+export interface QuizletSetRef {
+  id: string; // Quizlet set numeric ID, e.g. "1205742993"
+  title: string;
+  url: string; // Clean canonical URL without tracking parameters
+  importedAt: number;
+}
+
+export interface QuizletSetRecord {
+  id: string; // Quizlet set ID
+  title: string;
+  url: string;
+  createdAt: number;
+  updatedAt: number;
+  wordCount?: number;
+  cardTerms?: string[];
+}
+
+export type QuizletReconcileStatus = 'new' | 'existing' | 'needs_review';
+
+export interface QuizletCardItem {
+  term: string;
+  definition: string;
+}
+
+export interface QuizletReconciledWord {
+  term: string; // Clean term
+  rawTerm?: string; // Original raw Quizlet term
+  normalizedTerm: string;
+  extractedPos?: string[];
+  extractedIpa?: string;
+  definition: string; // Clean definition
+  rawDefinition?: string; // Original raw Quizlet definition
+  normalizedDefinition: string;
+  status: QuizletReconcileStatus;
+  selected: boolean;
+  existingWord?: WordItem;
+  existingDefinition?: string;
+  resolutionChoice?: 'keep_existing' | 'use_quizlet' | 'merge';
 }
 

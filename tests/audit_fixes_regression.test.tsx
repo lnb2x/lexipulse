@@ -125,7 +125,7 @@ describe('Audit Regression 2: DeckHeader filter preservation during search debou
     );
 
     // Step a: Type into search input
-    const searchInput = screen.getByPlaceholderText(/Tìm từ theo tên|Search words by term/i);
+    const searchInput = screen.getByPlaceholderText(/Tìm kiếm từ vựng|Tìm từ theo tên|Search vocabulary words|Search words by term/i);
     fireEvent.change(searchInput, { target: { value: 'react' } });
 
     // Step b: At 50ms (before 150ms debounce fires), user changes status to 'learning'

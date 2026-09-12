@@ -28,7 +28,7 @@ export interface DeckViewProps {
   onOpenDetail: (word: WordItem) => void;
   onOpenEdit: (word: WordItem) => void;
   onDeleteWord: (id: string, word: string) => void;
-  onOpenImportExport: (tab?: 'bulk' | 'export' | 'import') => void;
+  onOpenImportExport: (tab?: 'bulk' | 'quizlet' | 'export' | 'import') => void;
   onQuickExportCsv: () => void;
   onQuickExportXlsx: () => void;
   onStartReviewSession: (mode: ReviewMode, cards: WordItem[]) => void;
@@ -162,6 +162,7 @@ export const DeckView: React.FC<DeckViewProps> = ({
         allTags={allTags}
         availableDates={availableDates}
         onOpenImportExport={onOpenImportExport}
+        onAddNewWord={onNavigateToLookup}
         onQuickExportCsv={onQuickExportCsv}
         onQuickExportXlsx={onQuickExportXlsx}
         onReviewDateWords={handleReviewDateWords}

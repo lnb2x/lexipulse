@@ -17,6 +17,8 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
   const shortcuts = language === 'vi' ? [
     { key: 'Enter', description: 'Tra cứu từ vựng hoặc nộp đáp án câu hỏi' },
     { key: 'Space', description: 'Lật qua lại giữa mặt trước & sau flashcard' },
+    { key: 'P', description: 'Phát âm tiếng Anh của từ hiện tại (1 lần)' },
+    { key: 'Shift + P', description: 'Bật/tắt chế độ phát âm lặp lại (nghỉ 1.5s)' },
     { key: 'R / A', description: 'Phát âm thanh từ vựng (Shift + R: giọng Anh)' },
     { key: 'Ctrl + Space', description: 'Nghe lại âm thanh từ vựng (kể cả khi đang nhập)' },
     { key: '1', description: 'Đánh giá "Lặp lại" (chưa nhớ từ)' },
@@ -29,6 +31,8 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
   ] : [
     { key: 'Enter', description: 'Search dictionary word or submit answers' },
     { key: 'Space', description: 'Flip flashcard between Front & Back' },
+    { key: 'P', description: 'Play English pronunciation once' },
+    { key: 'Shift + P', description: 'Toggle repeat pronunciation mode (1.5s delay)' },
     { key: 'R / A', description: 'Play word pronunciation (Shift + R: UK accent)' },
     { key: 'Ctrl + Space', description: 'Replay audio pronunciation (even while typing)' },
     { key: '1', description: 'Rate card as "Again" (forgot word)' },

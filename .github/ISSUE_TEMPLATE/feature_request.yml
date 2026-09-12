@@ -1,0 +1,23 @@
+name: Feature request
+description: Suggest an improvement to vocabulary learning or development.
+title: "[Feature]: "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or learning need
+      description: Describe the task that is currently difficult.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: How would the improvement work for a user?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and context
+      description: Workarounds, examples, or constraints.
