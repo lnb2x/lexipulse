@@ -55,6 +55,14 @@ const POS_MAP: Record<string, string> = {
   'phr v': 'verb',
   'phr. v.': 'verb',
   'phr. v': 'verb',
+  np: 'phrase',
+  'np.': 'phrase',
+  'noun phrase': 'phrase',
+  vp: 'verb',
+  'vp.': 'verb',
+  'verb phrase': 'verb',
+  pp: 'phrase',
+  'pp.': 'phrase',
   prep: 'preposition',
   'prep.': 'preposition',
   preposition: 'preposition',
@@ -68,6 +76,29 @@ const POS_MAP: Record<string, string> = {
   'interj.': 'interjection',
   interjection: 'interjection',
 };
+
+/**
+ * Cleans a Quizlet term by removing all parenthetical groups `(...)` including the parentheses,
+ * collapsing consecutive whitespaces into a single space, and trimming surrounding whitespace.
+ *
+ * Examples:
+ * - "international tax preparation (np)" -> "international tax preparation"
+ * - "founder (n)" -> "founder"
+ * - "take (something) into account (vp)" -> "take into account"
+ * - "(np) tax preparation" -> "tax preparation"
+ * - "take (something) into account" -> "take into account"
+ * - "(n)" -> ""
+ */
+export function cleanQuizletTerm(term: string): string {
+  if (!term || typeof term !== 'string') return '';
+  let cleaned = term;
+  while (cleaned.includes('(') && cleaned.includes(')')) {
+    const next = cleaned.replace(/\([^()]*\)/g, ' ');
+    if (next === cleaned) break;
+    cleaned = next;
+  }
+  return cleaned.replace(/\s+/g, ' ').trim();
+}
 
 /**
  * Checks if a string inside brackets contains ONLY recognized POS tokens.
@@ -244,35 +275,28 @@ export function normalizeQuizletCard(
   const origTerm = (rawTerm || '').trim();
   const origDef = (rawDefinition || '').trim();
 
-  let cleanWord = origTerm;
   let posList: string[] = [];
   let hasExtractedPos = false;
 
-  // 1. Check trailing parenthetical in term: "sign the contract (v)", "take off (v, phr)"
-  const trailingBracketMatch = cleanWord.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
-  if (trailingBracketMatch) {
-    const content = trailingBracketMatch[2];
-    const extracted = parsePosFromBracketContent(content);
-    if (extracted) {
-      cleanWord = trailingBracketMatch[1].trim();
-      posList = extracted;
-      hasExtractedPos = true;
-    }
-  }
-
-  // Check leading parenthetical in term: "(v) sign the contract"
-  if (!hasExtractedPos) {
-    const leadingBracketMatch = cleanWord.match(/^\s*\(([^)]+)\)\s*(.*?)$/);
-    if (leadingBracketMatch) {
-      const content = leadingBracketMatch[1];
-      const extracted = parsePosFromBracketContent(content);
+  // 1. Extract POS from any parentheticals in term: "sign the contract (v)", "tax (np)", "(vp) take into account"
+  const parenMatches = origTerm.match(/\(([^)]+)\)/g);
+  if (parenMatches) {
+    for (const p of parenMatches) {
+      const inner = p.slice(1, -1).trim();
+      const extracted = parsePosFromBracketContent(inner);
       if (extracted) {
-        cleanWord = leadingBracketMatch[2].trim();
-        posList = extracted;
+        for (const pos of extracted) {
+          if (!posList.includes(pos)) {
+            posList.push(pos);
+          }
+        }
         hasExtractedPos = true;
       }
     }
   }
+
+  // Automatically remove all parenthetical groups (...) from term and normalize whitespace
+  const cleanWord = cleanQuizletTerm(origTerm);
 
   // 2. Extract IPA from definition
   const { ipa, cleanText: defWithoutIpa } = extractIpaFromText(origDef);

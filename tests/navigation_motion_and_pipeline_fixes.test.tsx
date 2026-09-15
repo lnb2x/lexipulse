@@ -2,7 +2,7 @@
 import 'fake-indexeddb/auto';
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, act, cleanup, waitFor } from '@testing-library/react';
 import { mergePipelineSources } from '../src/services/enrichmentPipeline';
 import { Header } from '../src/components/common/Header';
 import { DeckView } from '../src/features/deck/DeckView';
@@ -316,6 +316,80 @@ describe('Navigation Motion: Header Shared Sliding Active Indicator', () => {
     const desktopIndicator = screen.getByTestId('desktop-active-indicator');
     expect(desktopIndicator.style.transition).toBe('none');
   });
+
+  it('applies spring transition (300ms, cubic-bezier(0.34, 1.15, 0.64, 1)) to active indicators when motion is enabled', () => {
+    // Normal motion allowed
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+
+    render(
+      <LanguageProvider>
+        <Header
+          activeTab="lookup"
+          onTabChange={vi.fn()}
+          streak={4}
+          totalCards={8}
+          dueCount={1}
+          theme="dark"
+          onToggleTheme={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onOpenShortcuts={vi.fn()}
+        />
+      </LanguageProvider>
+    );
+
+    const desktopIndicator = screen.getByTestId('desktop-active-indicator');
+    expect(desktopIndicator.style.transition).toContain('300ms');
+    expect(desktopIndicator.style.transition).toContain('cubic-bezier(0.34, 1.15, 0.64, 1)');
+
+    const mobileIndicator = screen.getByTestId('mobile-active-indicator');
+    expect(mobileIndicator.style.transition).toContain('300ms');
+    expect(mobileIndicator.style.transition).toContain('cubic-bezier(0.34, 1.15, 0.64, 1)');
+  });
+
+  it('provides 150-200ms color transitions and preserves shortcut labels and counts on tab buttons', () => {
+    render(
+      <LanguageProvider>
+        <Header
+          activeTab="deck"
+          onTabChange={vi.fn()}
+          streak={5}
+          totalCards={15}
+          dueCount={4}
+          theme="dark"
+          onToggleTheme={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onOpenShortcuts={vi.fn()}
+        />
+      </LanguageProvider>
+    );
+
+    const desktopLookup = screen.getAllByRole('tab', { name: /Tra từ|Lookup/i })[0];
+    const desktopDeck = screen.getAllByRole('tab', { name: /Bộ từ vựng|Deck/i })[0];
+    const desktopReview = screen.getAllByRole('tab', { name: /Ôn tập|Review/i })[0];
+
+    // Buttons contain 200ms transition classes
+    expect(desktopLookup.className).toContain('duration-200');
+    expect(desktopDeck.className).toContain('duration-200');
+    expect(desktopReview.className).toContain('duration-200');
+
+    // Shortcut badges are present
+    expect(screen.getByText('Alt+1')).toBeDefined();
+    expect(screen.getByText('Alt+2')).toBeDefined();
+    expect(screen.getByText('Alt+3')).toBeDefined();
+
+    // Counts are preserved
+    expect(screen.getByText('15')).toBeDefined();
+    expect(screen.getByText('4')).toBeDefined();
+  });
 });
 
 describe('State Preservation & Navigation Transitions in App', () => {
@@ -353,8 +427,11 @@ describe('State Preservation & Navigation Transitions in App', () => {
       fireEvent.keyDown(window, { key: '2', altKey: true });
     });
 
-    // Confirm we transitioned to Deck view (Lookup search input is gone, Deck tab selected)
-    expect(screen.queryByPlaceholderText(/Tra cứu từ tiếng Anh|Lookup any English word/i)).toBeNull();
+    // Wait for the on-demand Deck module before checking the completed transition.
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText(/Tra cứu từ tiếng Anh|Lookup any English word/i)).toBeNull();
+      expect(screen.getByRole('tabpanel').id).toBe('panel-deck');
+    });
 
     // Switch back to Lookup view (Alt+1)
     act(() => {
@@ -404,6 +481,36 @@ describe('State Preservation & Navigation Transitions in App', () => {
 
     // Settles immediately on the latest requested tab ('lookup')
     expect(screen.getByPlaceholderText(/Tra cứu từ tiếng Anh|Lookup any English word/i)).toBeDefined();
+  });
+
+  it('applies directional entrance transition classes (tab-enter-forward on forward, tab-enter-backward on backward)', () => {
+    render(
+      <LanguageProvider>
+        <App />
+      </LanguageProvider>
+    );
+
+    // Initial panel is lookup
+    let panel = screen.getByRole('tabpanel');
+    expect(panel.id).toBe('panel-lookup');
+
+    // Switch forward to deck (Alt+2)
+    act(() => {
+      fireEvent.keyDown(window, { key: '2', altKey: true });
+    });
+
+    panel = screen.getByRole('tabpanel');
+    expect(panel.id).toBe('panel-deck');
+    expect(panel.className).toContain('tab-enter-forward');
+
+    // Switch backward to lookup (Alt+1)
+    act(() => {
+      fireEvent.keyDown(window, { key: '1', altKey: true });
+    });
+
+    panel = screen.getByRole('tabpanel');
+    expect(panel.id).toBe('panel-lookup');
+    expect(panel.className).toContain('tab-enter-backward');
   });
 });
 

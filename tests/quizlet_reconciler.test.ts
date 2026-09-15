@@ -142,4 +142,107 @@ describe('Quizlet Deck Reconciliation Tests', () => {
     expect(items[0].status).toBe('new');
     expect(items[0].normalizedTerm).toBe('running');
   });
+
+  it('5. Correctly matches existing words in deck after cleaning parentheses from Quizlet term (founder (n) -> founder)', () => {
+    const deckWithFounder: WordItem[] = [
+      ...mockDeck,
+      {
+        id: 'w-founder',
+        word: 'founder',
+        pos: ['noun'],
+        vietnameseDefinition: 'người sáng lập',
+        meanings: [],
+        collocations: [],
+        wordFamily: [],
+        examples: [],
+        tags: [],
+        status: 'learning',
+        createdAt: 1700000000000,
+        updatedAt: 1700000000000,
+        reviewMeta: createInitialReviewMeta(),
+      },
+      {
+        id: 'w-take-into-account',
+        word: 'take into account',
+        pos: ['verb'],
+        vietnameseDefinition: 'tính đến, xem xét',
+        meanings: [],
+        collocations: [],
+        wordFamily: [],
+        examples: [],
+        tags: [],
+        status: 'learning',
+        createdAt: 1700000000000,
+        updatedAt: 1700000000000,
+        reviewMeta: createInitialReviewMeta(),
+      },
+    ];
+
+    const quizletCards: QuizletCardItem[] = [
+      // founder (n) -> cleans to "founder" -> matches deck w-founder
+      { term: 'founder (n)', definition: 'người sáng lập' },
+      // take (something) into account (vp) -> cleans to "take into account" -> matches deck
+      { term: 'take (something) into account (vp)', definition: 'tính đến, xem xét' },
+    ];
+
+    const { items, summary } = reconcileQuizletWithDeck(quizletCards, deckWithFounder);
+
+    expect(summary.newCount).toBe(0);
+    expect(summary.existingCount).toBe(2);
+
+    const founder = items.find((i) => i.normalizedTerm === 'founder');
+    expect(founder?.status).toBe('existing');
+    expect(founder?.term).toBe('founder');
+    expect(founder?.rawTerm).toBe('founder (n)');
+    expect(founder?.existingWord?.id).toBe('w-founder');
+
+    const takeIntoAccount = items.find((i) => i.normalizedTerm === 'take into account');
+    expect(takeIntoAccount?.status).toBe('existing');
+    expect(takeIntoAccount?.term).toBe('take into account');
+    expect(takeIntoAccount?.rawTerm).toBe('take (something) into account (vp)');
+    expect(takeIntoAccount?.existingWord?.id).toBe('w-take-into-account');
+  });
+
+  it('6. Deduplicates batch items that become identical after cleaning parentheses', () => {
+    const quizletCards: QuizletCardItem[] = [
+      { term: 'international tax preparation', definition: 'chuẩn bị thuế quốc tế' },
+      // Same term once (np) is removed!
+      { term: 'international tax preparation (np)', definition: 'chuẩn bị thuế quốc tế' },
+    ];
+
+    const { items, summary } = reconcileQuizletWithDeck(quizletCards, mockDeck);
+
+    expect(items).toHaveLength(1);
+    expect(summary.duplicatesInBatch).toBe(1);
+    expect(items[0].term).toBe('international tax preparation');
+    expect(items[0].status).toBe('new');
+  });
+
+  it('7. Marks term as invalid and not selectable when term becomes empty after cleaning', () => {
+    const quizletCards: QuizletCardItem[] = [
+      // Only parentheses -> empty term after clean
+      { term: '(n)', definition: 'danh từ không có từ vựng' },
+      { term: '(something)', definition: 'nghĩa của từ rỗng' },
+      // Valid card
+      { term: 'founder (n)', definition: 'người sáng lập' },
+    ];
+
+    const { items, summary } = reconcileQuizletWithDeck(quizletCards, mockDeck);
+
+    expect(summary.invalidCount).toBe(2);
+    expect(summary.newCount).toBe(1);
+
+    const invalidItem1 = items.find((i) => i.rawTerm === '(n)');
+    expect(invalidItem1?.status).toBe('invalid');
+    expect(invalidItem1?.selected).toBe(false);
+    expect(invalidItem1?.invalidReason).toBeDefined();
+
+    const invalidItem2 = items.find((i) => i.rawTerm === '(something)');
+    expect(invalidItem2?.status).toBe('invalid');
+    expect(invalidItem2?.selected).toBe(false);
+
+    const validItem = items.find((i) => i.term === 'founder');
+    expect(validItem?.status).toBe('new');
+    expect(validItem?.selected).toBe(true);
+  });
 });

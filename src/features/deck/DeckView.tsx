@@ -4,6 +4,7 @@ import { ContributionHeatmap } from '../../components/deck/ContributionHeatmap';
 import { DeckHeader } from '../../components/deck/DeckHeader';
 import { DeckStats } from '../../components/deck/DeckStats';
 import { WordListItem } from '../../components/deck/WordListItem';
+import { TranslationAuditModal } from '../../components/deck/TranslationAuditModal';
 import { useLanguage } from '../../context/LanguageContext';
 import { formatLocalDate } from '../../utils/dateUtils';
 import type { DailyStats, FilterOptions, ReviewMode, WordItem } from '../../types/vocab';
@@ -58,6 +59,7 @@ export const DeckView: React.FC<DeckViewProps> = ({
   showToast,
 }) => {
   const { language, t } = useLanguage();
+  const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
 
   // Progressive rendering for instantaneous mount & silky smooth 60fps transitions
   const INITIAL_BATCH = 30;
@@ -166,6 +168,7 @@ export const DeckView: React.FC<DeckViewProps> = ({
         onQuickExportCsv={onQuickExportCsv}
         onQuickExportXlsx={onQuickExportXlsx}
         onReviewDateWords={handleReviewDateWords}
+        onOpenTranslationAudit={() => setIsAuditModalOpen(true)}
       />
 
       {/* Fuzzy Deck Search Notice */}
@@ -258,6 +261,21 @@ export const DeckView: React.FC<DeckViewProps> = ({
           )}
         </div>
       )}
+
+      {/* Translation Audit & Backfill Modal */}
+      <TranslationAuditModal
+        isOpen={isAuditModalOpen}
+        onClose={() => setIsAuditModalOpen(false)}
+        allWords={allWords}
+        onEnrichmentComplete={() => {
+          showToast(
+            language === 'vi'
+              ? 'Đã hoàn tất kiểm tra và bổ sung bản dịch!'
+              : 'Translation audit and backfill completed!',
+            'success'
+          );
+        }}
+      />
     </div>
   );
 };

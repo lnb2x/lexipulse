@@ -7,6 +7,7 @@ import {
 import { runEnrichmentPipeline } from '../enrichmentPipeline';
 import { isAiAvailable } from '../ai';
 import { formatLocalDate } from '../../utils/dateUtils';
+import { isMissingOrUntranslated, isWordTranslationComplete } from '../../utils/translationAuditor';
 
 export interface MigrationProgress {
   total: number;
@@ -55,8 +56,8 @@ export function checkNeedsNormalization(word: WordItem): boolean {
     return true;
   }
 
-  // 4. Check if vietnameseDefinition has placeholder text
-  if (isPlaceholderDefinition(word.vietnameseDefinition)) {
+  // 4. Check if vietnameseDefinition has placeholder or missing text
+  if (isMissingOrUntranslated(word.vietnameseDefinition, word.word)) {
     return true;
   }
 
@@ -226,6 +227,11 @@ export async function migrateSingleWord(
       // On AI failure: keep cleanly normalized record, do not fail migration
     }
   }
+
+  baseUpdated = {
+    ...baseUpdated,
+    enrichmentStatus: isWordTranslationComplete(baseUpdated) ? 'completed' : 'pending',
+  };
 
   // Save safely to database
   if (hasNormalization || hasAiUpgrade) {

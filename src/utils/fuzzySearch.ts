@@ -4,57 +4,51 @@
  * 1. Insertions: 'feisible' -> 'feasible'
  * 2. Deletions: 'negotate' -> 'negotiate'
  * 3. Substitutions: 'inplement' -> 'implement'
- * 4. Transpositions: 'fundign' -> 'funding', 'facitily' -> 'facility'
+ * 4. Adjacent transpositions: 'fundign' -> 'funding', 'faciltiy' -> 'facility'
  */
 
 /**
- * Calculates Damerau-Levenshtein distance between two strings
+ * Calculates restricted Damerau-Levenshtein (optimal string alignment) distance.
+ * Three rolling rows retain the two previous prefixes needed for transpositions.
  */
 export function levenshteinDistance(s1: string, s2: string): number {
-  const a = s1.trim().toLowerCase();
-  const b = s2.trim().toLowerCase();
+  let a = s1.trim().toLowerCase();
+  let b = s2.trim().toLowerCase();
 
   if (a === b) return 0;
   if (a.length === 0) return b.length;
   if (b.length === 0) return a.length;
 
-  const matrix: number[][] = [];
-  for (let i = 0; i <= b.length; i++) {
-    matrix[i] = [i];
-  }
-  for (let j = 0; j <= a.length; j++) {
-    matrix[0][j] = j;
-  }
+  // Keep row storage proportional to the shorter input.
+  if (a.length > b.length) [a, b] = [b, a];
+  let previousPrevious = new Array<number>(a.length + 1).fill(0);
+  let previous = Array.from({ length: a.length + 1 }, (_, index) => index);
+  let current = new Array<number>(a.length + 1).fill(0);
 
   for (let i = 1; i <= b.length; i++) {
+    current[0] = i;
     for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) === a.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1, // substitution
-          matrix[i][j - 1] + 1,     // insertion
-          matrix[i - 1][j] + 1      // deletion
-        );
-      }
-    }
-  }
-
-  // Check transpositions (Damerau addition)
-  for (let i = 1; i < b.length; i++) {
-    for (let j = 1; j < a.length; j++) {
+      current[j] = Math.min(
+        previous[j - 1] + (b[i - 1] === a[j - 1] ? 0 : 1),
+        current[j - 1] + 1,
+        previous[j] + 1
+      );
       if (
         i > 1 &&
         j > 1 &&
-        b.charAt(i - 1) === a.charAt(j - 2) &&
-        b.charAt(i - 2) === a.charAt(j - 1)
+        b[i - 1] === a[j - 2] &&
+        b[i - 2] === a[j - 1]
       ) {
-        matrix[i][j] = Math.min(matrix[i][j], matrix[i - 2][j - 2] + 1);
+        current[j] = Math.min(current[j], previousPrevious[j - 2] + 1);
       }
     }
+    const reusable = previousPrevious;
+    previousPrevious = previous;
+    previous = current;
+    current = reusable;
   }
 
-  return matrix[b.length][a.length];
+  return previous[a.length];
 }
 
 /**
@@ -107,7 +101,7 @@ export function findFuzzyMatches<T>(
     if (Math.abs(key.length - q.length) > 3) continue;
 
     const distance = levenshteinDistance(q, key);
-    const similarity = stringSimilarity(q, key);
+    const similarity = Math.max(0, 1 - distance / Math.max(q.length, key.length));
 
     // If similarity passes threshold or edit distance is <= 2
     if (similarity >= minSimilarity || (q.length >= 4 && distance <= 2)) {

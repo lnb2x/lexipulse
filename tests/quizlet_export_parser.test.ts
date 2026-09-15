@@ -102,4 +102,45 @@ implement : triển khai thi hành
     expect(parseQuizletExportText('').cards).toEqual([]);
     expect(parseQuizletExportText('   \n\n  ').cards).toEqual([]);
   });
+
+  it('6. Automatically strips parentheticals from terms while preserving definition (e.g. np, n, vp)', () => {
+    const rawExport = `
+international tax preparation (np)\tchuẩn bị thuế quốc tế
+founder (n)\tngười sáng lập (công ty)
+take (something) into account (vp)\ttính đến cái gì
+    `.trim();
+
+    const result = parseQuizletExportText(rawExport);
+
+    expect(result.cards).toHaveLength(3);
+    expect(result.cards[0].term).toBe('international tax preparation');
+    expect(result.cards[0].definition).toBe('chuẩn bị thuế quốc tế');
+    expect(result.cards[0].rawTerm).toBe('international tax preparation (np)');
+
+    expect(result.cards[1].term).toBe('founder');
+    expect(result.cards[1].definition).toBe('người sáng lập (công ty)');
+    expect(result.cards[1].rawTerm).toBe('founder (n)');
+
+    expect(result.cards[2].term).toBe('take into account');
+    expect(result.cards[2].definition).toBe('tính đến cái gì');
+    expect(result.cards[2].rawTerm).toBe('take (something) into account (vp)');
+  });
+
+  it('7. Marks card as invalid when term becomes empty after removing parentheses', () => {
+    const rawExport = `
+(n)\tđịnh nghĩa từ rỗng
+(something)\tđịnh nghĩa ngữ cảnh
+    `.trim();
+
+    const result = parseQuizletExportText(rawExport);
+
+    expect(result.cards).toHaveLength(2);
+    expect(result.cards[0].term).toBe('');
+    expect(result.cards[0].rawTerm).toBe('(n)');
+    expect(result.cards[0].isValid).toBe(false);
+
+    expect(result.cards[1].term).toBe('');
+    expect(result.cards[1].rawTerm).toBe('(something)');
+    expect(result.cards[1].isValid).toBe(false);
+  });
 });

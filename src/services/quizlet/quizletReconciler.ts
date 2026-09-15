@@ -10,6 +10,7 @@ export interface ReconciliationSummary {
   newCount: number;
   existingCount: number;
   needsReviewCount: number;
+  invalidCount: number;
   totalUnique: number;
   duplicatesInBatch: number;
 }
@@ -80,20 +81,72 @@ export function reconcileQuizletWithDeck(
   const seenInBatch = new Set<string>();
   const items: QuizletReconciledWord[] = [];
   let duplicatesInBatch = 0;
+  let invalidCount = 0;
 
   for (const card of quizletCards) {
-    const rawCardTerm = card.term || '';
+    const rawCardTerm = card.rawTerm || card.term || '';
     const rawCardDef = card.definition || '';
-    if (!rawCardTerm.trim()) continue;
+    if (!rawCardTerm.trim() && !rawCardDef.trim()) continue;
+
+    // Check if card was already marked invalid (e.g. during parsing)
+    if (card.isValid === false) {
+      invalidCount++;
+      items.push({
+        term: rawCardTerm,
+        rawTerm: rawCardTerm,
+        normalizedTerm: '',
+        definition: rawCardDef,
+        rawDefinition: rawCardDef,
+        normalizedDefinition: normalizeDefinitionText(rawCardDef),
+        status: 'invalid',
+        selected: false,
+        invalidReason: card.invalidReason || 'Từ vựng không hợp lệ sau khi loại bỏ dấu ngoặc',
+      });
+      continue;
+    }
 
     const norm = normalizeQuizletCard(rawCardTerm, rawCardDef);
     const cleanTerm = norm.word;
-    if (!cleanTerm) continue;
+
+    // If term is empty after cleaning
+    if (!cleanTerm) {
+      invalidCount++;
+      items.push({
+        term: rawCardTerm,
+        rawTerm: norm.rawWord || rawCardTerm,
+        normalizedTerm: '',
+        definition: norm.definition,
+        rawDefinition: norm.rawDefinition,
+        normalizedDefinition: normalizeDefinitionText(norm.definition),
+        status: 'invalid',
+        selected: false,
+        extractedPos: norm.pos.length > 0 ? norm.pos : undefined,
+        extractedIpa: norm.extractedIpa || undefined,
+        invalidReason: card.invalidReason || 'Từ vựng rỗng sau khi loại bỏ dấu ngoặc',
+      });
+      continue;
+    }
 
     const normalizedTerm = normalizeWordTerm(cleanTerm);
-    if (!normalizedTerm) continue;
+    if (!normalizedTerm) {
+      invalidCount++;
+      items.push({
+        term: cleanTerm,
+        rawTerm: norm.rawWord || rawCardTerm,
+        normalizedTerm: '',
+        definition: norm.definition,
+        rawDefinition: norm.rawDefinition,
+        normalizedDefinition: normalizeDefinitionText(norm.definition),
+        status: 'invalid',
+        selected: false,
+        extractedPos: norm.pos.length > 0 ? norm.pos : undefined,
+        extractedIpa: norm.extractedIpa || undefined,
+        invalidReason: 'Từ vựng không hợp lệ sau khi chuẩn hóa',
+      });
+      continue;
+    }
 
-    // Deduplicate within the imported batch
+    // Deduplicate within the imported batch using normalized cleaned term
     if (seenInBatch.has(normalizedTerm)) {
       duplicatesInBatch++;
       continue;
@@ -170,6 +223,7 @@ export function reconcileQuizletWithDeck(
       newCount,
       existingCount,
       needsReviewCount,
+      invalidCount,
       totalUnique: items.length,
       duplicatesInBatch,
     },

@@ -6,6 +6,8 @@ import type { FilterOptions, WordItem } from '../types/vocab';
 import { formatLocalDate } from '../utils/dateUtils';
 import { findFuzzyMatches } from '../utils/fuzzySearch';
 
+const EMPTY_WORDS: WordItem[] = [];
+
 export function useVocabulary() {
   const [, setForceTrigger] = useState(0);
 
@@ -22,9 +24,10 @@ export function useVocabulary() {
   });
 
   // Query all words reactively from Dexie (Dexie automatically detects table writes without revision hack)
-  const allWords = useLiveQuery(async () => {
+  const queriedWords = useLiveQuery(async () => {
     return await db.words.toArray();
-  }, []) || [];
+  }, []);
+  const allWords = queriedWords ?? EMPTY_WORDS;
 
   // Memoized Set for instant O(1) deck membership checks (including lemmas & variants)
   const deckWordSet = useMemo(() => {
@@ -203,7 +206,7 @@ export function useVocabulary() {
     filteredWords,
     words: filteredWords,
     isFuzzyMatch,
-    loading: false,
+    loading: queriedWords === undefined,
     refresh,
     allTags,
     availableDates,

@@ -3,6 +3,7 @@ import type { ParsedImportItem } from '../utils/importParser';
 import { bulkUpsertWords } from './vocabRepository';
 import { createInitialReviewMeta } from './sm2';
 import { lookupWord } from './dictionary';
+import { isWordTranslationComplete } from '../utils/translationAuditor';
 
 export interface BulkEnrichProgress {
   current: number;
@@ -138,7 +139,7 @@ export async function runBulkEnrichment(
         const lookupResult = await lookup(item.word, childController.signal);
 
         // Word enriched successfully
-        enrichedRecord = {
+        const candidateRecord = {
           ...lookupResult,
           id: `word-${createdAt}-${Math.random().toString(36).slice(2, 9)}`,
           word: item.word,
@@ -149,7 +150,11 @@ export async function runBulkEnrichment(
           updatedAt: createdAt,
           reviewMeta: createInitialReviewMeta(),
           source: lookupResult.source || 'online',
-          enrichmentStatus: 'completed',
+        };
+        const isComplete = isWordTranslationComplete(candidateRecord as WordItem);
+        enrichedRecord = {
+          ...candidateRecord,
+          enrichmentStatus: isComplete ? 'completed' : 'pending',
         };
         succeeded++;
       } catch (err: any) {

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  cleanQuizletTerm,
   normalizeQuizletCard,
   extractIpaFromText,
   cleanDefinitionPosPrefix,
@@ -7,6 +8,49 @@ import {
 } from '../src/services/quizlet/quizletNormalizer';
 
 describe('Quizlet Normalizer', () => {
+  describe('cleanQuizletTerm', () => {
+    it('removes parentheticals at the end: international tax preparation (np) -> international tax preparation', () => {
+      expect(cleanQuizletTerm('international tax preparation (np)')).toBe('international tax preparation');
+    });
+
+    it('removes POS parenthetical: founder (n) -> founder', () => {
+      expect(cleanQuizletTerm('founder (n)')).toBe('founder');
+    });
+
+    it('removes multiple groups of parentheses including middle and trailing: take (something) into account (vp)', () => {
+      expect(cleanQuizletTerm('take (something) into account (vp)')).toBe('take into account');
+    });
+
+    it('removes parentheses in the middle of a term', () => {
+      expect(cleanQuizletTerm('take (something) into account')).toBe('take into account');
+      expect(cleanQuizletTerm('make (one\'s) way')).toBe('make way');
+      expect(cleanQuizletTerm('turn (sth) off')).toBe('turn off');
+    });
+
+    it('keeps term unchanged when there are no parentheses', () => {
+      expect(cleanQuizletTerm('feasible')).toBe('feasible');
+      expect(cleanQuizletTerm('international tax preparation')).toBe('international tax preparation');
+    });
+
+    it('collapses multiple consecutive spaces and trims leading/trailing spaces', () => {
+      expect(cleanQuizletTerm('   take   (something)   into   account (vp)   ')).toBe('take into account');
+      expect(cleanQuizletTerm('  founder   (n)  ')).toBe('founder');
+    });
+
+    it('handles nested parentheses properly: word ((nested)) -> word', () => {
+      expect(cleanQuizletTerm('word ((nested))')).toBe('word');
+      expect(cleanQuizletTerm('(np) international tax preparation (us)')).toBe('international tax preparation');
+    });
+
+    it('returns empty string when term only contains parentheses', () => {
+      expect(cleanQuizletTerm('(n)')).toBe('');
+      expect(cleanQuizletTerm('(something)')).toBe('');
+      expect(cleanQuizletTerm('  (np)  ')).toBe('');
+      expect(cleanQuizletTerm('()')).toBe('');
+      expect(cleanQuizletTerm('')).toBe('');
+    });
+  });
+
   describe('normalizeQuizletCard', () => {
     it('accurately splits "sign the contract (v)" into clean phrase and POS tag', () => {
       const result = normalizeQuizletCard('sign the contract (v)', 'ký hợp đồng');
@@ -18,7 +62,7 @@ describe('Quizlet Normalizer', () => {
       expect(result.rawDefinition).toBe('ký hợp đồng');
     });
 
-    it('splits various standard POS tags: (n), (adj), (adv), (phr)', () => {
+    it('splits various standard POS tags: (n), (adj), (adv), (phr), (np), (vp)', () => {
       const noun = normalizeQuizletCard('apple (n)', 'quả táo');
       expect(noun.word).toBe('apple');
       expect(noun.pos).toEqual(['noun']);
@@ -34,21 +78,29 @@ describe('Quizlet Normalizer', () => {
       const phrase = normalizeQuizletCard('in terms of (phr)', 'về mặt');
       expect(phrase.word).toBe('in terms of');
       expect(phrase.pos).toEqual(['phrase']);
+
+      const np = normalizeQuizletCard('international tax preparation (np)', 'chuẩn bị thuế quốc tế');
+      expect(np.word).toBe('international tax preparation');
+      expect(np.pos).toEqual(['phrase']);
+
+      const vp = normalizeQuizletCard('take (something) into account (vp)', 'tính đến cái gì');
+      expect(vp.word).toBe('take into account');
+      expect(vp.pos).toEqual(['verb']);
     });
 
-    it('preserves non-POS parentheticals strictly (e.g. abbreviations, contexts)', () => {
-      const wto = normalizeQuizletCard('WTO (World Trade Organization)', 'Tổ chức Thương mại Thế giới');
-      expect(wto.word).toBe('WTO (World Trade Organization)');
-      expect(wto.pos).toEqual([]);
-      expect(wto.hasExtractedPos).toBe(false);
+    it('automatically removes all parentheticals from term while keeping definition untouched', () => {
+      const wto = normalizeQuizletCard('WTO (World Trade Organization)', 'Tổ chức Thương mại Thế giới (viết tắt WTO)');
+      expect(wto.word).toBe('WTO');
+      expect(wto.rawWord).toBe('WTO (World Trade Organization)');
+      // Definition should preserve its parenthetical
+      expect(wto.definition).toBe('Tổ chức Thương mại Thế giới (viết tắt WTO)');
 
-      const kiwi = normalizeQuizletCard('kiwi (fruit)', 'trái kiwi');
-      expect(kiwi.word).toBe('kiwi (fruit)');
-      expect(kiwi.pos).toEqual([]);
+      const kiwi = normalizeQuizletCard('kiwi (fruit)', 'trái kiwi (màu xanh)');
+      expect(kiwi.word).toBe('kiwi');
+      expect(kiwi.definition).toBe('trái kiwi (màu xanh)');
 
       const bank = normalizeQuizletCard('bank (financial institution)', 'ngân hàng');
-      expect(bank.word).toBe('bank (financial institution)');
-      expect(bank.pos).toEqual([]);
+      expect(bank.word).toBe('bank');
     });
 
     it('extracts embedded IPA from definition and cleans the definition text', () => {

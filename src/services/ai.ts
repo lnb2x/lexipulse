@@ -9,8 +9,25 @@ import {
 } from './ai/aiMorphology';
 
 import { getAppSettings } from './db/statsRepo';
+import { groqPoolManager } from './ai/groqPoolManager';
+import {
+  getAvailableGroqModels,
+  fetchLiveGroqModels,
+  getRecommendedGroqModelPool,
+  migrateGroqPoolConfig,
+  type GroqModelCapability,
+} from '../config/groqConfig';
 
-export { analyzeWordMorphologyWithAI, validateAIMorphologyResult, type AIMorphologyResult };
+export {
+  analyzeWordMorphologyWithAI,
+  validateAIMorphologyResult,
+  type AIMorphologyResult,
+  getAvailableGroqModels,
+  fetchLiveGroqModels,
+  getRecommendedGroqModelPool,
+  migrateGroqPoolConfig,
+  type GroqModelCapability,
+};
 
 export async function isAiAvailable(): Promise<boolean> {
   try {
@@ -83,8 +100,13 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderConfig> = {
     id: 'groq',
     name: 'Groq (Ultra-Fast)',
     defaultBaseUrl: 'https://api.groq.com/openai/v1',
-    defaultModel: 'llama-3.3-70b-versatile',
-    models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'],
+    get defaultModel() {
+      const rec = getRecommendedGroqModelPool();
+      return rec[0] || 'openai/gpt-oss-120b';
+    },
+    get models() {
+      return getAvailableGroqModels().map((m) => m.id);
+    },
     placeholder: 'gsk_...',
     docUrl: 'https://console.groq.com/keys',
     isOpenAICompatible: true,
@@ -138,6 +160,7 @@ export interface AIRequestConfig {
   apiKey: string;
   baseUrl?: string;
   model?: string;
+  groqModelPool?: string[];
   signal?: AbortSignal;
   timeoutMs?: number;
 }
@@ -494,8 +517,33 @@ export async function testAIConnection(
       const data = await res.json();
       const text = data.content?.[0]?.text;
       if (!text) throw new Error('Không nhận được phản hồi từ Claude.');
+    } else if (provider === 'groq') {
+      // Groq Multi-Model Pool test
+      const poolResponse = await groqPoolManager.executeChatCompletion({
+        apiKey,
+        baseUrl,
+        modelPool: config.groqModelPool,
+        messages: [{ role: 'user', content: testPrompt }],
+        max_tokens: 50,
+        timeoutMs: config.timeoutMs || 8000,
+        signal: config.signal,
+      });
+
+      const modelUsed = poolResponse._poolMeta?.modelUsed || model;
+      const text = poolResponse.choices?.[0]?.message?.content;
+      if (!text) throw new Error(`Không nhận được phản hồi từ Groq Pool.`);
+
+      const latencyMs = Date.now() - startTime;
+      const poolSnapshot = groqPoolManager.getPoolStatus(config.groqModelPool);
+      const readyCount = poolSnapshot.filter((m) => m.state === 'available' || m.state === 'recovering').length;
+
+      return {
+        success: true,
+        message: `Kết nối thành công tới Groq Pool qua model "${modelUsed}" (${readyCount}/${poolSnapshot.length} model sẵn sàng) trong ${latencyMs}ms!`,
+        latencyMs,
+      };
     } else {
-      // OpenAI-compatible endpoint (OpenAI, DeepSeek, Groq, OpenRouter, Custom)
+      // OpenAI-compatible endpoint (OpenAI, DeepSeek, OpenRouter, Custom)
       const endpoint = baseUrl.endsWith('/chat/completions')
         ? baseUrl
         : `${baseUrl}/chat/completions`;
@@ -695,8 +743,29 @@ Do not include markdown code block fences like \`\`\`json. Return raw JSON stric
       if (!res.ok) return null;
       const data = await res.json();
       rawText = data.content?.[0]?.text || '';
+    } else if (provider === 'groq') {
+      // Groq Multi-Model Pool with automatic 429 failover & round-robin
+      const poolResponse = await groqPoolManager.executeChatCompletion({
+        apiKey,
+        baseUrl,
+        modelPool: config.groqModelPool,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are a professional linguist and TOEIC teacher. Always respond strictly in valid JSON without markdown code block fences.',
+          },
+          { role: 'user', content: prompt },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.3,
+        timeoutMs: config.timeoutMs || 10000,
+        signal: config.signal,
+      });
+
+      rawText = poolResponse.choices?.[0]?.message?.content || '';
     } else {
-      // OpenAI, DeepSeek, Groq, OpenRouter, Custom
+      // OpenAI, DeepSeek, OpenRouter, Custom
       const endpoint = baseUrl.endsWith('/chat/completions')
         ? baseUrl
         : `${baseUrl}/chat/completions`;

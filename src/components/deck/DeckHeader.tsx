@@ -1,4 +1,4 @@
-import { ArrowUpDown, Calendar, Database, Download, FileSpreadsheet, Play, Plus, Search, Tag, X } from 'lucide-react';
+import { ArrowUpDown, Calendar, Database, Download, FileSpreadsheet, Play, Plus, Search, Sparkles, Tag, X } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
 import type { FilterOptions, WordStatus } from '../../types/vocab';
@@ -13,6 +13,7 @@ interface DeckHeaderProps {
   onQuickExportCsv?: () => void;
   onQuickExportXlsx?: () => void;
   onReviewDateWords?: (date: string) => void;
+  onOpenTranslationAudit?: () => void;
 }
 
 export const DeckHeader: React.FC<DeckHeaderProps> = ({
@@ -25,6 +26,7 @@ export const DeckHeader: React.FC<DeckHeaderProps> = ({
   onQuickExportCsv,
   onQuickExportXlsx,
   onReviewDateWords,
+  onOpenTranslationAudit,
 }) => {
   const { language, t } = useLanguage();
   const [localSearch, setLocalSearch] = useState(filterOptions.search);
@@ -210,6 +212,19 @@ export const DeckHeader: React.FC<DeckHeaderProps> = ({
             >
               <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>{language === 'vi' ? 'Xuất Excel' : 'Export Excel'}</span>
+            </button>
+          )}
+
+          {/* Bổ sung bản dịch còn thiếu (Translation Audit & Backfill button) */}
+          {onOpenTranslationAudit && (
+            <button
+              type="button"
+              onClick={onOpenTranslationAudit}
+              title={language === 'vi' ? 'Kiểm tra & Bổ sung bản dịch còn thiếu' : 'Audit & Backfill missing translations'}
+              className="h-[44px] flex items-center justify-center gap-2 rounded-xl border border-indigo-200/90 bg-indigo-50/70 px-3.5 sm:px-4 text-xs sm:text-sm font-semibold text-indigo-700 shadow-subtle hover:bg-indigo-100/80 active:scale-[0.98] dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-900/50 transition-all shrink-0"
+            >
+              <Sparkles className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+              <span>{language === 'vi' ? 'Bổ sung bản dịch' : 'Backfill Translations'}</span>
             </button>
           )}
 

@@ -203,6 +203,7 @@ export interface AppSettings {
   theme: 'dark' | 'light' | 'system';
   desiredRetention?: 0.85 | 0.90 | 0.95; // default 0.90
   loopInterval?: number; // Delay in seconds between loop pronunciations (default 1.5)
+  groqModelPool?: string[]; // Configured model pool for Groq multi-model round-robin
 }
 
 export interface ReviewQueueStats {
@@ -280,11 +281,14 @@ export interface QuizletSetRecord {
   cardTerms?: string[];
 }
 
-export type QuizletReconcileStatus = 'new' | 'existing' | 'needs_review';
+export type QuizletReconcileStatus = 'new' | 'existing' | 'needs_review' | 'invalid';
 
 export interface QuizletCardItem {
   term: string;
   definition: string;
+  rawTerm?: string;
+  isValid?: boolean;
+  invalidReason?: string;
 }
 
 export interface QuizletReconciledWord {
@@ -301,5 +305,6 @@ export interface QuizletReconciledWord {
   existingWord?: WordItem;
   existingDefinition?: string;
   resolutionChoice?: 'keep_existing' | 'use_quizlet' | 'merge';
+  invalidReason?: string;
 }
 

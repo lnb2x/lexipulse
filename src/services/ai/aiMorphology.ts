@@ -1,6 +1,7 @@
 import type { AIRequestConfig } from '../ai';
 import { AI_PROVIDERS } from '../ai';
 import { hashString } from './aiCache';
+import { groqPoolManager } from './groqPoolManager';
 
 export interface AIMorphologyAlternative {
   lemma: string;
@@ -375,8 +376,24 @@ Return raw JSON strictly. Do not include markdown code block fences.`;
       }
       const data = await res.json();
       return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    } else if (provider === 'groq') {
+      // Groq Multi-Model Pool
+      const poolResponse = await groqPoolManager.executeChatCompletion({
+        apiKey,
+        baseUrl,
+        modelPool: config?.groqModelPool,
+        messages: [
+          { role: 'system', content: MORPHOLOGY_SYSTEM_PROMPT },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.1,
+        response_format: { type: 'json_object' },
+        signal: config?.signal,
+        timeoutMs: config?.timeoutMs || 8000,
+      });
+      return poolResponse.choices?.[0]?.message?.content || '';
     } else {
-      // OpenAI / DeepSeek / Groq / OpenRouter / Custom compatible endpoint
+      // OpenAI / DeepSeek / OpenRouter / Custom compatible endpoint
       const endpoint = `${baseUrl}/chat/completions`;
       const res = await fetch(endpoint, {
         method: 'POST',

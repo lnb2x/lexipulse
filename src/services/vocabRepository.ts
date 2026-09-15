@@ -1,9 +1,10 @@
 import { db } from './db';
-import type { DailyStats, WordItem } from '../types/vocab';
+import type { DailyStats, EnrichmentStatus, MeaningItem, WordItem } from '../types/vocab';
 import { createInitialReviewMeta, migrateLegacyMetaToFSRS } from './fsrs/fsrsService';
 import { saveAppSettings } from './db/statsRepo';
 import { warmSearchCache } from './dictionary';
 import { isPlaceholderDefinition } from './quizlet/quizletNormalizer';
+import { isMissingOrUntranslated, isWordTranslationComplete } from '../utils/translationAuditor';
 
 export type MergePolicy = 'preserve-progress' | 'replace-progress';
 
@@ -34,6 +35,8 @@ export function normalizeWordTerm(term: string): string {
  * - 'preserve-progress' (default): Never overwrites id, createdAt, reviewMeta, history, status, or user notes.
  * - Merges user tags uniquely.
  * - 'replace-progress': Only allowed when user explicitly requests replacing study progress.
+ * - Enriches missing translations on duplicate items (collocations, wordFamily, examples, meanings)
+ *   without losing new translations or overwriting valid existing translations.
  */
 export function mergeWordRecords(
   existing: WordItem,
@@ -47,40 +50,118 @@ export function mergeWordRecords(
   const incomingTags = Array.isArray(incoming.tags) ? incoming.tags : [];
   const mergedTags = Array.from(new Set([...existingTags, ...incomingTags]));
 
-  // Merge collocations uniquely by phrase
+  // Merge collocations uniquely by phrase, enriching missing translations on duplicate phrases
   const existingCollocations = Array.isArray(existing.collocations) ? existing.collocations : [];
   const incomingCollocations = Array.isArray(incoming.collocations) ? incoming.collocations : [];
   const getCollocPhrase = (c: any) =>
     (typeof c === 'string' ? c : (c?.phrase || '')).trim().toLowerCase();
-  const collocationPhrases = new Set(existingCollocations.map(getCollocPhrase));
-  const mergedCollocations = [
-    ...existingCollocations,
-    ...incomingCollocations.filter((c) => !collocationPhrases.has(getCollocPhrase(c))),
-  ];
 
-  // Merge word families uniquely by word + pos, never repeating the term itself
+  const incomingCollocMap = new Map<string, any>();
+  for (const c of incomingCollocations) {
+    const key = getCollocPhrase(c);
+    if (key && !incomingCollocMap.has(key)) {
+      incomingCollocMap.set(key, c);
+    }
+  }
+
+  const mergedCollocations = existingCollocations.map((c) => {
+    const key = getCollocPhrase(c);
+    const inc = incomingCollocMap.get(key);
+    if (inc) {
+      incomingCollocMap.delete(key);
+      const existingMissing = isMissingOrUntranslated(c.meaningVi, c.phrase);
+      const incHasMeaning = !isMissingOrUntranslated(inc.meaningVi, inc.phrase);
+      if (existingMissing && incHasMeaning) {
+        return {
+          ...c,
+          meaningVi: inc.meaningVi.trim(),
+          example: c.example || inc.example,
+        };
+      }
+    }
+    return c;
+  });
+
+  for (const inc of incomingCollocMap.values()) {
+    mergedCollocations.push(inc);
+  }
+
+  // Merge word families uniquely by word + pos, enriching missing translations on duplicate word items
   const existingWf = Array.isArray(existing.wordFamily) ? existing.wordFamily : [];
   const incomingWf = Array.isArray(incoming.wordFamily) ? incoming.wordFamily : [];
-  const wfKeys = new Set(existingWf.map((w) => `${w.word.toLowerCase()}-${w.pos}`));
   const cleanWordLower = existing.word.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
-  const mergedWf = [
-    ...existingWf,
-    ...incomingWf.filter((w) => !wfKeys.has(`${w.word.toLowerCase()}-${w.pos}`)),
-  ].filter((wf) => {
+  const getWfKey = (w: any) => `${(w.word || '').trim().toLowerCase()}-${(w.pos || '').trim().toLowerCase()}`;
+
+  const incomingWfMap = new Map<string, any>();
+  for (const w of incomingWf) {
+    const key = getWfKey(w);
+    if (key && !incomingWfMap.has(key)) {
+      incomingWfMap.set(key, w);
+    }
+  }
+
+  const mergedWf = existingWf.map((w) => {
+    const key = getWfKey(w);
+    const inc = incomingWfMap.get(key);
+    if (inc) {
+      incomingWfMap.delete(key);
+      const existingMissing = isMissingOrUntranslated(w.meaningVi, w.word);
+      const incHasMeaning = !isMissingOrUntranslated(inc.meaningVi, inc.word);
+      if (existingMissing && incHasMeaning) {
+        return {
+          ...w,
+          meaningVi: inc.meaningVi.trim(),
+        };
+      }
+    }
+    return w;
+  });
+
+  for (const inc of incomingWfMap.values()) {
+    mergedWf.push(inc);
+  }
+
+  // Filter out any self-referencing word family item
+  const cleanMergedWf = mergedWf.filter((wf) => {
     const famClean = wf.word.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
     return famClean !== cleanWordLower;
   });
 
-  // Merge examples uniquely by English sentence text
+  // Merge examples uniquely by English sentence text, enriching missing translations on duplicate examples
   const existingExamples = Array.isArray(existing.examples) ? existing.examples : [];
   const incomingExamples = Array.isArray(incoming.examples) ? incoming.examples : [];
   const getExampleEn = (e: any) =>
     (typeof e === 'string' ? e : (e?.en || e?.sentence || '')).trim().toLowerCase();
-  const exampleKeys = new Set(existingExamples.map(getExampleEn));
-  const mergedExamples = [
-    ...existingExamples,
-    ...incomingExamples.filter((e) => !exampleKeys.has(getExampleEn(e))),
-  ];
+
+  const incomingExMap = new Map<string, any>();
+  for (const e of incomingExamples) {
+    const key = getExampleEn(e);
+    if (key && !incomingExMap.has(key)) {
+      incomingExMap.set(key, e);
+    }
+  }
+
+  const mergedExamples = existingExamples.map((e) => {
+    const key = getExampleEn(e);
+    const inc = incomingExMap.get(key);
+    if (inc) {
+      incomingExMap.delete(key);
+      const existingMissing = isMissingOrUntranslated(e.vi, e.en);
+      const incHasMeaning = !isMissingOrUntranslated(inc.vi, inc.en);
+      if (existingMissing && incHasMeaning) {
+        return {
+          ...e,
+          vi: inc.vi.trim(),
+          context: e.context || inc.context || 'general',
+        };
+      }
+    }
+    return e;
+  });
+
+  for (const inc of incomingExMap.values()) {
+    mergedExamples.push(inc);
+  }
 
   const mergedPhonetics = {
     us: incoming.phonetics?.us || existing.phonetics?.us || '',
@@ -109,12 +190,12 @@ export function mergeWordRecords(
   const isExistingAiProtected = Boolean(
     (existing.vietnameseDefinitionProvenance?.source === 'ai' || existing.source === 'ai') &&
     existing.vietnameseDefinition &&
-    !isPlaceholderDefinition(existing.vietnameseDefinition)
+    !isMissingOrUntranslated(existing.vietnameseDefinition, existing.word)
   );
   const isIncomingAi = Boolean(
     incoming.vietnameseDefinitionProvenance?.source === 'ai' || incoming.source === 'ai'
   );
-  const isIncomingPlaceholder = isPlaceholderDefinition(incoming.vietnameseDefinition);
+  const isIncomingPlaceholder = isMissingOrUntranslated(incoming.vietnameseDefinition, existing.word);
 
   let vietnameseDef = existing.vietnameseDefinition;
   let mergedProvenance = existing.vietnameseDefinitionProvenance;
@@ -122,10 +203,15 @@ export function mergeWordRecords(
   // Allow overwrite if:
   // - User requested replace-progress
   // - Incoming is user-edited
+  // - Existing is missing/placeholder and incoming has valid translation
   // - Existing is NOT user-edited, AND (existing is not AI-protected OR incoming is a new valid AI translation), AND incoming is not placeholder
+  const isExistingDefMissing = isMissingOrUntranslated(existing.vietnameseDefinition, existing.word);
+  const isIncomingDefValid = incoming.vietnameseDefinition && !isMissingOrUntranslated(incoming.vietnameseDefinition, existing.word);
+
   const canOverwriteDef = Boolean(
     policy === 'replace-progress' ||
     isIncomingUserEdited ||
+    (isExistingDefMissing && isIncomingDefValid) ||
     (!isExistingUserEdited && (!isExistingAiProtected || isIncomingAi) && !isIncomingPlaceholder)
   );
 
@@ -146,9 +232,62 @@ export function mergeWordRecords(
       ? existing.englishDefinition
       : '';
 
-  const meanings = incoming.meanings && incoming.meanings.length > 0
-    ? incoming.meanings
-    : existing.meanings || [];
+  // Merge meanings: enrich missing translations on duplicate/matching meanings
+  const existingMeanings = Array.isArray(existing.meanings) ? existing.meanings : [];
+  const incomingMeanings = Array.isArray(incoming.meanings) ? incoming.meanings : [];
+  let mergedMeanings: MeaningItem[] = [];
+
+  if (existingMeanings.length === 0) {
+    mergedMeanings = [...incomingMeanings];
+  } else if (incomingMeanings.length === 0) {
+    mergedMeanings = [...existingMeanings];
+  } else {
+    const incomingUsed = new Set<number>();
+    mergedMeanings = existingMeanings.map((em, idx) => {
+      let matchedIdx = -1;
+      if (em.englishDefinition) {
+        matchedIdx = incomingMeanings.findIndex(
+          (im, i) => !incomingUsed.has(i) &&
+            im.englishDefinition &&
+            im.englishDefinition.trim().toLowerCase() === em.englishDefinition.trim().toLowerCase()
+        );
+      }
+      if (matchedIdx === -1 && idx < incomingMeanings.length && !incomingUsed.has(idx)) {
+        if (!em.pos || !incomingMeanings[idx].pos || em.pos === incomingMeanings[idx].pos) {
+          matchedIdx = idx;
+        }
+      }
+
+      if (matchedIdx !== -1) {
+        incomingUsed.add(matchedIdx);
+        const im = incomingMeanings[matchedIdx];
+        const existingMissing = isMissingOrUntranslated(em.vietnameseDefinition, em.englishDefinition);
+        const incHasVi = !isMissingOrUntranslated(im.vietnameseDefinition, im.englishDefinition);
+        return {
+          ...em,
+          vietnameseDefinition: existingMissing && incHasVi ? im.vietnameseDefinition?.trim() : em.vietnameseDefinition,
+          synonyms: Array.from(new Set([...(em.synonyms || []), ...(im.synonyms || [])])),
+          antonyms: Array.from(new Set([...(em.antonyms || []), ...(im.antonyms || [])])),
+          example: em.example || im.example,
+        };
+      }
+      return em;
+    });
+
+    incomingMeanings.forEach((im, idx) => {
+      if (!incomingUsed.has(idx)) {
+        const isDuplicate = mergedMeanings.some(
+          (m) =>
+            m.englishDefinition &&
+            im.englishDefinition &&
+            m.englishDefinition.trim().toLowerCase() === im.englishDefinition.trim().toLowerCase()
+        );
+        if (!isDuplicate) {
+          mergedMeanings.push(im);
+        }
+      }
+    });
+  }
 
   const pos = incoming.pos && incoming.pos.length > 0
     ? incoming.pos
@@ -183,6 +322,23 @@ export function mergeWordRecords(
   }
   const mergedSets = Array.from(setMap.values());
 
+  // Determine enrichmentStatus accurately based on translation completeness
+  const candidateStatus = incoming.enrichmentStatus || existing.enrichmentStatus || 'pending';
+  let mergedEnrichmentStatus: EnrichmentStatus;
+  if (candidateStatus === 'manual' || candidateStatus === 'failed') {
+    mergedEnrichmentStatus = candidateStatus;
+  } else {
+    const tempWord = {
+      ...existing,
+      vietnameseDefinition: vietnameseDef,
+      meanings: mergedMeanings,
+      collocations: mergedCollocations,
+      wordFamily: cleanMergedWf,
+      examples: mergedExamples,
+    };
+    mergedEnrichmentStatus = isWordTranslationComplete(tempWord as WordItem) ? 'completed' : 'pending';
+  }
+
   if (policy === 'replace-progress') {
     return {
       ...existing,
@@ -199,9 +355,9 @@ export function mergeWordRecords(
       vietnameseDefinition: vietnameseDef,
       vietnameseDefinitionProvenance: mergedProvenance,
       englishDefinition: englishDef,
-      meanings,
+      meanings: mergedMeanings,
       collocations: mergedCollocations,
-      wordFamily: mergedWf,
+      wordFamily: cleanMergedWf,
       examples: mergedExamples,
       pos,
       lemma,
@@ -214,6 +370,7 @@ export function mergeWordRecords(
       quizletSets: mergedSets.length > 0 ? mergedSets : undefined,
       rawQuizletTerm: incoming.rawQuizletTerm || existing.rawQuizletTerm,
       rawQuizletDefinition: incoming.rawQuizletDefinition || existing.rawQuizletDefinition,
+      enrichmentStatus: mergedEnrichmentStatus,
     };
   }
 
@@ -234,9 +391,9 @@ export function mergeWordRecords(
     vietnameseDefinition: vietnameseDef,
     vietnameseDefinitionProvenance: mergedProvenance,
     englishDefinition: englishDef,
-    meanings,
+    meanings: mergedMeanings,
     collocations: mergedCollocations,
-    wordFamily: mergedWf,
+    wordFamily: cleanMergedWf,
     examples: mergedExamples,
     pos,
     lemma,
@@ -249,6 +406,7 @@ export function mergeWordRecords(
     quizletSets: mergedSets.length > 0 ? mergedSets : undefined,
     rawQuizletTerm: incoming.rawQuizletTerm || existing.rawQuizletTerm,
     rawQuizletDefinition: incoming.rawQuizletDefinition || existing.rawQuizletDefinition,
+    enrichmentStatus: mergedEnrichmentStatus,
   };
 }
 
@@ -347,7 +505,7 @@ export async function saveOrUpdateWord(
         return famClean !== cleanWordLower;
       });
 
-      finalRecord = {
+      const draftRecord: WordItem = {
         ...word,
         id: finalId,
         word: normalized,
@@ -363,6 +521,18 @@ export async function saveOrUpdateWord(
         examples: Array.isArray(word.examples) ? word.examples : [],
         meanings: Array.isArray(word.meanings) ? word.meanings : [],
         pos: Array.isArray(word.pos) && word.pos.length > 0 ? word.pos : ['noun'],
+      };
+
+      const initialStatus =
+        word.enrichmentStatus === 'manual' || word.enrichmentStatus === 'failed'
+          ? word.enrichmentStatus
+          : isWordTranslationComplete(draftRecord)
+            ? 'completed'
+            : (word.enrichmentStatus || 'pending');
+
+      finalRecord = {
+        ...draftRecord,
+        enrichmentStatus: initialStatus,
       };
       await db.words.put(finalRecord);
       isNew = true;
@@ -423,7 +593,7 @@ export async function bulkUpsertWords(
               ? `word-${crypto.randomUUID()}`
               : `word-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
-        const newRecord: WordItem = {
+        const draftRecord: WordItem = {
           ...item,
           id: finalId,
           word: normalized,
@@ -437,6 +607,18 @@ export async function bulkUpsertWords(
           examples: Array.isArray(item.examples) ? item.examples : [],
           meanings: Array.isArray(item.meanings) ? item.meanings : [],
           pos: Array.isArray(item.pos) && item.pos.length > 0 ? item.pos : ['noun'],
+        };
+
+        const initialStatus =
+          item.enrichmentStatus === 'manual' || item.enrichmentStatus === 'failed'
+            ? item.enrichmentStatus
+            : isWordTranslationComplete(draftRecord)
+              ? 'completed'
+              : (item.enrichmentStatus || 'pending');
+
+        const newRecord: WordItem = {
+          ...draftRecord,
+          enrichmentStatus: initialStatus,
         };
         recordsToPut.push(newRecord);
         existingMap.set(normalized, newRecord);

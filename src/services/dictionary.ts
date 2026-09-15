@@ -6,6 +6,7 @@ import { analyzeMorphology } from './morphology/lemmatizer';
 import type { MeaningItem, SpellingSuggestion, WordFamilyItem, WordItem } from '../types/vocab';
 import { findFuzzyMatches, stringSimilarity } from '../utils/fuzzySearch';
 import { isPlaceholderDefinition } from './quizlet/quizletNormalizer';
+import { isWordTranslationComplete } from '../utils/translationAuditor';
 
 // Re-exports from submodules for 100% backward compatibility
 export {
@@ -277,7 +278,7 @@ async function scheduleBackgroundEnrichment(
         const transParts = transRaw ? transRaw.split(/\n?---BREAK---\n?/).map((s) => s.trim()) : [];
         richCollocations = batchPhrases.map((phrase, i) => ({
           phrase,
-          meaningVi: transParts[i] || 'cụm từ thông dụng',
+          meaningVi: transParts[i] || '',
         }));
       }
 
@@ -329,7 +330,7 @@ async function scheduleBackgroundEnrichment(
 
       if (signal?.aborted) return;
 
-      const enrichedWord: WordItem = {
+      const enrichedDraft: WordItem = {
         ...baseWord,
         phonetics: {
           ...baseWord.phonetics,
@@ -347,6 +348,11 @@ async function scheduleBackgroundEnrichment(
         inflections: aiData?.inflections || baseWord.inflections,
       };
 
+      const enrichedWord: WordItem = {
+        ...enrichedDraft,
+        enrichmentStatus: isWordTranslationComplete(enrichedDraft) ? 'completed' : 'pending',
+      };
+
       WORD_LRU_CACHE.set(query, enrichedWord);
 
       // Safe update via repository to preserve review progress, notes, tags
@@ -358,6 +364,7 @@ async function scheduleBackgroundEnrichment(
             collocations: enrichedWord.collocations.length > 0 ? enrichedWord.collocations : undefined,
             wordFamily: enrichedWord.wordFamily.length > 0 ? enrichedWord.wordFamily : undefined,
             examples: enrichedWord.examples.length > 0 ? enrichedWord.examples : undefined,
+            enrichmentStatus: enrichedWord.enrichmentStatus,
           });
         }
       } catch (dbErr) {
@@ -460,7 +467,7 @@ export async function lookupWord(rawWord: string, options?: LookupOptions): Prom
       const lemma = morphology.selectedLemma || query;
       const isInflected = lemma.toLowerCase() !== query.toLowerCase();
 
-      const wordItem: WordItem = {
+      const wordItemDraft: WordItem = {
         id: `word-${now}-${Math.random().toString(36).slice(2, 7)}`,
         word: query,
         phonetics: {
@@ -490,12 +497,17 @@ export async function lookupWord(rawWord: string, options?: LookupOptions): Prom
         reviewMeta: createInitialReviewMeta(),
         source: 'local',
         vietnameseDefinitionProvenance: localMatch.vi ? { source: 'dictionary', createdAt: now } : undefined,
-        enrichmentStatus: 'completed',
+        enrichmentStatus: 'pending',
         lemma,
         originalInput: query,
         formLabels: morphology.formLabels.length > 0 ? morphology.formLabels : undefined,
         linkedVariants: isInflected ? [query.toLowerCase()] : undefined,
         inflections: morphology.inflections.length > 0 ? morphology.inflections : undefined,
+      };
+
+      const wordItem: WordItem = {
+        ...wordItemDraft,
+        enrichmentStatus: isWordTranslationComplete(wordItemDraft) ? 'completed' : 'pending',
       };
 
       WORD_LRU_CACHE.set(query, wordItem);
@@ -637,7 +649,7 @@ export async function lookupWord(rawWord: string, options?: LookupOptions): Prom
     const lemma = morphology.selectedLemma || query;
     const isInflected = lemma.toLowerCase() !== query.toLowerCase();
 
-    const basicWordItem: WordItem = {
+    const basicWordItemDraft: WordItem = {
       id: `word-${now}-${Math.random().toString(36).slice(2, 7)}`,
       word: query,
       phonetics: {
@@ -666,12 +678,17 @@ export async function lookupWord(rawWord: string, options?: LookupOptions): Prom
       reviewMeta: createInitialReviewMeta(),
       source: openVnData || wikiInfo || datamuseInfo ? 'online' : 'local',
       vietnameseDefinitionProvenance: vietnameseDef ? { source: 'dictionary', createdAt: now } : undefined,
-      enrichmentStatus: 'completed',
+      enrichmentStatus: 'pending',
       lemma,
       originalInput: query,
       formLabels: morphology.formLabels.length > 0 ? morphology.formLabels : undefined,
       linkedVariants: isInflected ? [query.toLowerCase()] : undefined,
       inflections: morphology.inflections.length > 0 ? morphology.inflections : undefined,
+    };
+
+    const basicWordItem: WordItem = {
+      ...basicWordItemDraft,
+      enrichmentStatus: isWordTranslationComplete(basicWordItemDraft) ? 'completed' : 'pending',
     };
 
     // Cache basic word immediately

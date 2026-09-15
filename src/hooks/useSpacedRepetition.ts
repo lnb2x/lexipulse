@@ -7,6 +7,8 @@ import type { AppSettings, ClozeQuestion, ReviewQueueStats, ReviewRating, WordIt
 
 export type ReviewSessionType = 'due' | 'cram';
 
+const EMPTY_CARDS: WordItem[] = [];
+
 export function useSpacedRepetition(deckWords?: WordItem[]) {
   const [sessionIndex, setSessionIndex] = useState(0);
   const [sessionCompleted, setSessionCompleted] = useState(false);
@@ -36,12 +38,14 @@ export function useSpacedRepetition(deckWords?: WordItem[]) {
     return await getTodayStats();
   }, []) || { date: '', cardsReviewed: 0, streak: 0, lastActiveDate: '' };
 
-  // All cards from database or prop
+  // Share the parent's live deck; only subscribe here for standalone consumers.
+  const hasDeckWords = deckWords !== undefined;
   const dbCards = useLiveQuery(async () => {
+    if (hasDeckWords) return EMPTY_CARDS;
     return await db.words.toArray();
-  }, []) || [];
+  }, [hasDeckWords]);
 
-  const allCards = deckWords && deckWords.length > 0 ? deckWords : dbCards;
+  const allCards = deckWords ?? dbCards ?? EMPTY_CARDS;
 
   // Due cards (dueDate <= currentTime)
   const dueCards = useMemo(() => {

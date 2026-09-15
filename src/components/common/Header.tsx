@@ -70,6 +70,10 @@ export const Header: React.FC<HeaderProps> = ({
     ready: false,
   });
 
+  const indicatorTransition = prefersReducedMotion
+    ? 'none'
+    : 'transform 300ms cubic-bezier(0.34, 1.15, 0.64, 1), width 300ms cubic-bezier(0.34, 1.15, 0.64, 1), height 300ms cubic-bezier(0.34, 1.15, 0.64, 1), opacity 150ms ease-out';
+
   // Dynamically measure active tab button position & size for sliding pill indicators
   const updateIndicators = useCallback(() => {
     // Desktop indicator measurement
@@ -241,9 +245,7 @@ export const Header: React.FC<HeaderProps> = ({
               height: desktopIndicator.height,
               transform: `translateX(${desktopIndicator.left}px)`,
               opacity: desktopIndicator.ready ? 1 : 0,
-              transition: prefersReducedMotion
-                ? 'none'
-                : 'transform 200ms cubic-bezier(0.16, 1, 0.3, 1), width 200ms cubic-bezier(0.16, 1, 0.3, 1), height 200ms cubic-bezier(0.16, 1, 0.3, 1)',
+              transition: indicatorTransition,
             }}
           />
 
@@ -259,15 +261,15 @@ export const Header: React.FC<HeaderProps> = ({
             aria-controls="panel-lookup"
             tabIndex={activeTab === 'lookup' ? 0 : -1}
             onClick={() => onTabChange('lookup')}
-            className={`relative z-10 group flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 transition-colors ${
+            className={`relative z-10 group flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 transition-colors duration-200 ease-out ${
               activeTab === 'lookup'
                 ? 'text-slate-900 dark:text-white'
                 : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
             }`}
           >
-            <Search className={`h-3.5 w-3.5 ${activeTab === 'lookup' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`} />
+            <Search className={`h-3.5 w-3.5 transition-colors duration-200 ease-out ${activeTab === 'lookup' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`} />
             <span>{t.nav.lookup}</span>
-            <kbd className="hidden lg:inline text-[9px] opacity-60">Alt+1</kbd>
+            <kbd className="hidden lg:inline text-[9px] opacity-60 transition-opacity duration-200 ease-out">Alt+1</kbd>
           </button>
 
           {/* Tab 2: Deck */}
@@ -282,17 +284,17 @@ export const Header: React.FC<HeaderProps> = ({
             aria-controls="panel-deck"
             tabIndex={activeTab === 'deck' ? 0 : -1}
             onClick={() => onTabChange('deck')}
-            className={`relative z-10 group flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 transition-colors ${
+            className={`relative z-10 group flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 transition-colors duration-200 ease-out ${
               activeTab === 'deck'
                 ? 'text-slate-900 dark:text-white'
                 : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
             }`}
           >
-            <BookOpen className={`h-3.5 w-3.5 ${activeTab === 'deck' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`} />
+            <BookOpen className={`h-3.5 w-3.5 transition-colors duration-200 ease-out ${activeTab === 'deck' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`} />
             <span>{t.nav.deck}</span>
             {totalCards > 0 && (
               <span
-                className={`rounded-full px-1.5 py-0.2 text-[10px] font-bold transition-colors ${
+                className={`rounded-full px-1.5 py-0.2 text-[10px] font-bold transition-colors duration-200 ease-out ${
                   activeTab === 'deck'
                     ? 'bg-slate-100 text-slate-800 dark:bg-slate-700 dark:text-slate-200'
                     : 'bg-slate-200/80 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
@@ -301,7 +303,7 @@ export const Header: React.FC<HeaderProps> = ({
                 {totalCards}
               </span>
             )}
-            <kbd className="hidden lg:inline text-[9px] opacity-60">Alt+2</kbd>
+            <kbd className="hidden lg:inline text-[9px] opacity-60 transition-opacity duration-200 ease-out">Alt+2</kbd>
           </button>
 
           {/* Tab 3: Review */}
@@ -316,25 +318,25 @@ export const Header: React.FC<HeaderProps> = ({
             aria-controls="panel-review"
             tabIndex={activeTab === 'review' ? 0 : -1}
             onClick={() => onTabChange('review')}
-            className={`relative z-10 group flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 transition-colors ${
+            className={`relative z-10 group flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 transition-colors duration-200 ease-out ${
               activeTab === 'review'
                 ? 'text-slate-900 dark:text-white'
                 : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
             }`}
           >
-            <RotateCcw className={`h-3.5 w-3.5 ${activeTab === 'review' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`} />
+            <RotateCcw className={`h-3.5 w-3.5 transition-colors duration-200 ease-out ${activeTab === 'review' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`} />
             <span>{t.nav.review}</span>
             {dueCount > 0 ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-bold text-rose-600 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/60">
+              <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-bold text-rose-600 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/60 transition-colors duration-200 ease-out">
                 <span className="h-1.5 w-1.5 rounded-full bg-rose-500 motion-safe:animate-pulse" />
                 <span>{dueCount}</span>
               </span>
             ) : (
-              <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+              <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 transition-colors duration-200 ease-out">
                 ✓
               </span>
             )}
-            <kbd className="hidden lg:inline text-[9px] opacity-60">Alt+3</kbd>
+            <kbd className="hidden lg:inline text-[9px] opacity-60 transition-opacity duration-200 ease-out">Alt+3</kbd>
           </button>
         </nav>
 
@@ -423,9 +425,7 @@ export const Header: React.FC<HeaderProps> = ({
             height: mobileIndicator.height,
             transform: `translateX(${mobileIndicator.left}px)`,
             opacity: mobileIndicator.ready ? 1 : 0,
-            transition: prefersReducedMotion
-              ? 'none'
-              : 'transform 200ms cubic-bezier(0.16, 1, 0.3, 1), width 200ms cubic-bezier(0.16, 1, 0.3, 1), height 200ms cubic-bezier(0.16, 1, 0.3, 1)',
+            transition: indicatorTransition,
           }}
         />
 
@@ -440,13 +440,13 @@ export const Header: React.FC<HeaderProps> = ({
           aria-controls="panel-lookup"
           tabIndex={activeTab === 'lookup' ? 0 : -1}
           onClick={() => onTabChange('lookup')}
-          className={`relative z-10 flex flex-1 flex-col items-center py-1 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg ${
+          className={`relative z-10 flex flex-1 flex-col items-center py-1 text-[11px] font-semibold transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg ${
             activeTab === 'lookup'
               ? 'text-indigo-600 dark:text-indigo-400 font-bold'
               : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
           }`}
         >
-          <Search className="h-4 w-4 mb-0.5" />
+          <Search className="h-4 w-4 mb-0.5 transition-colors duration-200 ease-out" />
           <span>{t.nav.lookup}</span>
         </button>
 
@@ -461,13 +461,13 @@ export const Header: React.FC<HeaderProps> = ({
           aria-controls="panel-deck"
           tabIndex={activeTab === 'deck' ? 0 : -1}
           onClick={() => onTabChange('deck')}
-          className={`relative z-10 flex flex-1 flex-col items-center py-1 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg ${
+          className={`relative z-10 flex flex-1 flex-col items-center py-1 text-[11px] font-semibold transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg ${
             activeTab === 'deck'
               ? 'text-indigo-600 dark:text-indigo-400 font-bold'
               : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
           }`}
         >
-          <BookOpen className="h-4 w-4 mb-0.5" />
+          <BookOpen className="h-4 w-4 mb-0.5 transition-colors duration-200 ease-out" />
           <span>
             {t.nav.deck} ({totalCards})
           </span>
@@ -484,13 +484,13 @@ export const Header: React.FC<HeaderProps> = ({
           aria-controls="panel-review"
           tabIndex={activeTab === 'review' ? 0 : -1}
           onClick={() => onTabChange('review')}
-          className={`relative z-10 flex flex-1 flex-col items-center py-1 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg ${
+          className={`relative z-10 flex flex-1 flex-col items-center py-1 text-[11px] font-semibold transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg ${
             activeTab === 'review'
               ? 'text-indigo-600 dark:text-indigo-400 font-bold'
               : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
           }`}
         >
-          <RotateCcw className="h-4 w-4 mb-0.5" />
+          <RotateCcw className="h-4 w-4 mb-0.5 transition-colors duration-200 ease-out" />
           <span>{t.nav.review}</span>
           {dueCount > 0 && (
             <span className="absolute top-1 right-2 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-white dark:ring-slate-900" />

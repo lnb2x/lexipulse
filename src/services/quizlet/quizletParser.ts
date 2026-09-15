@@ -1,4 +1,5 @@
 import type { QuizletCardItem } from '../../types/vocab';
+import { cleanQuizletTerm } from './quizletNormalizer';
 
 export interface ParsedQuizletUrl {
   isValid: boolean;
@@ -238,15 +239,33 @@ export function parseQuizletExportText(
       definition = temp;
     }
 
-    if (!term) {
-      skippedEmpty++;
+    const rawTerm = term;
+    const cleanTerm = cleanQuizletTerm(term);
+
+    // If term is empty after removing parentheticals
+    if (!cleanTerm) {
+      if (!rawTerm && !definition) {
+        skippedEmpty++;
+        continue;
+      }
+      cards.push({
+        term: '',
+        definition,
+        rawTerm: rawTerm || undefined,
+        isValid: false,
+        invalidReason: 'Từ vựng rỗng sau khi loại bỏ dấu ngoặc',
+      });
       continue;
     }
 
-    cards.push({
-      term,
+    const card: QuizletCardItem = {
+      term: cleanTerm,
       definition,
-    });
+    };
+    if (rawTerm !== cleanTerm) {
+      card.rawTerm = rawTerm;
+    }
+    cards.push(card);
   }
 
   return {
@@ -262,6 +281,25 @@ export function parseQuizletExportText(
 export function extractQuizletFromHtml(html: string): { title?: string; terms: QuizletCardItem[] } {
   const terms: QuizletCardItem[] = [];
   let title: string | undefined;
+
+  const pushTermItem = (wordText: string, defText: string) => {
+    const origWord = (wordText || '').trim();
+    const cleanWord = cleanQuizletTerm(origWord);
+    const cleanDef = (defText || '').trim();
+    if (!cleanWord && !cleanDef) return;
+    const card: QuizletCardItem = {
+      term: cleanWord,
+      definition: cleanDef,
+    };
+    if (origWord !== cleanWord) {
+      card.rawTerm = origWord;
+    }
+    if (!cleanWord) {
+      card.isValid = false;
+      card.invalidReason = 'Từ vựng rỗng sau khi loại bỏ dấu ngoặc';
+    }
+    terms.push(card);
+  };
 
   // 1. Try extracting title
   const ogTitleMatch = html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i);
@@ -299,7 +337,7 @@ export function extractQuizletFromHtml(html: string): { title?: string; terms: Q
             const wordText = wordSide?.media?.find((m: any) => m.type === 1)?.plainText?.trim() || '';
             const defText = defSide?.media?.find((m: any) => m.type === 1)?.plainText?.trim() || '';
             if (wordText || defText) {
-              terms.push({ term: wordText, definition: defText });
+              pushTermItem(wordText, defText);
             }
           }
         }
@@ -337,10 +375,7 @@ export function extractQuizletFromHtml(html: string): { title?: string; terms: Q
             const word = t.word || t.term || t.text;
             const def = t.definition || t.meaning;
             if (word && typeof word === 'string') {
-              terms.push({
-                term: word.trim(),
-                definition: typeof def === 'string' ? def.trim() : '',
-              });
+              pushTermItem(word, typeof def === 'string' ? def : '');
             }
           }
         }
@@ -370,10 +405,7 @@ export function extractQuizletFromHtml(html: string): { title?: string; terms: Q
 
     const count = Math.min(words.length, defs.length);
     for (let i = 0; i < count; i++) {
-      terms.push({
-        term: words[i],
-        definition: defs[i],
-      });
+      pushTermItem(words[i], defs[i]);
     }
   }
 

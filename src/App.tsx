@@ -3,9 +3,8 @@ import { Suspense, lazy, startTransition, useCallback, useEffect, useRef, useSta
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Header } from './components/common/Header';
 import { useLanguage } from './context/LanguageContext';
-import { DeckView } from './features/deck/DeckView';
 import { LookupView } from './features/lookup/LookupView';
-import { ReviewView, type ReviewSessionState } from './features/review/ReviewView';
+import type { ReviewSessionState } from './features/review/ReviewView';
 import { usePrefersReducedMotion } from './hooks/usePrefersReducedMotion';
 import { useSpacedRepetition } from './hooks/useSpacedRepetition';
 import { useTheme } from './hooks/useTheme';
@@ -18,7 +17,13 @@ import { inspectTodayWordsScope, migrateTodayWords } from './services/quizlet/qu
 import { formatLocalDate } from './utils/dateUtils';
 import type { ClozeQuestion, ReviewMode, ReviewRating, SpellingSuggestion, WordItem } from './types/vocab';
 
-// Code-split heavy modals to keep the initial app bundle light (< 500 kB)
+// Load secondary screens and modals when they are opened.
+const DeckView = lazy(() =>
+  import('./features/deck/DeckView').then((m) => ({ default: m.DeckView }))
+);
+const ReviewView = lazy(() =>
+  import('./features/review/ReviewView').then((m) => ({ default: m.ReviewView }))
+);
 const SettingsModal = lazy(() =>
   import('./components/common/SettingsModal').then((m) => ({ default: m.SettingsModal }))
 );
@@ -106,7 +111,7 @@ export function App() {
       transitionTimerRef.current = window.setTimeout(() => {
         setIsTransitioning(false);
         transitionTimerRef.current = null;
-      }, 200);
+      }, 220);
     },
     [prefersReducedMotion]
   );
@@ -620,17 +625,23 @@ export function App() {
 
       {/* Main Content Area */}
       <main className="relative flex-1 mx-auto w-full max-w-5xl px-4 sm:px-6 py-6 sm:py-8">
+        <Suspense fallback={
+          <p role="status" className="py-12 text-center text-slate-500">
+            {language === 'vi' ? 'Đang tải…' : 'Loading…'}
+          </p>
+        }>
         <div
+          key={displayedTab}
           role="tabpanel"
           id={`panel-${displayedTab}`}
           aria-labelledby={`tab-desktop-${displayedTab}`}
           tabIndex={0}
           className={`focus:outline-none ${
-            isTransitioning
-              ? transitionDirection === 'forward'
+            prefersReducedMotion || !isTransitioning
+              ? ''
+              : transitionDirection === 'forward'
                 ? 'tab-enter-forward'
                 : 'tab-enter-backward'
-              : ''
           }`}
         >
           {/* TAB 1: LOOKUP */}
@@ -744,6 +755,7 @@ export function App() {
             />
           )}
         </div>
+        </Suspense>
       </main>
 
       {/* Global Modals - Lazy loaded with Suspense */}

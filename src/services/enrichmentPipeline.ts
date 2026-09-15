@@ -6,6 +6,7 @@ import { getAppSettings } from './db/statsRepo';
 import type { AppSettings, WordItem, VietnameseDefinitionProvenance, ExampleItem, MeaningItem } from '../types/vocab';
 import { createInitialReviewMeta } from './fsrs/fsrsService';
 import { isPlaceholderDefinition } from './quizlet/quizletNormalizer';
+import { isWordTranslationComplete } from '../utils/translationAuditor';
 
 export interface PipelineOptions {
   query: string;
@@ -172,17 +173,26 @@ export function mergePipelineSources(params: MergePipelineParams): {
     englishDefinition = '';
   }
 
-  const meanings: MeaningItem[] = dictResult?.meanings && dictResult.meanings.length > 0
-    ? dictResult.meanings
-    : (englishDefinition || vietnameseDefinition)
-      ? [
-          {
-            pos: mainPos,
-            englishDefinition,
-            vietnameseDefinition,
-          },
-        ]
-      : [];
+  let meanings: MeaningItem[] = [];
+  if (dictResult?.meanings && dictResult.meanings.length > 0) {
+    meanings = dictResult.meanings.map((m, idx) => {
+      if (!m.vietnameseDefinition && vietnameseDefinition && (dictResult.meanings!.length === 1 || idx === 0)) {
+        return {
+          ...m,
+          vietnameseDefinition,
+        };
+      }
+      return m;
+    });
+  } else if (englishDefinition || vietnameseDefinition) {
+    meanings = [
+      {
+        pos: mainPos,
+        englishDefinition,
+        vietnameseDefinition,
+      },
+    ];
+  }
 
   // 5. Examples: No fake placeholders!
   const examples: ExampleItem[] = [];
@@ -240,7 +250,7 @@ export function mergePipelineSources(params: MergePipelineParams): {
     new Set(['#TOEIC', ...(dictResult?.tags || []), ...(aiResult?.tags || [])])
   );
 
-  const wordItem: WordItem = {
+  const draftWordItem: WordItem = {
     id: baseWordId || dictResult?.id || `word_${now}_${Math.random().toString(36).slice(2, 7)}`,
     word: lowerQuery,
     phonetics,
@@ -264,7 +274,12 @@ export function mergePipelineSources(params: MergePipelineParams): {
     inflections: inflections && inflections.length > 0 ? inflections : undefined,
     vietnameseDefinitionProvenance: provenance,
     source: sourceVi === 'ai' ? 'ai' : sourceVi === 'dictionary' ? 'online' : 'local',
-    enrichmentStatus: 'completed',
+    enrichmentStatus: 'pending',
+  };
+
+  const wordItem: WordItem = {
+    ...draftWordItem,
+    enrichmentStatus: isWordTranslationComplete(draftWordItem) ? 'completed' : 'pending',
   };
 
   return { word: wordItem, sourceVi };

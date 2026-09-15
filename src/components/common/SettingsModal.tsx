@@ -20,6 +20,14 @@ import { AI_PROVIDERS, testAIConnection } from '../../services/ai';
 import { getAppSettings, resetDatabaseToDefault, saveAppSettings } from '../../services/db';
 import type { AIProvider, AppSettings } from '../../types/vocab';
 import { useModalA11y } from '../../hooks/useModalA11y';
+import {
+  getAvailableGroqModels,
+  fetchLiveGroqModels,
+  getRecommendedGroqModelPool,
+  migrateGroqPoolConfig,
+  type GroqModelCapability,
+  type GroqPoolMigrationResult,
+} from '../../config/groqConfig';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -59,12 +67,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     message?: string;
   }>({ status: 'idle' });
 
+  // Dynamic Groq Models & Migration States
+  const [groqModels, setGroqModels] = useState<GroqModelCapability[]>(() => getAvailableGroqModels());
+  const [isRefreshingGroqModels, setIsRefreshingGroqModels] = useState(false);
+  const [groqRefreshMessage, setGroqRefreshMessage] = useState<{
+    type: 'success' | 'error' | 'info';
+    text: string;
+  } | null>(null);
+  const [migrationAlert, setMigrationAlert] = useState<GroqPoolMigrationResult | null>(null);
+
   useEffect(() => {
     if (isOpen) {
+      const currentGroq = getAvailableGroqModels();
+      setGroqModels(currentGroq);
+
       getAppSettings().then((s) => {
-        setSettings(s);
+        let updatedPool = s.groqModelPool;
+        // Perform migration on stored groqModelPool
+        if (s.groqModelPool && s.groqModelPool.length > 0) {
+          const mig = migrateGroqPoolConfig(s.groqModelPool, currentGroq);
+          if (mig.removedModels.length > 0 || mig.needsAttention) {
+            setMigrationAlert(mig);
+            if (mig.validPool.length > 0) {
+              updatedPool = mig.validPool;
+            }
+          }
+        }
+
+        const effectiveSettings = updatedPool ? { ...s, groqModelPool: updatedPool } : s;
+        setSettings(effectiveSettings);
+
         const providerConfig = AI_PROVIDERS[s.aiProvider || 'gemini'];
-        if (s.aiModel && !providerConfig?.models.includes(s.aiModel)) {
+        const validModelList = s.aiProvider === 'groq'
+          ? currentGroq.map((m) => m.id)
+          : (providerConfig?.models || []);
+
+        if (s.aiModel && !validModelList.includes(s.aiModel)) {
           setIsCustomModel(true);
         } else {
           setIsCustomModel(false);
@@ -73,6 +111,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setIsSaved(false);
       setConfirmReset(false);
       setTestStatus({ status: 'idle' });
+      setGroqRefreshMessage(null);
     }
   }, [isOpen]);
 
@@ -83,14 +122,69 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleProviderChange = (newProvider: AIProvider) => {
     const config = AI_PROVIDERS[newProvider] || AI_PROVIDERS.gemini;
+    let initialModel = config.defaultModel;
+    if (newProvider === 'groq') {
+      const rec = getRecommendedGroqModelPool(groqModels);
+      initialModel = rec[0] || groqModels[0]?.id || config.defaultModel;
+    }
+
     setSettings((prev) => ({
       ...prev,
       aiProvider: newProvider,
-      aiModel: config.defaultModel,
+      aiModel: initialModel,
       aiBaseUrl: config.defaultBaseUrl,
+      groqModelPool: newProvider === 'groq' && (!prev.groqModelPool || prev.groqModelPool.length === 0)
+        ? getRecommendedGroqModelPool(groqModels)
+        : prev.groqModelPool,
     }));
     setIsCustomModel(false);
     setTestStatus({ status: 'idle' });
+    setGroqRefreshMessage(null);
+  };
+
+  const handleRefreshGroqModels = async () => {
+    setIsRefreshingGroqModels(true);
+    setGroqRefreshMessage(null);
+
+    const apiKey = (settings.aiApiKey || settings.geminiApiKey || '').trim();
+    const result = await fetchLiveGroqModels({
+      apiKey,
+      baseUrl: settings.aiBaseUrl,
+    });
+
+    setIsRefreshingGroqModels(false);
+    setGroqModels(result.models);
+
+    if (result.success) {
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setGroqRefreshMessage({
+        type: 'success',
+        text: `Đã cập nhật ${result.models.length} model từ Groq Console (${timeStr}).`,
+      });
+
+      // Migrate existing pool with the newly fetched models
+      const mig = migrateGroqPoolConfig(settings.groqModelPool, result.models);
+      if (mig.removedModels.length > 0 || mig.needsAttention) {
+        setMigrationAlert(mig);
+        setSettings((prev) => ({
+          ...prev,
+          groqModelPool: mig.validPool.length > 0 ? mig.validPool : getRecommendedGroqModelPool(result.models),
+        }));
+      }
+
+      // Check if current aiModel is still valid
+      if (settings.aiModel && !result.models.some((m) => m.id === settings.aiModel)) {
+        const fallback = getRecommendedGroqModelPool(result.models)[0] || result.models[0]?.id;
+        if (fallback) {
+          setSettings((prev) => ({ ...prev, aiModel: fallback }));
+        }
+      }
+    } else {
+      setGroqRefreshMessage({
+        type: 'error',
+        text: result.error || 'Không thể làm mới danh sách model. Đang giữ danh sách đã lưu gần nhất.',
+      });
+    }
   };
 
   const handleTestConnection = async () => {
@@ -100,6 +194,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       apiKey: settings.aiApiKey || settings.geminiApiKey,
       baseUrl: settings.aiBaseUrl,
       model: settings.aiModel,
+      groqModelPool: settings.groqModelPool,
     });
     setTestStatus({
       status: result.success ? 'success' : 'error',
@@ -278,9 +373,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       type="button"
                       onClick={() => {
                         setIsCustomModel(false);
+                        let targetModel = currentProviderConfig.defaultModel;
+                        if (settings.aiProvider === 'groq') {
+                          const rec = getRecommendedGroqModelPool(groqModels);
+                          targetModel = rec[0] || groqModels[0]?.id || 'openai/gpt-oss-120b';
+                        }
                         setSettings({
                           ...settings,
-                          aiModel: currentProviderConfig.defaultModel,
+                          aiModel: targetModel,
                         });
                       }}
                       className="rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 shrink-0"
@@ -300,16 +400,157 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     }}
                     className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-900 focus:border-indigo-500 focus:outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 shadow-sm"
                   >
-                    {currentProviderConfig.models.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
+                    {settings.aiProvider === 'groq'
+                      ? groqModels.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.displayName || m.id} {m.isCompound ? '(Agentic)' : ''}
+                          </option>
+                        ))
+                      : currentProviderConfig.models.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
                     <option value="__custom__">+ Tùy chỉnh model khác...</option>
                   </select>
                 )}
               </div>
             </div>
+
+            {/* Groq Multi-Model Pool Section */}
+            {settings.aiProvider === 'groq' && (
+              <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-3.5 dark:border-indigo-900/50 dark:bg-indigo-950/20 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                    Groq Multi-Model Pool (Round-Robin & 429 Failover)
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleRefreshGroqModels}
+                      disabled={isRefreshingGroqModels}
+                      className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 disabled:opacity-50 transition-colors"
+                      title="Tải lại danh sách model trực tiếp từ GET /openai/v1/models bằng API Key"
+                    >
+                      <RotateCcw className={`h-3 w-3 ${isRefreshingGroqModels ? 'animate-spin' : ''}`} />
+                      <span>{isRefreshingGroqModels ? 'Đang tải...' : 'Làm mới model'}</span>
+                    </button>
+                    <span className="text-slate-300 dark:text-slate-700">|</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const rec = getRecommendedGroqModelPool(groqModels);
+                        setSettings({ ...settings, groqModelPool: rec });
+                        setMigrationAlert(null);
+                      }}
+                      className="text-[10px] text-indigo-600 hover:underline dark:text-indigo-400"
+                    >
+                      Đặt lại mặc định
+                    </button>
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-indigo-800/80 dark:text-indigo-300/80 leading-relaxed">
+                  Các request sẽ được phân phối luân phiên (Round-Robin) giữa các model được bật. Khi một model bị giới hạn tốc độ (HTTP 429), hệ thống tự động đưa vào cooldown và chuyển sang model khác.
+                </p>
+
+                {/* Refresh Status Notification Banner */}
+                {groqRefreshMessage && (
+                  <div
+                    className={`flex items-center gap-1.5 rounded-lg p-2 text-[11px] font-medium border ${
+                      groqRefreshMessage.type === 'success'
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300'
+                        : 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300'
+                    }`}
+                  >
+                    {groqRefreshMessage.type === 'success' ? (
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                    ) : (
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-rose-600 dark:text-rose-400" />
+                    )}
+                    <span className="flex-1">{groqRefreshMessage.text}</span>
+                  </div>
+                )}
+
+                {/* Migration Alerts */}
+                {migrationAlert && migrationAlert.removedModels.length > 0 && (
+                  <div className="flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                    <span>
+                      Đã tự động loại bỏ model không còn khả dụng khỏi pool: <strong>{migrationAlert.removedModels.join(', ')}</strong>. Các model còn lại đã được cập nhật.
+                    </span>
+                  </div>
+                )}
+
+                {migrationAlert && migrationAlert.needsAttention && (
+                  <div className="flex items-start gap-1.5 rounded-lg border border-rose-200 bg-rose-50 p-2 text-[11px] text-rose-800 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
+                    <span>
+                      ⚠️ Cấu hình cũ không còn model nào hợp lệ trong tài khoản. Vui lòng chọn ít nhất một model bên dưới.
+                    </span>
+                  </div>
+                )}
+
+                {/* Model Pool Selection Grid */}
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {groqModels.map((m) => {
+                    const activePool = Array.isArray(settings.groqModelPool)
+                      ? settings.groqModelPool
+                      : getRecommendedGroqModelPool(groqModels);
+                    const isSelected = activePool.includes(m.id);
+
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => {
+                          let nextPool: string[];
+                          if (isSelected) {
+                            nextPool = activePool.filter((id) => id !== m.id);
+                          } else {
+                            nextPool = [...activePool, m.id];
+                          }
+                          setSettings({ ...settings, groqModelPool: nextPool });
+                          if (nextPool.length > 0 && migrationAlert?.needsAttention) {
+                            setMigrationAlert((prev) => (prev ? { ...prev, needsAttention: false, validPool: nextPool } : null));
+                          }
+                        }}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold transition-all border ${
+                          isSelected
+                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800'
+                        }`}
+                        title={`${m.displayName || m.id} (${(m.contextWindow || 131072).toLocaleString()} tokens, JSON mode: ${
+                          m.supportsJson ? 'Hỗ trợ' : 'Không hỗ trợ'
+                        })${m.isCompound ? ' - Model Agentic: tự động bỏ qua khi sinh JSON' : ''}`}
+                      >
+                        <span className="text-[10px] font-bold">{isSelected ? '✓' : '+'}</span>
+                        <span className="font-mono text-[10px]">{m.id}</span>
+                        {m.isCompound && (
+                          <span
+                            className={`text-[9px] px-1 py-0.2 rounded font-normal ${
+                              isSelected ? 'bg-indigo-800/80 text-indigo-100' : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                            }`}
+                          >
+                            Agentic
+                          </span>
+                        )}
+                        {m.supportsVision && (
+                          <span
+                            className={`text-[9px] px-1 py-0.2 rounded font-normal ${
+                              isSelected ? 'bg-indigo-800/80 text-indigo-100' : 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300'
+                            }`}
+                          >
+                            Vision
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Base URL (for Custom or toggled) */}
             {(settings.aiProvider === 'custom' || showBaseUrl) && (

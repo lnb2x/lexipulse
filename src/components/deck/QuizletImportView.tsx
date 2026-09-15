@@ -37,7 +37,8 @@ import {
   parseQuizletUrl,
   type FetchQuizletErrorType,
 } from '../../services/quizlet/quizletParser';
-import { reconcileQuizletWithDeck } from '../../services/quizlet/quizletReconciler';
+import { reconcileQuizletWithDeck, type ReconciliationSummary } from '../../services/quizlet/quizletReconciler';
+import { cleanQuizletTerm } from '../../services/quizlet/quizletNormalizer';
 import {
   deleteQuizletSet,
   getAllQuizletSets,
@@ -90,10 +91,11 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
   const [swapTermDef, setSwapTermDef] = useState(false);
   const [parsedCards, setParsedCards] = useState<QuizletCardItem[]>([]);
   const [reconciledItems, setReconciledItems] = useState<QuizletReconciledWord[]>([]);
-  const [reconciledSummary, setReconciledSummary] = useState({
+  const [reconciledSummary, setReconciledSummary] = useState<ReconciliationSummary>({
     newCount: 0,
     existingCount: 0,
     needsReviewCount: 0,
+    invalidCount: 0,
     totalUnique: 0,
     duplicatesInBatch: 0,
   });
@@ -284,12 +286,23 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
 
       if (res.success && res.terms && res.terms.length > 0) {
         setFetchStatus('success');
-        setParsedCards(res.terms);
+        const cleanedCards: QuizletCardItem[] = res.terms.map((c) => {
+          const raw = c.rawTerm || c.term;
+          const clean = cleanQuizletTerm(c.term);
+          return {
+            ...c,
+            term: clean,
+            rawTerm: raw !== clean ? raw : c.rawTerm,
+            isValid: clean.length > 0,
+            invalidReason: clean.length === 0 ? 'Từ vựng rỗng sau khi loại bỏ dấu ngoặc' : undefined,
+          };
+        });
+        setParsedCards(cleanedCards);
         if (res.title) {
           setParsedUrlInfo((prev) => ({ ...prev, title: res.title || prev.title }));
         }
         // Run reconciliation
-        const reconciled = reconcileQuizletWithDeck(res.terms, allWords);
+        const reconciled = reconcileQuizletWithDeck(cleanedCards, allWords);
         setReconciledItems(reconciled.items);
         setReconciledSummary(reconciled.summary);
         setStatusMessage(
@@ -360,7 +373,11 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
   // Selection toggles
   const handleToggleItem = (index: number) => {
     setReconciledItems((prev) =>
-      prev.map((item, idx) => (idx === index ? { ...item, selected: !item.selected } : item))
+      prev.map((item, idx) => {
+        if (idx !== index) return item;
+        if (item.status === 'invalid') return item;
+        return { ...item, selected: !item.selected };
+      })
     );
   };
 
@@ -383,7 +400,12 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
   };
 
   const handleSelectAll = (select: boolean) => {
-    setReconciledItems((prev) => prev.map((item) => ({ ...item, selected: select })));
+    setReconciledItems((prev) =>
+      prev.map((item) => ({
+        ...item,
+        selected: item.status === 'invalid' ? false : select,
+      }))
+    );
   };
 
   // Resolve needs_review item choice
@@ -447,7 +469,7 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
         createdAt: Date.now(),
         updatedAt: Date.now(),
         wordCount: savedCount,
-        cardTerms: reconciledItems.map((i) => i.normalizedTerm),
+        cardTerms: reconciledItems.filter((i) => Boolean(i.normalizedTerm)).map((i) => i.normalizedTerm),
       });
 
       await refreshSavedSets();
@@ -563,7 +585,7 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
         createdAt: Date.now(),
         updatedAt: Date.now(),
         wordCount: allCardsForSet.length,
-        cardTerms: reconciledItems.map((i) => i.normalizedTerm),
+        cardTerms: reconciledItems.filter((i) => Boolean(i.normalizedTerm)).map((i) => i.normalizedTerm),
       });
       await refreshSavedSets();
 
@@ -858,6 +880,11 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
                   {t.modals.quizletStatusNeedsReview}: {reconciledSummary.needsReviewCount}
                 </span>
               )}
+              {reconciledSummary.invalidCount > 0 && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-bold text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/60 dark:text-rose-300">
+                  {language === 'vi' ? 'Không hợp lệ' : 'Invalid'}: {reconciledSummary.invalidCount}
+                </span>
+              )}
               <span className="text-xs text-slate-500 dark:text-slate-400">
                 (Tổng: {reconciledSummary.totalUnique} từ
                 {reconciledSummary.duplicatesInBatch > 0 && `, ${reconciledSummary.duplicatesInBatch} trùng lặp đã lọc`}
@@ -914,21 +941,49 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
                 {reconciledItems.map((item, idx) => (
                   <tr
-                    key={`${item.normalizedTerm}-${idx}`}
+                    key={`${item.normalizedTerm || item.term || item.rawTerm}-${idx}`}
                     className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors ${
-                      item.selected ? 'bg-indigo-50/30 dark:bg-indigo-950/20' : ''
+                      item.status === 'invalid'
+                        ? 'bg-rose-50/30 dark:bg-rose-950/20'
+                        : item.selected
+                        ? 'bg-indigo-50/30 dark:bg-indigo-950/20'
+                        : ''
                     }`}
                   >
                     <td className="p-3 text-center">
                       <input
                         type="checkbox"
-                        checked={item.selected}
+                        checked={item.selected && item.status !== 'invalid'}
+                        disabled={item.status === 'invalid'}
                         onChange={() => handleToggleItem(idx)}
-                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800"
+                        title={
+                          item.status === 'invalid'
+                            ? language === 'vi'
+                              ? 'Không thể nhập từ vựng không hợp lệ'
+                              : 'Cannot import invalid term'
+                            : undefined
+                        }
+                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-30 disabled:cursor-not-allowed dark:border-slate-700 dark:bg-slate-800"
                       />
                     </td>
                     <td className="p-3 font-semibold text-slate-900 dark:text-white">
-                      {item.term}
+                      <div>
+                        {item.term ? (
+                          <span>{item.term}</span>
+                        ) : (
+                          <span className="font-mono text-rose-600 dark:text-rose-400">
+                            {item.rawTerm || '(trống)'}
+                          </span>
+                        )}
+                      </div>
+                      {item.status === 'invalid' && (
+                        <div className="text-[11px] font-normal text-rose-600 dark:text-rose-400 italic mt-0.5">
+                          {item.invalidReason ||
+                            (language === 'vi'
+                              ? 'Từ rỗng sau khi loại bỏ dấu ngoặc'
+                              : 'Empty term after removing parentheses')}
+                        </div>
+                      )}
                     </td>
                     <td className="p-3 text-slate-600 dark:text-slate-300">
                       <div>{item.definition || <span className="italic text-slate-400">Không có định nghĩa</span>}</div>
@@ -998,6 +1053,11 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
                       {item.status === 'needs_review' && (
                         <span className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-950/70 dark:text-amber-300">
                           {t.modals.quizletStatusNeedsReview}
+                        </span>
+                      )}
+                      {item.status === 'invalid' && (
+                        <span className="inline-block rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700 dark:bg-rose-950/70 dark:text-rose-300">
+                          {language === 'vi' ? 'Không hợp lệ' : 'Invalid'}
                         </span>
                       )}
                     </td>

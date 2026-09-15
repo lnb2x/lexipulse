@@ -2,7 +2,7 @@
 import 'fake-indexeddb/auto';
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, act, cleanup, waitFor } from '@testing-library/react';
 import { App } from '../src/App';
 import { LanguageProvider } from '../src/context/LanguageContext';
 import { db } from '../src/services/db';
@@ -87,9 +87,10 @@ describe('Heatmap Review Navigation & UI Freeze Regression', () => {
     const deckTabs = screen.getAllByRole('tab', { name: /Bộ từ vựng|Deck/i });
     expect(deckTabs[0].getAttribute('aria-selected')).toBe('true');
 
-    // Wait for Dexie query to populate
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 100));
+    // Wait for both the on-demand screen and the live database query.
+    await waitFor(() => {
+      expect(screen.getByRole('tabpanel').id).toBe('panel-deck');
+      expect(screen.getByText('cohort_0')).toBeDefined();
     });
 
     // 2. Locate and click today's active day cell in ContributionHeatmap
@@ -114,10 +115,10 @@ describe('Heatmap Review Navigation & UI Freeze Regression', () => {
       fireEvent.click(reviewBtn);
     });
 
-    // Await tab transition and lazy-loaded Flashcard component
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 300));
-    });
+    // Await the actual card instead of a fixed module-loading delay.
+    await waitFor(() => expect(screen.getByRole('tabpanel').id).toBe('panel-review'));
+    expect(await screen.findByText(/Mặt trước|Front Card/i)).toBeDefined();
+    expect(await screen.findByRole('heading', { name: 'cohort_0' })).toBeDefined();
 
     // 4. Assert:
     // - Review tab is now selected in navigation
@@ -159,8 +160,9 @@ describe('Heatmap Review Navigation & UI Freeze Regression', () => {
       fireEvent.keyDown(window, { key: '2', altKey: true });
     });
 
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 100));
+    await waitFor(() => {
+      expect(screen.getByRole('tabpanel').id).toBe('panel-deck');
+      expect(screen.getByText('bulk_date_0')).toBeDefined();
     });
 
     // Select date cell and start review
@@ -186,12 +188,9 @@ describe('Heatmap Review Navigation & UI Freeze Regression', () => {
     // Transition must be fast (< 250ms), not stalled by large card lists
     expect(transitionDuration).toBeLessThan(250);
 
-    // Await tab transition and lazy-loaded Flashcard component
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 300));
-    });
-
     // Review session accurately initialized with first card heading
+    await waitFor(() => expect(screen.getByRole('tabpanel').id).toBe('panel-review'));
+    expect(await screen.findByText(/Mặt trước|Front Card/i)).toBeDefined();
     expect(await screen.findByRole('heading', { name: 'bulk_date_0' })).toBeDefined();
     expect(screen.getByText(/Mặt trước|Front Card/i)).toBeDefined();
 
