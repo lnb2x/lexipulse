@@ -43,3 +43,10 @@ transaction. API-key fields are blanked, including extra settings rows. The v2
 envelope has schemaVersion and a SHA-256 checksum of canonical JSON (sorted object
 keys, array order retained). The checksum detects corruption, not authenticity.
 v1 and bare word arrays remain readable. No IndexedDB schema change is needed.
+
+## Atomic restore
+
+All restored tables commit in one write transaction. A write/quota failure rolls
+back every table; the old session key is restored when browser storage permits.
+Restoring settings clears API keys, including the current session key, so an old
+credential is never attached to a restored provider endpoint. Re-enter it manually.

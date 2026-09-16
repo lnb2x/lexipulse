@@ -741,6 +741,8 @@ export async function importDeckFromJson(
   options: ImportDeckOptions = {}
 ): Promise<ImportDeckResult> {
   const errors: string[] = [];
+  let sessionBefore: string | null = null;
+  let sessionTouched = false;
   try {
     const parsed = JSON.parse(jsonString);
     await verifyBackupEnvelope(parsed, db.verno);
@@ -856,6 +858,11 @@ export async function importDeckFromJson(
       }
     }
 
+    if (rawSettings && typeof sessionStorage !== 'undefined') {
+      sessionBefore = sessionStorage.getItem('lexipulse_session_ai_key');
+      sessionTouched = true;
+    }
+    return await db.transaction('rw', db.tables, async () => {
     const res = await bulkUpsertWords(validItems, { replaceProgress: options.replaceProgress });
 
     if (parsed.version === 2) {
@@ -879,10 +886,10 @@ export async function importDeckFromJson(
     let restoredSettings = false;
     if (rawSettings) {
       try {
-        await saveAppSettings(rawSettings);
+        await saveAppSettings({ ...rawSettings, aiApiKey: '', geminiApiKey: '' });
         restoredSettings = true;
       } catch (e: any) {
-        errors.push(`Settings restoration notice: ${e.message || 'failed to restore settings'}`);
+        throw new Error(`Settings restoration failed: ${e.message || 'write failed'}`);
       }
     }
 
@@ -910,7 +917,7 @@ export async function importDeckFromJson(
           });
         }
       } catch (e: any) {
-        errors.push(`DailyStats restoration notice: ${e.message || 'failed to restore dailyStats'}`);
+        throw new Error(`DailyStats restoration failed: ${e.message || 'write failed'}`);
       }
     }
 
@@ -921,7 +928,14 @@ export async function importDeckFromJson(
       restoredSettings: restoredSettings || undefined,
       restoredDailyStats: restoredDailyStats > 0 ? restoredDailyStats : undefined,
     };
+    });
   } catch (err: any) {
+    if (sessionTouched) {
+      try {
+        if (sessionBefore === null) sessionStorage.removeItem('lexipulse_session_ai_key');
+        else sessionStorage.setItem('lexipulse_session_ai_key', sessionBefore);
+      } catch { /* Browser storage policy may also deny restoring the session. */ }
+    }
     errors.push(err.message || 'Failed to parse JSON file');
     return { imported: 0, skipped: 0, errors };
   }
