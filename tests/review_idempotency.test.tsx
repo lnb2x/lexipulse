@@ -111,18 +111,16 @@ describe('Review Idempotency & Rapid Input Protection Regression Suite', () => {
       fireEvent.click(startBtn);
     });
 
-    await screen.findByRole('heading', { name: 'resilience' });
+    // Wait for the actual flashcard controls, then flush its keyboard effects.
+    await screen.findByRole('button', { name: /Nhớ.*3|Good.*3/i });
+    await act(async () => {});
 
     // Spacebar to flip card
-    act(() => {
+    await act(async () => {
       fireEvent.keyDown(window, { code: 'Space', key: ' ' });
     });
 
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 100));
-    });
-
-    const goodButton = panel.querySelector('button[title="Good"]') as HTMLButtonElement;
+    const goodButton = await screen.findByTitle('Good') as HTMLButtonElement;
     expect(goodButton).not.toBeNull();
     expect(goodButton.disabled).toBe(false);
 
@@ -197,18 +195,16 @@ describe('Review Idempotency & Rapid Input Protection Regression Suite', () => {
       fireEvent.click(startBtn);
     });
 
-    await screen.findByRole('heading', { name: 'resilience' });
+    // Wait for the actual flashcard controls, then flush its keyboard effects.
+    await screen.findByRole('button', { name: /Nhớ.*3|Good.*3/i });
+    await act(async () => {});
 
     // Spacebar to flip card 1
-    act(() => {
+    await act(async () => {
       fireEvent.keyDown(window, { code: 'Space', key: ' ' });
     });
 
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 100));
-    });
-
-    const goodButton = panel.querySelector('button[title="Good"]') as HTMLButtonElement;
+    const goodButton = await screen.findByTitle('Good') as HTMLButtonElement;
     expect(goodButton).not.toBeNull();
 
     // Double-click Good on Card 1
