@@ -29,6 +29,17 @@ export function normalizeWordTerm(term: string): string {
   return term.trim().toLowerCase().normalize('NFC');
 }
 
+async function allocateWordId(preferred: string | undefined, occupied: Set<string>) {
+  let id = preferred?.trim();
+  if (!id || occupied.has(id)) {
+    do {
+      id = `word-${crypto.randomUUID()}`;
+    } while (occupied.has(id) || await db.words.get(id));
+  }
+  occupied.add(id);
+  return id;
+}
+
 /**
  * Merges linguistic content between an existing database record and newly incoming data.
  * Adheres strictly to data preservation rules:
@@ -489,12 +500,9 @@ export async function saveOrUpdateWord(
       await db.words.put(finalRecord);
       isNew = false;
     } else {
-      const finalId =
-        word.id && word.id.trim()
-          ? word.id
-          : typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-            ? `word-${crypto.randomUUID()}`
-            : `word-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      const occupied = new Set<string>();
+      if (word.id?.trim() && await db.words.get(word.id.trim())) occupied.add(word.id.trim());
+      const finalId = await allocateWordId(word.id, occupied);
 
       const cleanedEnDef = isPlaceholderDefinition(word.englishDefinition) ? '' : (word.englishDefinition || '');
       const cleanedViDef = isPlaceholderDefinition(word.vietnameseDefinition) ? '' : (word.vietnameseDefinition || '');
@@ -569,6 +577,9 @@ export async function bulkUpsertWords(
 
     const existingWords = await db.words.where('word').anyOf(normalizedTerms).toArray();
     const existingMap = new Map(existingWords.map((w) => [w.word, w]));
+    const requestedIds = words.map(w => w.id?.trim()).filter(Boolean);
+    const occupied = new Set((await db.words.bulkGet(requestedIds))
+      .filter((word): word is WordItem => Boolean(word)).map(word => word.id));
 
     const recordsToPut: WordItem[] = [];
 
@@ -586,12 +597,7 @@ export async function bulkUpsertWords(
         existingMap.set(normalized, merged); // Update in-memory map for duplicate entries in the same batch
         updated++;
       } else {
-        const finalId =
-          item.id && item.id.trim()
-            ? item.id
-            : typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-              ? `word-${crypto.randomUUID()}`
-              : `word-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        const finalId = await allocateWordId(item.id, occupied);
 
         const draftRecord: WordItem = {
           ...item,
