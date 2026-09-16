@@ -1,6 +1,6 @@
 import { db } from './db';
 import { validateBackupWord, validateSupplementalTables } from './db/backupValidation';
-import { verifyBackupEnvelope } from './db/backupEnvelope';
+import { sanitizeBackupSettings, verifyBackupEnvelope } from './db/backupEnvelope';
 import { BACKUP_TABLES, assertRecoverySnapshot, readRecoverySnapshot, buildBackupPreview, type BackupTableName, type BackupPreview } from './db/backupPlan';
 import type { DailyStats, EnrichmentStatus, MeaningItem, WordItem } from '../types/vocab';
 import { createInitialReviewMeta, migrateLegacyMetaToFSRS } from './fsrs/fsrsService';
@@ -777,7 +777,9 @@ export async function importDeckFromJson(
         rawWords = parsed.vocab;
       }
 
-      if (parsed.settings && typeof parsed.settings === 'object') {
+      if (parsed.version === 2 && Array.isArray(parsed.settingsTable)) {
+        rawSettings = parsed.settingsTable.find((row: { key: string }) => row.key === 'appSettings')?.value ?? null;
+      } else if (parsed.settings && typeof parsed.settings === 'object') {
         rawSettings = parsed.settings;
       }
       if (Array.isArray(parsed.dailyStats)) {
@@ -929,7 +931,7 @@ export async function importDeckFromJson(
           errors.push(`settingsTable[${index}]: invalid record`);
           continue;
         }
-        if (row.key !== 'appSettings' && !await db.settingsTable.get(row.key)) await db.settingsTable.put(row);
+        if (row.key !== 'appSettings' && !await db.settingsTable.get(row.key)) await db.settingsTable.put(sanitizeBackupSettings(row));
       }
     }
 
