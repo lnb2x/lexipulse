@@ -40,7 +40,7 @@ Schema nằm trong `src/services/db/schema.ts`. Mỗi từ gồm nội dung, ngu
 
 Thống kê ngày, settings và bộ Quizlet nằm ở bảng riêng. Migration phải xử lý database đã tồn tại khi người dùng nâng cấp frontend. Test kiểm tra migration, bảo toàn lịch sử và cập nhật/import nhất quán.
 
-Backup envelope phiên bản 1 có `type`, `version`, `exportedAt`, `words`, `settings`, `dailyStats`. API key được bỏ khỏi settings. Bảng bộ Quizlet chưa nằm trong envelope, nên backup chưa là bản sao mọi bảng.
+Backup mặc định dùng envelope v2: bốn bảng `words`, `quizletSets`, `dailyStats`, `settingsTable`, kèm `schemaVersion` và checksum SHA-256. API key được loại khỏi bản xuất. Trình nhập vẫn đọc v1; v1 không có bảng bộ Quizlet. Preview không ghi dữ liệu; khôi phục các bảng đã chọn trong một transaction, với bản khôi phục trước thay thế. Xem [chính sách toàn vẹn dữ liệu](data-integrity.md).
 
 ## Mạng và offline
 
