@@ -15,3 +15,9 @@ Content updates read and write in one IndexedDB transaction. Quizlet normalizati
 only applies fields unchanged since its snapshot; later reviews, notes and edits
 win. Deleted cards are not recreated and a rename cannot replace another term.
 No schema upgrade or historical replay is required.
+
+## Imported identifiers
+
+An ID occupied by another term is replaced with a fresh ID. Both cards and the
+original history survive. Reimporting merges by term without creating duplicates.
+Quizlet set references remain attached to the incoming card. No schema change.
