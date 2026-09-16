@@ -47,3 +47,5 @@ Mốc phiên bản đầu tiên ghi trong changelog; dự án đã có lịch s�
 ### Fixed
 
 - Siết xác thực URL Quizlet ở trình duyệt và backend trước khi mở trang bên ngoài.
+
+- Backup v2 giữ riêng các thẻ cùng cách viết, lịch sử và timestamp khi khôi phục.
