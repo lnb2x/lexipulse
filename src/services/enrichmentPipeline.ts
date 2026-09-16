@@ -345,6 +345,7 @@ export async function runEnrichmentPipeline(options: PipelineOptions): Promise<P
             model: settings.aiModel,
             signal: options.signal,
             timeoutMs: 8000,
+            forceReTranslate: options.forceReTranslate,
           },
           contextSentence,
           options.userMeaning

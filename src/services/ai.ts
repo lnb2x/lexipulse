@@ -164,6 +164,7 @@ export interface AIRequestConfig {
   groqModelPool?: string[];
   signal?: AbortSignal;
   timeoutMs?: number;
+  forceReTranslate?: boolean;
 }
 
 /**
@@ -583,7 +584,7 @@ export async function enrichWordWithAI(
   }
 
   // Check cache first (differentiating word, context, provider, model, pos, and endpoint)
-  const cached = getCachedAIEnrichment(word, contextSentence, provider, model, pos, baseUrl);
+  const cached = config.forceReTranslate ? null : getCachedAIEnrichment(word, contextSentence, provider, model, pos, baseUrl, userMeaning);
   if (cached) {
     return cached;
   }
@@ -771,7 +772,7 @@ Do not include markdown code block fences like \`\`\`json. Return raw JSON stric
     const parsed = extractJsonFromResponse(rawText);
     const normalized = validateAndNormalizeAIResponse(parsed, word);
     if (normalized) {
-      setCachedAIEnrichment(word, normalized, contextSentence, provider, model, pos, baseUrl);
+      setCachedAIEnrichment(word, normalized, contextSentence, provider, model, pos, baseUrl, userMeaning);
       if (normalized.lemma) {
         setCachedMorphology(
           word,

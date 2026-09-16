@@ -61,6 +61,7 @@ export interface AICacheKeyParams {
   baseUrl?: string;
   targetLang?: string;
   schemaVersion?: string;
+  userMeaning?: string;
 }
 
 /**
@@ -96,8 +97,9 @@ export function buildAICacheKey(
     const prov = wordOrParams.provider || 'gemini';
     const mod = wordOrParams.model || 'default';
     const lang = wordOrParams.targetLang || 'vi';
+    const senseHash = hashString(normalizeContext(wordOrParams.userMeaning));
     const schema = wordOrParams.schemaVersion || 'v3';
-    return `ai:${schema}:${prov}:${mod}:${cleanEndpoint}:${lang}:${normPos}:${normWord}:ctx_${contextHash}`;
+    return `ai:${schema}:${prov}:${mod}:${cleanEndpoint}:${lang}:${normPos}:${normWord}:ctx_${contextHash}:sense_${senseHash}`;
   }
 
   const normWord = wordOrParams.trim().toLowerCase();
@@ -105,7 +107,7 @@ export function buildAICacheKey(
   const contextHash = normContext ? hashString(normContext) : 'none';
   const cleanEndpoint = hashString(sanitizeEndpoint(baseUrl));
   const normPos = (pos || 'any').trim().toLowerCase();
-  return `ai:v3:${provider}:${model}:${cleanEndpoint}:${targetLang}:${normPos}:${normWord}:ctx_${contextHash}`;
+  return `ai:v3:${provider}:${model}:${cleanEndpoint}:${targetLang}:${normPos}:${normWord}:ctx_${contextHash}:sense_${hashString('')}`;
 }
 
 /**
@@ -118,7 +120,8 @@ export function getCachedAIEnrichment(
   provider = 'gemini',
   model = 'default',
   pos?: string,
-  baseUrl?: string
+  baseUrl?: string,
+  userMeaning?: string
 ): AIEnrichmentResult | null {
   const key = buildAICacheKey({
     word,
@@ -127,6 +130,7 @@ export function getCachedAIEnrichment(
     provider,
     model,
     baseUrl,
+    userMeaning,
   });
 
   const entry = aiCache.get(key);
@@ -155,7 +159,8 @@ export function setCachedAIEnrichment(
   provider = 'gemini',
   model = 'default',
   pos?: string,
-  baseUrl?: string
+  baseUrl?: string,
+  userMeaning?: string
 ): void {
   const key = buildAICacheKey({
     word,
@@ -164,6 +169,7 @@ export function setCachedAIEnrichment(
     provider,
     model,
     baseUrl,
+    userMeaning,
   });
 
   // If already exists, delete first to re-append at tail

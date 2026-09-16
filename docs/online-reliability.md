@@ -9,3 +9,5 @@ Production attempts same-origin /api/translate just like development. A 404 disa
 AI HTTP responses use the same body-aware deadline. A stalled provider response falls back to null so dictionary/local content can still be shown.
 
 Morphology analysis shares one deadline across its two attempts, including response bodies. Expired or cancelled jobs do not retry.
+
+AI cache entries include a hash of the target learning sense. Manual retranslation bypasses the entry and replaces it only after a valid response; normal lookups retain the 24-hour bounded cache.
