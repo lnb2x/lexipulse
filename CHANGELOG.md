@@ -4,6 +4,8 @@ Thay đổi đáng chú ý của LexiPulse. Lịch sử đầy đủ: [Git commi
 
 ## Unreleased
 
+- Preserve reviews and later edits during concurrent content updates and Quizlet normalization.
+
 - Keep local scratch experiments out of the test gate and run timing budgets separately.
 
 ## 0.1.0 — 2026-09-13

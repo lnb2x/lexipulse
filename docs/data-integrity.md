@@ -8,3 +8,10 @@ UI tests wait for the actual screen/card/database result rather than elapsed tim
 `npm run test:performance` runs the existing timing budgets with one worker;
 correctness assertions still run in the normal suite. Run performance budgets
 on an idle machine and report failures separately from correctness failures.
+
+## Concurrent content writes
+
+Content updates read and write in one IndexedDB transaction. Quizlet normalization
+only applies fields unchanged since its snapshot; later reviews, notes and edits
+win. Deleted cards are not recreated and a rename cannot replace another term.
+No schema upgrade or historical replay is required.
