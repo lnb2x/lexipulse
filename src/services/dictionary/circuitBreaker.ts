@@ -1,37 +1,38 @@
-/**
- * Fast fetch with timeout and external AbortSignal to prevent hanging UI
- */
+/** Fetch a buffered response under one deadline covering headers and body. */
 export async function fetchWithTimeout(
   url: string,
   options: RequestInit = {},
   timeoutMs = 2500,
   externalSignal?: AbortSignal
 ): Promise<Response> {
-  if (externalSignal?.aborted) {
-    throw new DOMException('Aborted', 'AbortError');
-  }
-
+  const signals = [...new Set([externalSignal, options.signal].filter((s): s is AbortSignal => !!s))];
+  for (const signal of signals) signal.throwIfAborted();
   const controller = new AbortController();
-  const timer = setTimeout(() => {
-    controller.abort(new DOMException(`Request timeout of ${timeoutMs}ms exceeded`, 'TimeoutError'));
-  }, timeoutMs);
-
-  const onExternalAbort = () => {
-    controller.abort(externalSignal?.reason || new DOMException('Aborted by user', 'AbortError'));
-  };
-
-  if (externalSignal) {
-    externalSignal.addEventListener('abort', onExternalAbort, { once: true });
-  }
-
+  const abort = () => controller.abort(signals.find(signal => signal.aborted)?.reason);
+  for (const signal of signals) signal.addEventListener('abort', abort, { once: true });
+  const timer = setTimeout(() => controller.abort(new DOMException('Request deadline exceeded', 'TimeoutError')), timeoutMs);
+  let response: Response | undefined;
+  let rejectAbort!: () => void;
+  const aborted = new Promise<never>((_, reject) => {
+    rejectAbort = () => reject(controller.signal.reason);
+    controller.signal.addEventListener('abort', rejectAbort, { once: true });
+  });
   try {
-    const res = await fetch(url, { ...options, signal: controller.signal });
-    return res;
+    return await Promise.race([
+      (async () => {
+        response = await fetch(url, { ...options, signal: controller.signal });
+        // Drain a clone so callers retain native status/headers/url and body methods.
+        if (response.body) await response.clone().arrayBuffer();
+        controller.signal.throwIfAborted();
+        return response;
+      })(),
+      aborted,
+    ]);
   } finally {
     clearTimeout(timer);
-    if (externalSignal) {
-      externalSignal.removeEventListener('abort', onExternalAbort);
-    }
+    for (const signal of signals) signal.removeEventListener('abort', abort);
+    controller.signal.removeEventListener('abort', rejectAbort);
+    if (controller.signal.aborted) void response?.body?.cancel().catch(() => {});
   }
 }
 

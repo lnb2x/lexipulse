@@ -4,6 +4,8 @@ Thay đổi đáng chú ý của LexiPulse. Lịch sử đầy đủ: [Git commi
 
 ## Unreleased
 
+- Keep dictionary timeouts and cancellation active through response-body download.
+
 - Forward bulk enrichment cancellation to dictionary requests and reject late results.
 
 - Đếm đúng các ID khác nhau bởi chữ hoa/thường trong preview thay thế backup.
