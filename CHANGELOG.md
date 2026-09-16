@@ -4,6 +4,8 @@ Thay đổi đáng chú ý của LexiPulse. Lịch sử đầy đủ: [Git commi
 
 ## Unreleased
 
+- Restore Quizlet word links, raw source text and the FSRS estimated flag from v1 backups.
+
 - Allocate new word IDs on collisions instead of overwriting another card.
 
 - Preserve reviews and later edits during concurrent content updates and Quizlet normalization.
