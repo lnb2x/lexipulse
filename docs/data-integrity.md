@@ -73,3 +73,5 @@ Trong v2, `settingsTable` là nguồn cài đặt chính; `settings` chỉ để
 Sau khi transaction khôi phục từ thành công, cache thẻ và gợi ý tra cứu trong tab được xóa để không trả lại thẻ đã bị thay thế.
 
 Preview v2 so sánh primary key đúng nguyên văn, có phân biệt chữ hoa/thường như IndexedDB. Chỉ term của import v1 được chuẩn hóa để tính số lượng.
+
+Regression ôn tập chờ nút chấm điểm của Flashcard và flush keyboard effect trước Space, không dùng heading có thể xuất hiện ở màn tra cứu làm dấu hiệu sẵn sàng. Giữ nguyên assertions FSRS/history/stats và thao tác bấm nhanh.
