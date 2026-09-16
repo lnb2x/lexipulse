@@ -1,5 +1,6 @@
 import { chromium, type Browser, type LaunchOptions } from '@playwright/test';
 import fs from 'node:fs';
+import { createQuizletTransport } from './quizletNetwork.ts';
 import { normalizeQuizletUrl } from './quizletUrl.ts';
 
 export interface ScrapedQuizletCardItem {
@@ -14,7 +15,7 @@ export interface ScrapedQuizletResult {
   cleanUrl?: string;
   terms?: ScrapedQuizletCardItem[];
   error?: string;
-  code?: 'invalid_url' | 'login_required' | 'challenge_blocked' | 'rate_limited' | 'not_found' | 'no_terms_found' | 'server_error' | 'timeout' | 'aborted';
+  code?: 'invalid_url' | 'login_required' | 'challenge_blocked' | 'rate_limited' | 'not_found' | 'no_terms_found' | 'server_error' | 'timeout' | 'aborted' | 'resource_limit' | 'blocked_resource';
   durationMs?: number;
 }
 
@@ -85,8 +86,23 @@ export async function scrapeQuizletWithPlaywright(rawUrl: string, options: { sig
       userAgent:
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       locale: 'vi-VN',
+      serviceWorkers: 'block',
+      acceptDownloads: false,
     });
 
+    const load = createQuizletTransport(controller.signal);
+    await page.context().routeWebSocket('**/*', socket => socket.close());
+    await page.context().route('**/*', async route => {
+      const request = route.request();
+      if (['image', 'media', 'font'].includes(request.resourceType()) || request.method() !== 'GET') {
+        await route.abort().catch(() => {}); return;
+      }
+      try { await route.fulfill(await load(request.url())); }
+      catch (error) {
+        await route.abort().catch(() => {});
+        if (error instanceof Error && error.message === 'resource_limit') controller.abort(error);
+      }
+    });
     const navRes = await page.goto(trimmed, {
       waitUntil: 'domcontentloaded',
       timeout: 30000,
@@ -237,7 +253,8 @@ export async function scrapeQuizletWithPlaywright(rawUrl: string, options: { sig
   } catch {
     return {
       success: false,
-      code: controller.signal.aborted ? (options.signal?.aborted ? 'aborted' : 'timeout') : 'server_error',
+      code: controller.signal.reason?.message === 'resource_limit' ? 'resource_limit'
+        : controller.signal.aborted ? (options.signal?.aborted ? 'aborted' : 'timeout') : 'blocked_resource',
       error: 'Quizlet browser job could not complete.',
       durationMs: Date.now() - startTime,
     };
