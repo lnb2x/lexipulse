@@ -63,6 +63,7 @@ export async function scrapeQuizletWithPlaywright(rawUrl: string, options: { sig
   if (options.signal?.aborted) abort();
   const timer = setTimeout(() => controller.abort(new DOMException('Deadline exceeded', 'TimeoutError')), Math.max(1, deadline - Date.now()));
   let browser: Browser | undefined;
+  let blockedNavigation = false;
   let closing: Promise<void> | undefined;
   const close = () => { if (browser) closing ??= browser.close().catch(() => {}); return closing; };
   const onAbort = () => { void close(); };
@@ -99,6 +100,7 @@ export async function scrapeQuizletWithPlaywright(rawUrl: string, options: { sig
       }
       try { await route.fulfill(await load(request.url())); }
       catch (error) {
+        if (request.isNavigationRequest() && error instanceof Error && error.message === 'blocked_resource') blockedNavigation = true;
         await route.abort().catch(() => {});
         if (error instanceof Error && error.message === 'resource_limit') controller.abort(error);
       }
@@ -162,7 +164,12 @@ export async function scrapeQuizletWithPlaywright(rawUrl: string, options: { sig
     }
 
     // Extract from Next.js payload __NEXT_DATA__
-    const nextDataRaw = await page.$eval('#__NEXT_DATA__', (el) => el.textContent).catch(() => null);
+    const payload = await page.evaluate(() => {
+      const text = document.querySelector('#__NEXT_DATA__')?.textContent ?? '';
+      return text.length > 8 * 1024 * 1024 ? { oversized: true, text: '' } : { oversized: false, text };
+    });
+    if (payload.oversized) throw new Error('resource_limit');
+    const nextDataRaw = payload.text;
 
     let setTitle: string | undefined;
     let setId: string | undefined;
@@ -184,12 +191,14 @@ export async function scrapeQuizletWithPlaywright(rawUrl: string, options: { sig
 
           const studiableItems = redux.studyModesCommon?.studiableData?.studiableItems;
           if (Array.isArray(studiableItems)) {
+            if (studiableItems.length > 10000) throw new Error('resource_limit');
             for (const item of studiableItems) {
               if (item.isDeleted) continue;
               const wordSide = item.cardSides?.find((s: any) => s.label === 'word') || item.cardSides?.[0];
               const defSide = item.cardSides?.find((s: any) => s.label === 'definition') || item.cardSides?.[1];
               const wordText = wordSide?.media?.find((m: any) => m.type === 1)?.plainText?.trim() || '';
               const defText = defSide?.media?.find((m: any) => m.type === 1)?.plainText?.trim() || '';
+              if (wordText.length > 20000 || defText.length > 20000) throw new Error('resource_limit');
               if (wordText || defText) {
                 terms.push({ term: wordText, definition: defText });
               }
@@ -197,6 +206,7 @@ export async function scrapeQuizletWithPlaywright(rawUrl: string, options: { sig
           }
         }
       } catch (jsonErr: any) {
+        if (jsonErr?.message === 'resource_limit') throw jsonErr;
         console.error('[QuizletScraper] Error parsing __NEXT_DATA__:', jsonErr.message);
       }
     }
@@ -209,15 +219,19 @@ export async function scrapeQuizletWithPlaywright(rawUrl: string, options: { sig
         const cards = document.querySelectorAll(
           '.SetPageTerm, [data-testid="SetPageTerm"], .SetPageTerms-term'
         );
+        if (cards.length > 10000) return { h1: '', list: [], oversized: true };
+        let oversized = h1.length > 20000;
         cards.forEach((c: any) => {
           const w =
             c.querySelector('.SetPageTerm-wordText, [data-testid="UILabel"]')?.textContent?.trim() || '';
           const d = c.querySelector('.SetPageTerm-definitionText')?.textContent?.trim() || '';
-          if (w || d) list.push({ term: w, definition: d });
+          if (w.length > 20000 || d.length > 20000) oversized = true;
+          else if (w || d) list.push({ term: w, definition: d });
         });
-        return { h1, list };
+        return { h1: oversized ? '' : h1, list: oversized ? [] : list, oversized };
       });
 
+      if (domResult.oversized) throw new Error('resource_limit');
       if (!setTitle && domResult.h1) {
         setTitle = domResult.h1;
       }
@@ -230,6 +244,7 @@ export async function scrapeQuizletWithPlaywright(rawUrl: string, options: { sig
       setTitle = title.replace(/\s*\|\s*Quizlet.*$/i, '').trim();
     }
 
+    if ((setTitle?.length ?? 0) > 20000 || (setId?.length ?? 0) > 1000) throw new Error('resource_limit');
     if (terms.length === 0) {
       return {
         success: false,
@@ -250,11 +265,12 @@ export async function scrapeQuizletWithPlaywright(rawUrl: string, options: { sig
       terms,
       durationMs: Date.now() - startTime,
     };
-  } catch {
+  } catch (error) {
     return {
       success: false,
-      code: controller.signal.reason?.message === 'resource_limit' ? 'resource_limit'
-        : controller.signal.aborted ? (options.signal?.aborted ? 'aborted' : 'timeout') : 'blocked_resource',
+      code: error instanceof Error && error.message.includes('resource_limit') ? 'resource_limit'
+        : controller.signal.reason?.message === 'resource_limit' ? 'resource_limit'
+        : controller.signal.aborted ? (options.signal?.aborted ? 'aborted' : 'timeout') : blockedNavigation ? 'blocked_resource' : 'server_error',
       error: 'Quizlet browser job could not complete.',
       durationMs: Date.now() - startTime,
     };

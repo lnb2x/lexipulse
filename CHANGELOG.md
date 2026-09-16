@@ -4,6 +4,8 @@ Thay đổi đáng chú ý của LexiPulse. Lịch sử đầy đủ: [Git commi
 
 ## Unreleased
 
+- Reject oversized Quizlet extraction without silently truncating cards.
+
 - Restrict Quizlet resource hosts, pin public DNS, and bound downloads and redirects.
 
 - Sandbox Quizlet Chromium jobs, close on deadline/disconnect and return challenges to paste import.
