@@ -1,10 +1,15 @@
 import { db } from './schema';
-import type { AppSettings, DailyStats, WordItem } from '../../types/vocab';
+import type { AppSettings, DailyStats, WordItem, QuizletSetRecord } from '../../types/vocab';
 import { formatLocalDate } from '../../utils/dateUtils';
-import { getAppSettings, getAllDailyStats } from './statsRepo';
+import { DEFAULT_SETTINGS } from './statsRepo';
+import { backupChecksum, sanitizeBackupSettings } from './backupEnvelope';
 
 export interface BackupEnvelope {
   version: number;
+  schemaVersion?: number;
+  checksum?: { algorithm: 'SHA-256'; value: string };
+  quizletSets?: QuizletSetRecord[];
+  settingsTable?: Array<{ key: string; value: unknown }>;
   type: 'lexipulse-backup';
   exportedAt: string;
   words: WordItem[];
@@ -31,33 +36,32 @@ export async function exportDeckToJson(
   const isFullBackup = options.fullBackup ?? (wordsToExport === undefined);
 
   if (isFullBackup) {
-    const words = wordsToExport ?? (await db.words.toArray());
+    const snapshot = await db.transaction('r', db.tables, async () => {
+      const [words, settingsTable, dailyStats, quizletSets] = await Promise.all([
+        wordsToExport ?? db.words.toArray(), db.settingsTable.toArray(),
+        db.dailyStats.toArray(), db.quizletSets.toArray(),
+      ]);
+      return { words, settingsTable, dailyStats, quizletSets };
+    });
     const includeSettings = options.includeSettings ?? true;
-    const includeDailyStats = options.includeDailyStats ?? true;
-
-    let settings: AppSettings | undefined = undefined;
-    if (includeSettings) {
-      const rawSettings = await getAppSettings();
-      // Always sanitize API keys before exporting
-      settings = {
-        ...rawSettings,
-        aiApiKey: '',
-        geminiApiKey: '',
-      };
-    }
-
-    let dailyStats: DailyStats[] | undefined = undefined;
-    if (includeDailyStats) {
-      dailyStats = await getAllDailyStats();
-    }
-
-    const envelope: BackupEnvelope = {
-      version: 1,
+    const settingsTable = includeSettings ? sanitizeBackupSettings(snapshot.settingsTable) : undefined;
+    const storedSettings = settingsTable?.find(row => row.key === 'appSettings')?.value;
+    const settings = includeSettings
+      ? { ...DEFAULT_SETTINGS, ...(storedSettings as Partial<AppSettings> ?? {}), aiApiKey: '', geminiApiKey: '' }
+      : undefined;
+    const payload: BackupEnvelope = {
+      version: 2,
+      schemaVersion: db.verno,
       type: 'lexipulse-backup',
       exportedAt: new Date().toISOString(),
-      words,
+      words: snapshot.words,
       settings,
-      dailyStats,
+      settingsTable,
+      dailyStats: (options.includeDailyStats ?? true) ? snapshot.dailyStats : undefined,
+      quizletSets: snapshot.quizletSets,
+    };
+    const envelope: BackupEnvelope = {
+      ...payload, checksum: { algorithm: 'SHA-256', value: await backupChecksum(payload) },
     };
 
     return JSON.stringify(envelope, null, 2);

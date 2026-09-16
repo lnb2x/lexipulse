@@ -1,5 +1,6 @@
 import { db } from './db';
 import { validateBackupWord } from './db/backupValidation';
+import { verifyBackupEnvelope } from './db/backupEnvelope';
 import type { DailyStats, EnrichmentStatus, MeaningItem, WordItem } from '../types/vocab';
 import { createInitialReviewMeta, migrateLegacyMetaToFSRS } from './fsrs/fsrsService';
 import { saveAppSettings } from './db/statsRepo';
@@ -742,6 +743,7 @@ export async function importDeckFromJson(
   const errors: string[] = [];
   try {
     const parsed = JSON.parse(jsonString);
+    await verifyBackupEnvelope(parsed, db.verno);
     let rawWords: any[] | null = null;
     let rawSettings: any = null;
     let rawDailyStats: any[] | null = null;
@@ -749,10 +751,6 @@ export async function importDeckFromJson(
     if (Array.isArray(parsed)) {
       rawWords = parsed;
     } else if (parsed && typeof parsed === 'object') {
-      if ((parsed.type !== undefined && parsed.type !== 'lexipulse-backup') ||
-          (parsed.version !== undefined && parsed.version !== 1)) {
-        throw new Error('Unsupported backup type or version');
-      }
       if (Array.isArray(parsed.words)) {
         rawWords = parsed.words;
       } else if (Array.isArray(parsed.deck)) {
@@ -859,6 +857,24 @@ export async function importDeckFromJson(
     }
 
     const res = await bulkUpsertWords(validItems, { replaceProgress: options.replaceProgress });
+
+    if (parsed.version === 2) {
+      for (const [index, set] of parsed.quizletSets.entries()) {
+        if (!set || typeof set.id !== 'string' || typeof set.title !== 'string' || typeof set.url !== 'string' ||
+            !Number.isFinite(set.createdAt) || !Number.isFinite(set.updatedAt)) {
+          errors.push(`quizletSets[${index}]: invalid record`);
+          continue;
+        }
+        if (!await db.quizletSets.get(set.id)) await db.quizletSets.put(set);
+      }
+      for (const [index, row] of (parsed.settingsTable ?? []).entries()) {
+        if (!row || typeof row.key !== 'string' || !('value' in row)) {
+          errors.push(`settingsTable[${index}]: invalid record`);
+          continue;
+        }
+        if (row.key !== 'appSettings' && !await db.settingsTable.get(row.key)) await db.settingsTable.put(row);
+      }
+    }
 
     let restoredSettings = false;
     if (rawSettings) {
