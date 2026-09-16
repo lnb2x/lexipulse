@@ -194,7 +194,7 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
     } catch (err: any) {
       if (!controller.signal.aborted) {
         setStatusMessage(
-          language === 'vi'
+          err?.message === 'normalization_backup_unavailable' ? t.backup.normalizationBackupFailed : language === 'vi'
             ? `Lỗi trong quá trình chuẩn hóa: ${err?.message || err}`
             : `Error during migration: ${err?.message || err}`
         );

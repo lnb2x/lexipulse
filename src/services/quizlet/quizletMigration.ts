@@ -427,11 +427,12 @@ export async function migrateTodayWords(
   // 1. Safe backup of today's target words before mutation
   const backupKey = `lexipulse_backup_today_${date}_${Date.now()}`;
   try {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(backupKey, JSON.stringify(todayWords));
-    }
-  } catch (err) {
-    console.warn('Could not store full backup in localStorage:', err);
+    if (typeof localStorage === 'undefined') throw new Error('Storage unavailable');
+    const serialized = JSON.stringify(todayWords);
+    localStorage.setItem(backupKey, serialized);
+    if (localStorage.getItem(backupKey) !== serialized) throw new Error('Backup verification failed');
+  } catch {
+    throw new Error('normalization_backup_unavailable');
   }
 
   let processed = 0;
