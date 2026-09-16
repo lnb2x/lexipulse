@@ -4,6 +4,8 @@ Thay đổi đáng chú ý của LexiPulse. Lịch sử đầy đủ: [Git commi
 
 ## Unreleased
 
+- Restore backups atomically and clear credentials when restoring provider settings.
+
 - Export all database tables in backup v2 with schema version and checksum; retain v1 import.
 
 - Validate backup records independently and report rejected rows without blocking valid words.
