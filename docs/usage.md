@@ -70,3 +70,10 @@ IndexedDB tách biệt theo origin: `localhost:5173`, `127.0.0.1:5173` và websi
 | AI không phản hồi | Key, model, endpoint, mạng, quyền truy cập và CORS. |
 | Không có âm thanh | Âm lượng, quyền phát âm thanh, nguồn audio và giọng thiết bị. |
 | Offline không mở được màn hình | Tải màn hình khi có mạng trước; tính năng gọi mạng vẫn cần kết nối. |
+
+### Khôi phục có xem trước
+
+Chọn Gộp hoặc Thay thế và các bảng cần nhập, rồi Xem trước thay đổi. Tải file
+khôi phục, xác nhận đã lưu, rồi mới ghi. Thay thế chỉ nhận v2 đầy đủ và ghép
+Từ vựng/Bộ Quizlet để giữ liên kết; file hỏng phải dùng Gộp hoặc sửa nguồn.
+Nếu dữ liệu thay đổi ở tab khác, cần xem trước lại. Khôi phục cài đặt xóa API key.
