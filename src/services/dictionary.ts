@@ -88,7 +88,7 @@ export async function getSpellingSuggestions(
     return cached.results;
   }
 
-  if (IN_FLIGHT_SUGGESTIONS.has(q)) {
+  if (!signal && IN_FLIGHT_SUGGESTIONS.has(q)) {
     return IN_FLIGHT_SUGGESTIONS.get(q)!;
   }
 
@@ -194,15 +194,15 @@ export async function getSpellingSuggestions(
     }
 
     const sorted = results.sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 5);
-    SUGGESTION_CACHE.set(q, { results: sorted, expires: Date.now() + 5 * 60 * 1000 });
+    if (!signal?.aborted) SUGGESTION_CACHE.set(q, { results: sorted, expires: Date.now() + 5 * 60 * 1000 });
     return sorted;
   })();
 
-  IN_FLIGHT_SUGGESTIONS.set(q, suggestionPromise);
+  if (!signal) IN_FLIGHT_SUGGESTIONS.set(q, suggestionPromise);
   try {
     return await suggestionPromise;
   } finally {
-    IN_FLIGHT_SUGGESTIONS.delete(q);
+    if (!signal) IN_FLIGHT_SUGGESTIONS.delete(q);
   }
 }
 
@@ -413,7 +413,7 @@ export async function lookupWord(rawWord: string, options?: LookupOptions): Prom
   }
 
   // Check In-Flight Lookups (deduplicate simultaneous requests for same word)
-  if (IN_FLIGHT_LOOKUPS.has(query)) {
+  if (!signal && IN_FLIGHT_LOOKUPS.has(query)) {
     const inFlightPromise = IN_FLIGHT_LOOKUPS.get(query)!;
     if (options?.onEnriched && !options?.skipBackgroundAi) {
       inFlightPromise
@@ -691,6 +691,7 @@ export async function lookupWord(rawWord: string, options?: LookupOptions): Prom
       enrichmentStatus: isWordTranslationComplete(basicWordItemDraft) ? 'completed' : 'pending',
     };
 
+    signal?.throwIfAborted();
     // Cache basic word immediately
     WORD_LRU_CACHE.set(query, basicWordItem);
 
@@ -702,10 +703,10 @@ export async function lookupWord(rawWord: string, options?: LookupOptions): Prom
     return basicWordItem;
   })();
 
-  IN_FLIGHT_LOOKUPS.set(query, lookupPromise);
+  if (!signal) IN_FLIGHT_LOOKUPS.set(query, lookupPromise);
   try {
     return await lookupPromise;
   } finally {
-    IN_FLIGHT_LOOKUPS.delete(query);
+    if (!signal) IN_FLIGHT_LOOKUPS.delete(query);
   }
 }

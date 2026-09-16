@@ -13,3 +13,5 @@ Morphology analysis shares one deadline across its two attempts, including respo
 AI cache entries include a hash of the target learning sense. Manual retranslation bypasses the entry and replaces it only after a valid response; normal lookups retain the 24-hour bounded cache.
 
 Auto-enriched Quizlet imports attach missing raw source text and set membership in one transaction after rereading current cards. Existing raw provenance, notes and review history are retained.
+
+Calls with an AbortSignal own their request lifetime and do not join another caller’s in-flight promise. Calls without a signal still deduplicate. This trades some overlapping network work for independent cancellation; completed results still share the bounded cache.

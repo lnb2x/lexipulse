@@ -34,7 +34,7 @@ export async function translateToVietnamese(
   }
 
   // Deduplicate in-flight requests for identical text
-  if (IN_FLIGHT_TRANSLATIONS.has(clean)) {
+  if (!signal && IN_FLIGHT_TRANSLATIONS.has(clean)) {
     return IN_FLIGHT_TRANSLATIONS.get(clean)!;
   }
 
@@ -147,10 +147,10 @@ export async function translateToVietnamese(
     return '';
   })();
 
-  IN_FLIGHT_TRANSLATIONS.set(clean, translationPromise);
+  if (!signal) IN_FLIGHT_TRANSLATIONS.set(clean, translationPromise);
   try {
     return await translationPromise;
   } finally {
-    IN_FLIGHT_TRANSLATIONS.delete(clean);
+    if (!signal) IN_FLIGHT_TRANSLATIONS.delete(clean);
   }
 }
