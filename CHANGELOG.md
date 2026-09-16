@@ -4,6 +4,8 @@ Thay đổi đáng chú ý của LexiPulse. Lịch sử đầy đủ: [Git commi
 
 ## Unreleased
 
+- Validate backup records independently and report rejected rows without blocking valid words.
+
 - Preserve active local daily statistics during default backup merge.
 
 - Restore Quizlet word links, raw source text and the FSRS estimated flag from v1 backups.

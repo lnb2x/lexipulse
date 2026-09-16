@@ -28,3 +28,10 @@ Default restore keeps an existing day with recorded reviews. Missing/empty days
 are restored from the file; counts are never summed, so reimport is idempotent.
 Explicit progress replacement restores file counts. This preserves local activity
 without pretending overlapping histories from different devices can be added.
+
+## Invalid backup records
+
+Invalid nested word data or FSRS values reject that record, not the valid records
+beside it. The result reports the original zero-based index and invalid field.
+Rejected records and their histories are never repaired by guessing; keep the
+source backup. Unsupported envelope type/version is rejected before any write.

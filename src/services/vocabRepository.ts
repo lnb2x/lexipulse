@@ -1,4 +1,5 @@
 import { db } from './db';
+import { validateBackupWord } from './db/backupValidation';
 import type { DailyStats, EnrichmentStatus, MeaningItem, WordItem } from '../types/vocab';
 import { createInitialReviewMeta, migrateLegacyMetaToFSRS } from './fsrs/fsrsService';
 import { saveAppSettings } from './db/statsRepo';
@@ -748,6 +749,10 @@ export async function importDeckFromJson(
     if (Array.isArray(parsed)) {
       rawWords = parsed;
     } else if (parsed && typeof parsed === 'object') {
+      if ((parsed.type !== undefined && parsed.type !== 'lexipulse-backup') ||
+          (parsed.version !== undefined && parsed.version !== 1)) {
+        throw new Error('Unsupported backup type or version');
+      }
       if (Array.isArray(parsed.words)) {
         rawWords = parsed.words;
       } else if (Array.isArray(parsed.deck)) {
@@ -771,12 +776,14 @@ export async function importDeckFromJson(
     const validItems: WordItem[] = [];
     let skipped = 0;
 
-    for (const item of rawWords) {
-      if (!item || !item.word || typeof item.word !== 'string') {
+    for (const [index, item] of rawWords.entries()) {
+      const invalidField = validateBackupWord(item);
+      if (invalidField) {
         skipped++;
+        errors.push(`words[${index}]: invalid ${invalidField}`);
         continue;
       }
-
+      try {
       const wordLower = normalizeWordTerm(item.word);
       const createdAt = item.createdAt && !isNaN(item.createdAt) ? item.createdAt : Date.now();
 
@@ -845,6 +852,10 @@ export async function importDeckFromJson(
         rawQuizletDefinition: item.rawQuizletDefinition,
       };
       validItems.push(wordRecord);
+      } catch {
+        skipped++;
+        errors.push(`words[${index}]: invalid review or content data`);
+      }
     }
 
     const res = await bulkUpsertWords(validItems, { replaceProgress: options.replaceProgress });
