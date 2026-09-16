@@ -4,6 +4,8 @@ Thay đổi đáng chú ý của LexiPulse. Lịch sử đầy đủ: [Git commi
 
 ## Unreleased
 
+- Stop today's-word normalization when its recovery backup cannot be stored or verified.
+
 - Preview restore differences, select tables and download a recovery file before confirming writes (vi/en).
 
 - Add read-only restore previews, table selection and replacement guarded by a current recovery snapshot.

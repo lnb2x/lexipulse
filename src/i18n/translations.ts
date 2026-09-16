@@ -3,6 +3,7 @@ export type Language = 'vi' | 'en';
 export const translations = {
   vi: {
     backup: {
+      normalizationBackupFailed: 'Không lưu được bản sao dự phòng; chưa sửa từ nào. Hãy giải phóng dung lượng lưu trữ rồi thử lại.',
       title: "Khôi phục bản sao lưu",
       description: "Xem trước thay đổi và lưu bản khôi phục trước khi ghi dữ liệu.",
       mode: "Cách khôi phục",
@@ -341,6 +342,7 @@ export const translations = {
   },
   en: {
     backup: {
+      normalizationBackupFailed: 'The recovery backup could not be saved; no words were changed. Free storage space and try again.',
       title: "Restore backup",
       description: "Preview changes and save a recovery backup before writing data.",
       mode: "Restore mode",

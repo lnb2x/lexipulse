@@ -59,3 +59,9 @@ a complete v2 recovery snapshot and replaces words and Quizlet sets together.
 The current database is compared with that snapshot inside the write transaction;
 another tab's edit/review makes the preview stale and blocks all writes.
 Replacement rejects damaged word records rather than clearing their originals.
+
+## Normalization safeguard
+
+Today's-word normalization stops before any mutation if its local recovery copy
+cannot be written and read back. A full localStorage quota can therefore block
+this optional operation; it never bypasses the backup requirement silently.
