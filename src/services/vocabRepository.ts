@@ -1,6 +1,7 @@
 import { db } from './db';
-import { validateBackupWord } from './db/backupValidation';
+import { validateBackupWord, validateSupplementalTables } from './db/backupValidation';
 import { verifyBackupEnvelope } from './db/backupEnvelope';
+import { BACKUP_TABLES, assertRecoverySnapshot, readRecoverySnapshot, buildBackupPreview, type BackupTableName, type BackupPreview } from './db/backupPlan';
 import type { DailyStats, EnrichmentStatus, MeaningItem, WordItem } from '../types/vocab';
 import { createInitialReviewMeta, migrateLegacyMetaToFSRS } from './fsrs/fsrsService';
 import { saveAppSettings } from './db/statsRepo';
@@ -717,6 +718,10 @@ export const vocabRepository = {
 
 export interface ImportDeckOptions {
   replaceProgress?: boolean;
+  tables?: BackupTableName[];
+  mode?: 'merge' | 'replace';
+  previewOnly?: boolean;
+  recoveryBackup?: string;
 }
 
 export interface ImportDeckResult {
@@ -725,6 +730,7 @@ export interface ImportDeckResult {
   errors: string[];
   restoredSettings?: boolean;
   restoredDailyStats?: number;
+  preview?: BackupPreview;
 }
 
 /**
@@ -746,6 +752,16 @@ export async function importDeckFromJson(
   try {
     const parsed = JSON.parse(jsonString);
     await verifyBackupEnvelope(parsed, db.verno);
+    errors.push(...validateSupplementalTables(parsed));
+    const selected = new Set(options.tables ?? BACKUP_TABLES);
+    if (!selected.size || [...selected].some(name => !BACKUP_TABLES.includes(name))) throw new Error('invalid_table_selection');
+    const replace = options.mode === 'replace';
+    if (replace && (parsed.version !== 2 || [...selected].some(name => !Array.isArray(parsed[name])))) {
+      throw new Error('replace_requires_complete_v2_tables');
+    }
+    if (replace && selected.has('words') !== selected.has('quizletSets')) throw new Error('replace_words_and_sets_together');
+    const recovery = options.recoveryBackup ? await readRecoverySnapshot(options.recoveryBackup) : undefined;
+    if (replace && !options.previewOnly && !recovery) throw new Error('complete_recovery_backup_required');
     let rawWords: any[] | null = null;
     let rawSettings: any = null;
     let rawDailyStats: any[] | null = null;
@@ -858,15 +874,24 @@ export async function importDeckFromJson(
       }
     }
 
+    if (options.previewOnly) {
+      return { imported: 0, skipped, errors, preview: await buildBackupPreview(validItems, parsed, replace) };
+    }
+    if (!selected.has('settingsTable')) rawSettings = null;
     if (rawSettings && typeof sessionStorage !== 'undefined') {
       sessionBefore = sessionStorage.getItem('lexipulse_session_ai_key');
       sessionTouched = true;
     }
     return await db.transaction('rw', db.tables, async () => {
-    const res = await bulkUpsertWords(validItems, { replaceProgress: options.replaceProgress });
+    if (recovery) await assertRecoverySnapshot(recovery);
+    if (replace) {
+      if (skipped > 0 || errors.length > 0) throw new Error('replace_rejected_records');
+      for (const name of selected) await db.table(name).clear();
+    }
+    const res = await bulkUpsertWords(selected.has('words') ? validItems : [], { replaceProgress: options.replaceProgress || replace });
 
     if (parsed.version === 2) {
-      for (const [index, set] of parsed.quizletSets.entries()) {
+      for (const [index, set] of (selected.has('quizletSets') ? parsed.quizletSets : []).entries()) {
         if (!set || typeof set.id !== 'string' || typeof set.title !== 'string' || typeof set.url !== 'string' ||
             !Number.isFinite(set.createdAt) || !Number.isFinite(set.updatedAt)) {
           errors.push(`quizletSets[${index}]: invalid record`);
@@ -874,7 +899,7 @@ export async function importDeckFromJson(
         }
         if (!await db.quizletSets.get(set.id)) await db.quizletSets.put(set);
       }
-      for (const [index, row] of (parsed.settingsTable ?? []).entries()) {
+      for (const [index, row] of (selected.has('settingsTable') ? parsed.settingsTable ?? [] : []).entries()) {
         if (!row || typeof row.key !== 'string' || !('value' in row)) {
           errors.push(`settingsTable[${index}]: invalid record`);
           continue;
@@ -894,7 +919,7 @@ export async function importDeckFromJson(
     }
 
     let restoredDailyStats = 0;
-    if (rawDailyStats && rawDailyStats.length > 0) {
+    if (selected.has('dailyStats') && rawDailyStats && rawDailyStats.length > 0) {
       try {
         const validStats: DailyStats[] = rawDailyStats
           .filter((s: any) => s && typeof s.date === 'string' && typeof s.cardsReviewed === 'number')

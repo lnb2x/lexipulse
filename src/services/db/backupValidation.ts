@@ -4,6 +4,46 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 const finite = (value: unknown) => typeof value === 'number' && Number.isFinite(value);
 const strings = (value: unknown) => Array.isArray(value) && value.every(v => typeof v === 'string');
 
+function validSettings(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const text = ['aiProvider', 'aiApiKey', 'geminiApiKey', 'aiBaseUrl', 'aiModel', 'theme', 'preferredAccent'];
+  const numbers = ['speechRate', 'speechPitch', 'dailyQuota', 'loopInterval', 'desiredRetention'];
+  return text.every(key => value[key] === undefined || typeof value[key] === 'string') &&
+    numbers.every(key => value[key] === undefined || (finite(value[key]) && Number(value[key]) > 0)) &&
+    ['persistApiKey', 'prioritizeAI'].every(key => value[key] === undefined || typeof value[key] === 'boolean') &&
+    (value.groqModelPool === undefined || strings(value.groqModelPool));
+}
+
+/** Filter damaged auxiliary records before preview or any destructive write. */
+export function validateSupplementalTables(parsed: Record<string, unknown>): string[] {
+  const errors: string[] = [];
+  const validDate = (value: unknown) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    Number.isFinite(Date.parse(value)) && new Date(value).toISOString().startsWith(value);
+  const integer = (value: unknown) => finite(value) && Number.isInteger(value) && Number(value) >= 0;
+  const checks: Record<string, (row: Record<string, unknown>) => boolean> = {
+    quizletSets: row => typeof row.id === 'string' && !!row.id.trim() && typeof row.title === 'string' &&
+      typeof row.url === 'string' && finite(row.createdAt) && finite(row.updatedAt),
+    dailyStats: row => validDate(row.date) && integer(row.cardsReviewed) &&
+      (row.streak === undefined || integer(row.streak)) && (row.lastActiveDate === undefined || validDate(row.lastActiveDate)),
+    settingsTable: row => typeof row.key === 'string' && !!row.key && 'value' in row &&
+      (row.key !== 'appSettings' || validSettings(row.value)),
+  };
+  for (const [name, check] of Object.entries(checks)) {
+    if (parsed[name] === undefined) continue;
+    if (!Array.isArray(parsed[name])) throw new Error(`Invalid backup table: ${name}`);
+    parsed[name] = parsed[name].filter((row, index) => {
+      if (isRecord(row) && check(row)) return true;
+      errors.push(`${name}[${index}]: invalid record`);
+      return false;
+    });
+  }
+  if (parsed.settings !== undefined && !validSettings(parsed.settings)) {
+    errors.push('settings: invalid record');
+    delete parsed.settings;
+  }
+  return errors;
+}
+
 /** Return a field path, never raw imported content or credentials. */
 export function validateBackupWord(item: unknown): string | undefined {
   if (!isRecord(item) || typeof item.word !== 'string' || !item.word.trim()) return 'word';
