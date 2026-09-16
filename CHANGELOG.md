@@ -4,6 +4,8 @@ Thay đổi đáng chú ý của LexiPulse. Lịch sử đầy đủ: [Git commi
 
 ## Unreleased
 
+- Forward bulk enrichment cancellation to dictionary requests and reject late results.
+
 - Đếm đúng các ID khác nhau bởi chữ hoa/thường trong preview thay thế backup.
 
 - Backup v2 giữ riêng các thẻ cùng cách viết, lịch sử và timestamp khi khôi phục.

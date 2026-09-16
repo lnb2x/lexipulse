@@ -79,9 +79,9 @@ export async function fetchDatamuseInfo(
 /**
  * Resolves IPA for a single word using cache, knowledge base, open-vn-en-dict, and Datamuse.
  */
-export async function resolveSingleWordIpa(rawWord: string): Promise<string> {
+export async function resolveSingleWordIpa(rawWord: string, signal?: AbortSignal): Promise<string> {
   const w = rawWord.trim().toLowerCase().replace(/^[^\w]+|[^\w]+$/g, '');
-  if (!w) return '';
+  if (!w || signal?.aborted) return '';
 
   // 1. Common words dictionary
   if (COMMON_WORDS_IPA[w]) {
@@ -104,8 +104,8 @@ export async function resolveSingleWordIpa(rawWord: string): Promise<string> {
   // 4. Online parallel query (OpenVnDict + Datamuse)
   try {
     const [openVn, datamuse] = await Promise.all([
-      fetchOpenVnEnDictData(w, 1500),
-      fetchDatamuseInfo(w, 1500),
+      fetchOpenVnEnDictData(w, 1500, signal),
+      fetchDatamuseInfo(w, 1500, signal),
     ]);
     const ipa = openVn?.ipa || datamuse?.ipa;
     if (ipa) {
@@ -122,16 +122,16 @@ export async function resolveSingleWordIpa(rawWord: string): Promise<string> {
  * Resolves accurate IPA for multi-word phrases (e.g. "floral arrangement", "take into account")
  * by resolving each constituent word and combining them cleanly.
  */
-export async function resolvePhraseIpa(phrase: string): Promise<string> {
+export async function resolvePhraseIpa(phrase: string, signal?: AbortSignal): Promise<string> {
   const words = phrase.trim().split(/\s+/).filter(Boolean);
   if (words.length === 0) return '';
   if (words.length === 1) {
-    const singleIpa = await resolveSingleWordIpa(words[0]);
+    const singleIpa = await resolveSingleWordIpa(words[0], signal);
     return singleIpa ? `/${singleIpa}/` : '';
   }
 
   // Resolve all words in parallel
-  const wordIpas = await Promise.all(words.map((w) => resolveSingleWordIpa(w)));
+  const wordIpas = await Promise.all(words.map((w) => resolveSingleWordIpa(w, signal)));
 
   // If at least one word has a valid phonetic representation, combine
   const hasAnyValid = wordIpas.some((ipa) => ipa.length > 0);

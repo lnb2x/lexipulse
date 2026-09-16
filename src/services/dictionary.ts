@@ -528,7 +528,7 @@ export async function lookupWord(rawWord: string, options?: LookupOptions): Prom
       targetForDict ? fetchDatamuseInfo(targetForDict, 800, signal) : Promise.resolve(null),
       fetchWiktionaryData(targetForDict || query, 800, signal),
       translateToVietnamese(query, 800, signal),
-      isPhrase ? resolvePhraseIpa(query) : Promise.resolve(''),
+      isPhrase ? resolvePhraseIpa(query, signal) : Promise.resolve(''),
     ]);
 
     const openVnData = openVnRes.status === 'fulfilled' ? openVnRes.value : null;

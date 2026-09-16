@@ -78,7 +78,8 @@ export async function runBulkEnrichment(
   const tags = options.tags && options.tags.length > 0 ? options.tags : ['#Imported'];
   const createdAt = options.createdAt ?? Date.now();
   const parentSignal = options.abortSignal;
-  const lookup = options.lookupFn ?? lookupWord;
+  const lookup = options.lookupFn ?? ((word: string, signal?: AbortSignal) =>
+    lookupWord(word, { signal, skipBackgroundAi: true }));
 
   const total = items.length;
   let succeeded = 0;
@@ -137,6 +138,7 @@ export async function runBulkEnrichment(
 
       try {
         const lookupResult = await lookup(item.word, childController.signal);
+        childController.signal.throwIfAborted();
 
         // Word enriched successfully
         const candidateRecord = {
