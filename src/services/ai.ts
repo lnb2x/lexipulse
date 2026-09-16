@@ -1,3 +1,4 @@
+import { fetchWithTimeout as fetchWithTimeoutAI } from './dictionary/circuitBreaker';
 import type { AIProvider, CollocationItem, ExampleItem, WordFamilyItem, InflectionItem } from '../types/vocab';
 import { getCachedAIEnrichment, setCachedAIEnrichment } from './ai/aiCache';
 import {
@@ -214,46 +215,6 @@ function releaseAISlot(): void {
   if (aiQueue.length > 0) {
     const next = aiQueue.shift();
     next?.();
-  }
-}
-
-/**
- * Fetch helper with timeout and combined AbortSignal for AI requests
- */
-async function fetchWithTimeoutAI(
-  url: string,
-  options: RequestInit = {},
-  timeoutMs = 8000,
-  externalSignal?: AbortSignal
-): Promise<Response> {
-  if (externalSignal?.aborted) {
-    throw new DOMException('Aborted', 'AbortError');
-  }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => {
-    controller.abort(new DOMException(`AI request timeout of ${timeoutMs}ms exceeded`, 'TimeoutError'));
-  }, timeoutMs);
-
-  const onExternalAbort = () => {
-    controller.abort(externalSignal?.reason || new DOMException('Aborted by user', 'AbortError'));
-  };
-
-  if (externalSignal) {
-    externalSignal.addEventListener('abort', onExternalAbort, { once: true });
-  }
-
-  try {
-    const res = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
-    return res;
-  } finally {
-    clearTimeout(timer);
-    if (externalSignal) {
-      externalSignal.removeEventListener('abort', onExternalAbort);
-    }
   }
 }
 

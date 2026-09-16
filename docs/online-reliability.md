@@ -5,3 +5,7 @@ Bulk enrichment forwards cancellation to the real dictionary adapter. A cancelle
 Dictionary deadlines cover headers and the complete response body. External cancellation remains attached until the body is read; callers receive a buffered native Response. Streaming use cases must use a separate API.
 
 Production attempts same-origin /api/translate just like development. A 404 disables this optional source for the session; transient failures use the circuit breaker. Static deployments still fall back without requiring a server.
+
+AI HTTP responses use the same body-aware deadline. A stalled provider response falls back to null so dictionary/local content can still be shown.
+
+Morphology analysis shares one deadline across its two attempts, including response bodies. Expired or cancelled jobs do not retry.

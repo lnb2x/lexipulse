@@ -1,5 +1,6 @@
 import type { AIRequestConfig } from '../ai';
 import { AI_PROVIDERS } from '../ai';
+import { fetchWithTimeout } from '../dictionary/circuitBreaker';
 import { hashString } from './aiCache';
 import { groqPoolManager } from './groqPoolManager';
 
@@ -356,11 +357,13 @@ Respond strictly in JSON matching this schema:
 }
 Return raw JSON strictly. Do not include markdown code block fences.`;
 
+  const deadline = Date.now() + (config.timeoutMs ?? 8000);
+
   // Helper to execute 1 request attempt
   const executeCall = async (): Promise<string> => {
     if (provider === 'gemini') {
       const endpoint = `${baseUrl}/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const res = await fetch(endpoint, {
+      const res = await fetchWithTimeout(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -369,7 +372,7 @@ Return raw JSON strictly. Do not include markdown code block fences.`;
           generationConfig: { responseMimeType: 'application/json' },
         }),
         signal: config.signal,
-      });
+      }, Math.max(1, deadline - Date.now()));
 
       if (!res.ok) {
         throw new Error(`Gemini API error ${res.status}`);
@@ -389,13 +392,13 @@ Return raw JSON strictly. Do not include markdown code block fences.`;
         temperature: 0.1,
         response_format: { type: 'json_object' },
         signal: config?.signal,
-        timeoutMs: config?.timeoutMs || 8000,
+        timeoutMs: Math.max(1, deadline - Date.now()),
       });
       return poolResponse.choices?.[0]?.message?.content || '';
     } else {
       // OpenAI / DeepSeek / OpenRouter / Custom compatible endpoint
       const endpoint = `${baseUrl}/chat/completions`;
-      const res = await fetch(endpoint, {
+      const res = await fetchWithTimeout(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -411,7 +414,7 @@ Return raw JSON strictly. Do not include markdown code block fences.`;
           response_format: { type: 'json_object' },
         }),
         signal: config.signal,
-      });
+      }, Math.max(1, deadline - Date.now()));
 
       if (!res.ok) {
         throw new Error(`${providerInfo.name} API error ${res.status}`);
@@ -423,6 +426,7 @@ Return raw JSON strictly. Do not include markdown code block fences.`;
 
   // Attempt with at most 1 retry on malformed JSON
   for (let attempt = 0; attempt < 2; attempt++) {
+    if (config.signal?.aborted || Date.now() >= deadline) return null;
     try {
       const rawText = await executeCall();
       if (!rawText) continue;
@@ -435,6 +439,7 @@ Return raw JSON strictly. Do not include markdown code block fences.`;
         return validated;
       }
     } catch (err) {
+      if (config.signal?.aborted || Date.now() >= deadline) return null;
       if (attempt === 1) {
         console.warn(`[AIMorphology] Failed to analyze lemma for "${trimmedWord}":`, err instanceof Error ? err.message : err);
       }
