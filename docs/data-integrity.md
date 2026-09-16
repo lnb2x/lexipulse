@@ -21,3 +21,10 @@ No schema upgrade or historical replay is required.
 An ID occupied by another term is replaced with a fresh ID. Both cards and the
 original history survive. Reimporting merges by term without creating duplicates.
 Quizlet set references remain attached to the incoming card. No schema change.
+
+## Daily statistics merge
+
+Default restore keeps an existing day with recorded reviews. Missing/empty days
+are restored from the file; counts are never summed, so reimport is idempotent.
+Explicit progress replacement restores file counts. This preserves local activity
+without pretending overlapping histories from different devices can be added.

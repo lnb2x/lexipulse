@@ -872,8 +872,15 @@ export async function importDeckFromJson(
           }));
 
         if (validStats.length > 0) {
-          await db.dailyStats.bulkPut(validStats);
-          restoredDailyStats = validStats.length;
+          await db.transaction('rw', db.dailyStats, async () => {
+            for (const incoming of validStats) {
+              const current = await db.dailyStats.get(incoming.date);
+              if (options.replaceProgress || !current || current.cardsReviewed === 0) {
+                await db.dailyStats.put(incoming);
+                restoredDailyStats++;
+              }
+            }
+          });
         }
       } catch (e: any) {
         errors.push(`DailyStats restoration notice: ${e.message || 'failed to restore dailyStats'}`);
