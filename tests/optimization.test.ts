@@ -1,3 +1,4 @@
+import { expectPerformanceBudget } from './performanceBudget';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import 'fake-indexeddb/auto';
 import { db } from '../src/services/db';
@@ -26,7 +27,7 @@ describe('Performance & Reliability Optimizations', () => {
     }
     kbLatencies.sort((a, b) => a - b);
     const kbP95 = kbLatencies[Math.floor(kbLatencies.length * 0.95)];
-    expect(kbP95).toBeLessThan(20);
+    expectPerformanceBudget(kbP95, 20);
 
     // 1.2 Memory Cache hit (warm word)
     const cacheLatencies: number[] = [];
@@ -38,7 +39,7 @@ describe('Performance & Reliability Optimizations', () => {
     }
     cacheLatencies.sort((a, b) => a - b);
     const cacheP95 = cacheLatencies[Math.floor(cacheLatencies.length * 0.95)];
-    expect(cacheP95).toBeLessThan(20);
+    expectPerformanceBudget(cacheP95, 20);
 
     // 1.3 IndexedDB hit
     const sampleWord: WordItem = {
@@ -69,7 +70,7 @@ describe('Performance & Reliability Optimizations', () => {
     }
     idbLatencies.sort((a, b) => a - b);
     const idbP95 = idbLatencies[Math.floor(idbLatencies.length * 0.95)];
-    expect(idbP95).toBeLessThan(20);
+    expectPerformanceBudget(idbP95, 20);
   });
 
   it('2. IndexedDB save p95 < 50ms with 10,000 words deck', async () => {
@@ -132,7 +133,7 @@ describe('Performance & Reliability Optimizations', () => {
 
     saveLatencies.sort((a, b) => a - b);
     const saveP95 = saveLatencies[Math.floor(saveLatencies.length * 0.95)];
-    expect(saveP95).toBeLessThan(50);
+    expectPerformanceBudget(saveP95, 50);
   });
 
   it('3. Synchronous work on main thread for typing is under 16ms', () => {
@@ -162,14 +163,14 @@ describe('Performance & Reliability Optimizations', () => {
       map.set(w.word.toLowerCase(), w);
     }
     const mapTime = performance.now() - t0;
-    expect(mapTime).toBeLessThan(16);
+    expectPerformanceBudget(mapTime, 16);
 
     // Instant O(1) keystroke check
     const t1 = performance.now();
     const isPresent = map.has('terminology500');
     const lookupDuration = performance.now() - t1;
     expect(isPresent).toBe(true);
-    expect(lookupDuration).toBeLessThan(1); // sub-millisecond
+    expectPerformanceBudget(lookupDuration, 1); // sub-millisecond
   });
 
   it('4. Hanging network source: essential source completes, basic result appears < 1,000ms', async () => {
@@ -209,7 +210,7 @@ describe('Performance & Reliability Optimizations', () => {
       const t0 = performance.now();
       const res = await lookupWord('resilient');
       const elapsed = performance.now() - t0;
-      expect(elapsed).toBeLessThan(1000);
+      expectPerformanceBudget(elapsed, 1000);
       expect(res.word).toBe('resilient');
       expect(res.vietnameseDefinition).toBeTruthy();
     } finally {
@@ -235,7 +236,7 @@ describe('Performance & Reliability Optimizations', () => {
     const syncDuration = performance.now() - t0;
 
     // Basic result returned instantly from local KB
-    expect(syncDuration).toBeLessThan(20);
+    expectPerformanceBudget(syncDuration, 20);
     expect(basicResult.word).toBe('collaborate');
     expect(basicResult.vietnameseDefinition).toBeTruthy();
 

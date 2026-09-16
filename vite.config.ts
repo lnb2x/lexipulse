@@ -157,6 +157,7 @@ function quizletPlugin(): Plugin {
 export default defineConfig({
   plugins: [react(), translationPlugin(), quizletPlugin()],
   test: {
+    include: ['tests/**/*.test.{ts,tsx}'],
     exclude: ['**/node_modules/**', '**/dist/**', '**/e2e/**'],
   },
 } as any)

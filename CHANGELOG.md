@@ -4,6 +4,8 @@ Thay đổi đáng chú ý của LexiPulse. Lịch sử đầy đủ: [Git commi
 
 ## Unreleased
 
+- Keep local scratch experiments out of the test gate and run timing budgets separately.
+
 ## 0.1.0 — 2026-09-13
 
 Mốc phiên bản đầu tiên ghi trong changelog; dự án đã có lịch sử phát triển trước mốc này.

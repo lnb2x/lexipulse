@@ -2,7 +2,7 @@
 import 'fake-indexeddb/auto';
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, act, cleanup, waitFor } from '@testing-library/react';
 import { db, saveAppSettings, getTodayStats } from '../src/services/db';
 import { LanguageProvider } from '../src/context/LanguageContext';
 import { Flashcard } from '../src/components/review/Flashcard';
@@ -103,10 +103,7 @@ describe('Review Idempotency & Rapid Input Protection Regression Suite', () => {
       fireEvent.click(reviewTabButton);
     });
 
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 100));
-    });
-
+    await waitFor(() => expect(document.getElementById('panel-review')).not.toBeNull());
     const panel = document.getElementById('panel-review')!;
     const buttons = panel.querySelectorAll('button');
     const startBtn = buttons[0];
@@ -114,9 +111,7 @@ describe('Review Idempotency & Rapid Input Protection Regression Suite', () => {
       fireEvent.click(startBtn);
     });
 
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 400));
-    });
+    await screen.findByRole('heading', { name: 'resilience' });
 
     // Spacebar to flip card
     act(() => {
@@ -194,10 +189,7 @@ describe('Review Idempotency & Rapid Input Protection Regression Suite', () => {
       fireEvent.click(reviewTabButton);
     });
 
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 100));
-    });
-
+    await waitFor(() => expect(document.getElementById('panel-review')).not.toBeNull());
     const panel = document.getElementById('panel-review')!;
     const buttons = panel.querySelectorAll('button');
     const startBtn = buttons[0];
@@ -205,9 +197,7 @@ describe('Review Idempotency & Rapid Input Protection Regression Suite', () => {
       fireEvent.click(startBtn);
     });
 
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 400));
-    });
+    await screen.findByRole('heading', { name: 'resilience' });
 
     // Spacebar to flip card 1
     act(() => {
@@ -284,10 +274,7 @@ describe('Review Idempotency & Rapid Input Protection Regression Suite', () => {
       fireEvent.click(clozeModeCard);
     });
 
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 100));
-    });
-
+    await waitFor(() => expect(document.getElementById('panel-review')).not.toBeNull());
     const panel = document.getElementById('panel-review')!;
     const startBtn = panel.querySelector('button.bg-indigo-600') as HTMLButtonElement;
     act(() => {

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto';
+import { expectPerformanceBudget } from './performanceBudget';
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, cleanup, waitFor } from '@testing-library/react';
@@ -186,7 +187,7 @@ describe('Heatmap Review Navigation & UI Freeze Regression', () => {
     const transitionDuration = performance.now() - transitionStart;
 
     // Transition must be fast (< 250ms), not stalled by large card lists
-    expect(transitionDuration).toBeLessThan(250);
+    expectPerformanceBudget(transitionDuration, 250);
 
     // Review session accurately initialized with first card heading
     await waitFor(() => expect(screen.getByRole('tabpanel').id).toBe('panel-review'));
