@@ -71,3 +71,5 @@ Backup v2 khôi phục theo ID: các thẻ cùng cách viết nhưng khác ID gi
 Trong v2, `settingsTable` là nguồn cài đặt chính; `settings` chỉ để tương thích. Các trường khóa AI cũng được loại khi nhập các dòng settings mở rộng.
 
 Sau khi transaction khôi phục từ thành công, cache thẻ và gợi ý tra cứu trong tab được xóa để không trả lại thẻ đã bị thay thế.
+
+Preview v2 so sánh primary key đúng nguyên văn, có phân biệt chữ hoa/thường như IndexedDB. Chỉ term của import v1 được chuẩn hóa để tính số lượng.

@@ -4,6 +4,8 @@ Thay đổi đáng chú ý của LexiPulse. Lịch sử đầy đủ: [Git commi
 
 ## Unreleased
 
+- Đếm đúng các ID khác nhau bởi chữ hoa/thường trong preview thay thế backup.
+
 - Backup v2 giữ riêng các thẻ cùng cách viết, lịch sử và timestamp khi khôi phục.
 - Khôi phục settings v2 trực tiếp từ bảng gốc; loại API key trong các dòng cài đặt mở rộng.
 - Xóa cache tra cứu sau khôi phục để tránh hiển thị lại thẻ đã bị thay thế.

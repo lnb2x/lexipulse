@@ -44,7 +44,10 @@ export async function buildBackupPreview(words: WordItem[], incoming: Record<str
       ? (incoming.settingsTable ?? (incoming.settings ? [{ key: 'appSettings', value: incoming.settings }] : []))
       : (incoming[name] ?? []);
     const key = name === 'words' ? (incoming.version === 2 ? 'id' : 'word') : name === 'settingsTable' ? 'key' : name === 'dailyStats' ? 'date' : 'id';
-    const keys = (items: Record<string, unknown>[]) => new Set(items.filter(Boolean).map(item => String(item[key] ?? '').trim().toLowerCase()));
+    const keys = (items: Record<string, unknown>[]) => new Set(items.filter(Boolean).map(item => {
+      const value = String(item[key] ?? '');
+      return key === 'word' ? value.trim().toLowerCase().normalize('NFC') : value;
+    }));
     const localKeys = keys(current[name]);
     const fileKeys = keys(rows as Record<string, unknown>[]);
     const matched = [...fileKeys].filter(value => localKeys.has(value)).length;

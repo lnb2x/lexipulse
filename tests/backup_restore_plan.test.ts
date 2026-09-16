@@ -64,3 +64,11 @@ it('refuses replacement if a selected set record is damaged', async () => {
   expect(result.errors.join(' ')).toContain('replace_rejected_records');
   expect(await db.words.get('original')).toEqual(integrityWord());
 });
+
+it('counts distinct case-sensitive primary keys in the replacement preview', async () => {
+  const empty = await exportFullBackupToJson();
+  await db.words.bulkPut([integrityWord('Card', 'alpha'), integrityWord('card', 'beta')]);
+  const preview = await importDeckFromJson(empty, { previewOnly: true, mode: 'replace' });
+  expect(preview.preview?.tables.words.current).toBe(2);
+  expect(preview.preview?.tables.words.removed).toBe(2);
+});
