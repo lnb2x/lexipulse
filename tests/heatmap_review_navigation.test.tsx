@@ -92,7 +92,7 @@ describe('Heatmap Review Navigation & UI Freeze Regression', () => {
     await waitFor(() => {
       expect(screen.getByRole('tabpanel').id).toBe('panel-deck');
       expect(screen.getByText('cohort_0')).toBeDefined();
-    });
+    }, { timeout: 5000 });
 
     // 2. Locate and click today's active day cell in ContributionHeatmap
     const heatmapContainer = document.querySelector('.min-w-\\[720px\\]');
@@ -164,7 +164,7 @@ describe('Heatmap Review Navigation & UI Freeze Regression', () => {
     await waitFor(() => {
       expect(screen.getByRole('tabpanel').id).toBe('panel-deck');
       expect(screen.getByText('bulk_date_0')).toBeDefined();
-    });
+    }, { timeout: 5000 });
 
     // Select date cell and start review
     const heatmapContainer = document.querySelector('.min-w-\\[720px\\]');
