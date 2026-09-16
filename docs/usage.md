@@ -53,7 +53,7 @@ Thống kê dùng dữ liệu trình duyệt và ngày cục bộ. Thay đổi m
 
 - JSON giữ từ, lịch ôn trong từng từ, cài đặt đã bỏ key và thống kê ngày.
 - CSV/Excel phù hợp đọc/sửa bảng từ; không thay thế JSON để giữ trạng thái ứng dụng.
-- Bảng `quizletSets` chưa có trong backup. Liên kết Quizlet trong từng từ đi cùng từ đó, nhưng danh sách quản lý bộ có thể cần nhập lại.
+- Backup v1 giữ liên kết và văn bản nguồn Quizlet trong từng từ khi khôi phục. Bảng `quizletSets` chưa có trong v1, nên danh sách quản lý bộ có thể cần nhập lại.
 - Giữ bản sao trước khi khôi phục. Parser hỗ trợ JSON cũ dạng mảng từ và backup envelope; chỉ nhập tệp đáng tin cậy.
 - Cấu hình lại key sau khi chuyển máy. Không gửi backup cá nhân vào issue.
 

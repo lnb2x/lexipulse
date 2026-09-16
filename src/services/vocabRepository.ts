@@ -798,6 +798,7 @@ export async function importDeckFromJson(
             fsrs: item.reviewMeta.fsrs,
             schedulerVersion: 'fsrs-v5',
             legacyBackup: item.reviewMeta.legacyBackup,
+            isEstimated: item.reviewMeta.isEstimated,
           };
         } else {
           // Legacy SM2 card migration
@@ -838,6 +839,10 @@ export async function importDeckFromJson(
         source: item.source || 'manual',
         enrichmentStatus: item.enrichmentStatus || 'completed',
         suggestions: Array.isArray(item.suggestions) ? item.suggestions : undefined,
+        quizletSetIds: item.quizletSetIds,
+        quizletSets: item.quizletSets,
+        rawQuizletTerm: item.rawQuizletTerm,
+        rawQuizletDefinition: item.rawQuizletDefinition,
       };
       validItems.push(wordRecord);
     }
