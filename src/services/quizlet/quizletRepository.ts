@@ -212,19 +212,22 @@ export async function saveNewQuizletWords(params: {
 
     // Retrieve the saved items from DB and attach Quizlet metadata & raw provenance
     const terms = items.map((i) => i.normalizedTerm || normalizeWordTerm(i.term));
-    const newlyAdded = await db.words.where('word').anyOf(terms).toArray();
-    const wordsWithMetadata = newlyAdded.map((w) => {
-      const matched = itemMap.get(w.word.toLowerCase());
-      if (!matched) return w;
-      return {
-        ...w,
-        rawQuizletTerm: matched.rawTerm || matched.term,
-        rawQuizletDefinition: matched.rawDefinition || matched.definition,
-        pos: (w.pos && w.pos.length > 0) ? w.pos : (matched.extractedPos || []),
-        phonetics: w.phonetics?.us ? w.phonetics : (matched.extractedIpa ? { us: matched.extractedIpa } : w.phonetics),
-      };
+    savedWords = await db.transaction('rw', db.words, async () => {
+      const newlyAdded = await db.words.where('word').anyOf(terms).toArray();
+      const wordsWithMetadata = newlyAdded.map((w) => {
+        const matched = itemMap.get(w.word.toLowerCase());
+        if (!matched) return w;
+        return {
+          ...w,
+          rawQuizletTerm: w.rawQuizletTerm || matched.rawTerm || matched.term,
+          rawQuizletDefinition: w.rawQuizletDefinition || matched.rawDefinition || matched.definition,
+          pos: (w.pos && w.pos.length > 0) ? w.pos : (matched.extractedPos || []),
+          phonetics: w.phonetics?.us ? w.phonetics : (matched.extractedIpa ? { us: matched.extractedIpa } : w.phonetics),
+        };
+      });
+      await db.words.bulkPut(wordsWithMetadata);
+      return linkWordsToQuizletSet(wordsWithMetadata, setRef);
     });
-    savedWords = await linkWordsToQuizletSet(wordsWithMetadata, setRef);
   } else {
     // Fast basic unenriched import
     const unenrichedWords: WordItem[] = items.map((item) => {

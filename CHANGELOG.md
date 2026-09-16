@@ -4,6 +4,8 @@ Thay đổi đáng chú ý của LexiPulse. Lịch sử đầy đủ: [Git commi
 
 ## Unreleased
 
+- Persist raw Quizlet provenance after auto-enrichment without replacing review history.
+
 - Separate AI cache entries by learning sense and honor manual retranslation.
 
 - Apply body-aware deadlines to AI HTTP responses and preserve fallback on timeout.
