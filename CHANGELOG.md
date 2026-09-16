@@ -4,6 +4,8 @@ Thay đổi đáng chú ý của LexiPulse. Lịch sử đầy đủ: [Git commi
 
 ## Unreleased
 
+- Use optional same-origin translation backends in production, with static-host fallback.
+
 - Keep dictionary timeouts and cancellation active through response-body download.
 
 - Forward bulk enrichment cancellation to dictionary requests and reject late results.

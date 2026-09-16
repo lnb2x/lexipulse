@@ -13,7 +13,7 @@ import {
  * circuit breaker, shared deadline, and AbortSignal support.
  *
  * NOTE: Google Translate HTML scraping is an EXPERIMENTAL fallback only.
- * The primary paths are Vite dev proxy and graceful failure without crashes.
+ * The primary path is an optional same-origin backend, with graceful fallback.
  */
 export async function translateToVietnamese(
   text: string,
@@ -42,17 +42,8 @@ export async function translateToVietnamese(
     const deadline = Date.now() + timeoutMs;
     const TTL = 24 * 60 * 60 * 1000;
 
-    // Detect if Vite proxy endpoint is available (only in dev mode)
-    const isViteDev =
-      typeof window !== 'undefined' &&
-      typeof import.meta !== 'undefined' &&
-      import.meta.env?.DEV;
-
-    if (!isViteDev) {
-      translationCircuitBreakers.viteProxy.disabled = true;
-    }
-
-    // 1. Try Vite local dev proxy (/api/translate) if available and healthy
+    // Probe the optional same-origin backend in both dev and production.
+    // A static host's 404 disables this path for the session; other failures use the breaker.
     if (isEndpointAvailable('viteProxy')) {
       const rem = Math.max(100, deadline - Date.now());
       try {
