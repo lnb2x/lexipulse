@@ -792,8 +792,14 @@ export async function importDeckFromJson(
     const validItems: WordItem[] = [];
     let skipped = 0;
 
+    const backupIds = new Set<string>();
     for (const [index, item] of rawWords.entries()) {
-      const invalidField = validateBackupWord(item);
+      const invalidField = validateBackupWord(item) || (parsed.version === 2 &&
+        (typeof item.id !== 'string' || !item.id.trim() || backupIds.has(item.id) ||
+          ['phonetics', 'pos', 'vietnameseDefinition', 'englishDefinition', 'meanings', 'collocations',
+            'wordFamily', 'examples', 'tags', 'status', 'createdAt', 'updatedAt', 'reviewMeta'].some(key => item[key] === undefined))
+          ? 'id or required backup field' : undefined);
+      if (parsed.version === 2 && !invalidField) backupIds.add(item.id);
       if (invalidField) {
         skipped++;
         errors.push(`words[${index}]: invalid ${invalidField}`);
@@ -867,7 +873,7 @@ export async function importDeckFromJson(
         rawQuizletTerm: item.rawQuizletTerm,
         rawQuizletDefinition: item.rawQuizletDefinition,
       };
-      validItems.push(wordRecord);
+      validItems.push(parsed.version === 2 ? { ...item, reviewMeta } : wordRecord);
       } catch {
         skipped++;
         errors.push(`words[${index}]: invalid review or content data`);
@@ -888,7 +894,26 @@ export async function importDeckFromJson(
       if (skipped > 0 || errors.length > 0) throw new Error('replace_rejected_records');
       for (const name of selected) await db.table(name).clear();
     }
-    const res = await bulkUpsertWords(selected.has('words') ? validItems : [], { replaceProgress: options.replaceProgress || replace });
+    const restoreWords = selected.has('words') ? validItems : [];
+    const res = { added: 0, updated: 0, skipped: 0 };
+    if (parsed.version === 2) {
+      // Backups identify cards by ID; equal spelling can represent separate senses.
+      for (const item of restoreWords) {
+        const current = await db.words.get(item.id);
+        if (current && normalizeWordTerm(current.word) !== normalizeWordTerm(item.word)) {
+          errors.push('words: conflicting card id');
+          res.skipped++;
+          continue;
+        }
+        await db.words.put(current
+          ? mergeWordRecords(current, item, { mergePolicy: options.replaceProgress ? 'replace-progress' : 'preserve-progress' })
+          : item);
+        if (current) res.updated++;
+        else res.added++;
+      }
+    } else {
+      Object.assign(res, await bulkUpsertWords(restoreWords, { replaceProgress: options.replaceProgress || replace }));
+    }
 
     if (parsed.version === 2) {
       for (const [index, set] of (selected.has('quizletSets') ? parsed.quizletSets : []).entries()) {
