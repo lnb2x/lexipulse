@@ -307,9 +307,12 @@ test.describe('LexiPulse E2E Suite', () => {
     const jsonTextarea = dialog.locator('textarea');
     await jsonTextarea.fill(backupJson);
 
-    // Click restore button
-    const restoreBtn = dialog.getByRole('button', { name: /Phân tích và Khôi phục|Import & Restore/i });
-    await restoreBtn.click();
+    await dialog.getByRole('button', { name: /Xem trước thay đổi|Preview changes/i }).click();
+    const download = page.waitForEvent('download');
+    await dialog.getByRole('button', { name: /Tải bản khôi phục|Download recovery/i }).click();
+    await download;
+    await dialog.getByRole('checkbox', { name: /Tôi đã lưu bản khôi phục|I saved the recovery backup/i }).check();
+    await dialog.getByRole('button', { name: /Xác nhận khôi phục|Confirm restore/i }).click();
 
     // Modal closes automatically on successful import
     await expect(dialog).not.toBeVisible({ timeout: 5000 });

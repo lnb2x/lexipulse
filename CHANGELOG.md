@@ -4,6 +4,8 @@ Thay đổi đáng chú ý của LexiPulse. Lịch sử đầy đủ: [Git commi
 
 ## Unreleased
 
+- Preview restore differences, select tables and download a recovery file before confirming writes (vi/en).
+
 - Add read-only restore previews, table selection and replacement guarded by a current recovery snapshot.
 
 - Restore backups atomically and clear credentials when restoring provider settings.

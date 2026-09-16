@@ -1,7 +1,7 @@
-import { Calendar, Check, Copy, Download, FileSpreadsheet, Layers, Loader2, Plus, Sparkles, Upload, X } from 'lucide-react';
+import { Calendar, Check, Copy, Download, FileSpreadsheet, Layers, Loader2, Plus, Sparkles, X } from 'lucide-react';
 import React, { useRef, useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
-import { exportDeckToCsv, exportDeckToJson, exportDeckToXlsx, importDeckFromJson, type ImportDeckResult } from '../../services/db';
+import { exportDeckToCsv, exportDeckToJson, exportDeckToXlsx } from '../../services/db';
 import { runBulkEnrichment, createUnenrichedWordItem } from '../../services/bulkEnrichment';
 import { bulkUpsertWords } from '../../services/vocabRepository';
 import { parseBulkImportInput } from '../../utils/importParser';
@@ -9,6 +9,7 @@ import type { WordItem } from '../../types/vocab';
 import { formatLocalDate, parseLocalDateToTimestamp } from '../../utils/dateUtils';
 import { useModalA11y } from '../../hooks/useModalA11y';
 import { QuizletImportView } from './QuizletImportView';
+import { BackupRestorePanel } from './BackupRestorePanel';
 import type { ReviewMode } from '../../types/vocab';
 
 interface ImportExportModalProps {
@@ -60,9 +61,6 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
     activeFilterDate || (availableDates[0]?.date ?? formatLocalDate())
   );
 
-  // JSON Import state
-  const [importText, setImportText] = useState('');
-  const [importResult, setImportResult] = useState<ImportDeckResult | null>(null);
 
   if (!isOpen) return null;
 
@@ -207,43 +205,6 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
       setProgress(null);
       abortControllerRef.current = null;
     }
-  };
-
-  const handleImportJsonText = async () => {
-    if (!importText.trim()) return;
-    setIsProcessing(true);
-    setImportResult(null);
-    try {
-      const res = await importDeckFromJson(importText.trim(), { replaceProgress });
-      setImportResult(res);
-      if (res.imported > 0) {
-        onImportComplete();
-      }
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const content = event.target?.result as string;
-      setImportText(content);
-      setIsProcessing(true);
-      try {
-        const res = await importDeckFromJson(content, { replaceProgress });
-        setImportResult(res);
-        if (res.imported > 0) {
-          onImportComplete();
-        }
-      } finally {
-        setIsProcessing(false);
-      }
-    };
-    reader.readAsText(file);
   };
 
   return (
@@ -606,100 +567,8 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
           </div>
         )}
 
-        {/* TAB 3: BACKUP / RESTORE */}
-        {activeTab === 'import' && (
-          <div className="mt-5 space-y-4">
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              {t.modals.backupRestoreDesc}
-            </p>
+        {activeTab === 'import' && <BackupRestorePanel onComplete={() => onImportComplete()} />}
 
-            <div>
-              <label className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 p-4 text-center cursor-pointer hover:border-indigo-400 dark:border-slate-700 dark:hover:border-indigo-500">
-                <Upload className="h-6 w-6 text-slate-400" />
-                <span className="mt-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  {t.modals.selectJsonFile}
-                </span>
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                />
-              </label>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                {t.modals.pasteJsonLabel}
-              </label>
-              <textarea
-                rows={4}
-                value={importText}
-                onChange={(e) => setImportText(e.target.value)}
-                placeholder="[ { &quot;word&quot;: &quot;negotiate&quot;, ... } ]"
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-800 focus:border-indigo-500 focus:outline-none dark:border-slate-800 dark:bg-slate-800 dark:text-slate-200"
-              />
-            </div>
-
-            {importResult && (
-              <div
-                className={`rounded-2xl p-3 text-xs ${
-                  importResult.imported > 0
-                    ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
-                    : 'bg-rose-50 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300'
-                }`}
-              >
-                {importResult.imported > 0 ? (
-                  <div className="space-y-1">
-                    <p>
-                      {language === 'vi' ? 'Thành công! Đã nhập / cập nhật' : 'Success! Imported / updated'}{' '}
-                      <strong>{importResult.imported}</strong> {language === 'vi' ? 'từ vào Deck.' : 'words into Deck.'}
-                    </p>
-                    {(importResult.restoredSettings || (importResult.restoredDailyStats ?? 0) > 0) && (
-                      <p className="text-[11px] text-emerald-700/90 dark:text-emerald-300/90">
-                        {language === 'vi' ? 'Đã phục hồi: ' : 'Restored: '}
-                        {[
-                          importResult.restoredSettings ? (language === 'vi' ? 'Cài đặt ứng dụng' : 'App settings') : null,
-                          (importResult.restoredDailyStats ?? 0) > 0
-                            ? (language === 'vi'
-                                ? `${importResult.restoredDailyStats} ngày lịch sử học & streak`
-                                : `${importResult.restoredDailyStats} daily stats & streaks`)
-                            : null,
-                        ]
-                          .filter(Boolean)
-                          .join(', ')}
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <p>
-                    {language === 'vi' ? 'Lỗi nhập file:' : 'Import error:'} {importResult.errors[0] || 'Invalid file'}
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Option to replace progress on JSON restore */}
-            <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-600 dark:text-slate-400">
-              <input
-                type="checkbox"
-                checked={replaceProgress}
-                onChange={(e) => setReplaceProgress(e.target.checked)}
-                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-              />
-              <span>{language === 'vi' ? 'Ghi đè tiến độ học tập (mặc định giữ nguyên tiến độ cũ)' : 'Replace learning progress (default preserves progress)'}</span>
-            </label>
-
-            <button
-              type="button"
-              onClick={handleImportJsonText}
-              disabled={!importText.trim()}
-              className="w-full rounded-2xl bg-indigo-600 py-2.5 text-xs font-semibold text-white shadow-md shadow-indigo-600/20 hover:bg-indigo-500 disabled:opacity-50"
-            >
-              {t.modals.parseRestoreBtn}
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );
