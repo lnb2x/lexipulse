@@ -265,7 +265,10 @@ export async function resolveNeedsReviewWord(
   setRef: QuizletSetRef
 ): Promise<WordItem | undefined> {
   const normTerm = item.normalizedTerm || normalizeWordTerm(item.term);
-  const existing = item.existingWord || (await db.words.where('word').equals(normTerm).first());
+  return db.transaction('rw', db.words, async () => {
+  const existing = item.existingWord
+    ? await db.words.get(item.existingWord.id)
+    : await db.words.where('word').equals(normTerm).first();
   if (!existing) return undefined;
 
   let newDefinition = existing.vietnameseDefinition;
@@ -302,4 +305,5 @@ export async function resolveNeedsReviewWord(
 
   await db.words.put(updated);
   return updated;
+  });
 }

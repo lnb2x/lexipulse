@@ -1,4 +1,5 @@
 import { db } from '../db';
+import { commitNormalizedContent, updateWord } from '../vocabRepository';
 import type { WordItem } from '../../types/vocab';
 import {
   normalizeQuizletCard,
@@ -235,7 +236,7 @@ export async function migrateSingleWord(
 
   // Save safely to database
   if (hasNormalization || hasAiUpgrade) {
-    await db.words.put(baseUpdated);
+    baseUpdated = await commitNormalizedContent(word, baseUpdated) ?? baseUpdated;
   }
 
   return {
@@ -470,7 +471,7 @@ export async function migrateTodayWords(
           tags: Array.from(new Set([...word.tags, '#can-xem-xet-trung'])),
           updatedAt: Date.now(),
         };
-        await db.words.put(taggedWord);
+        await updateWord(word.id, { tags: taggedWord.tags });
         keptIntactCount++;
         processed++;
         options.onProgress?.({

@@ -652,11 +652,37 @@ export async function updateWordTags(id: string, tags: string[]): Promise<void> 
  * Updates an existing word record preserving progress.
  */
 export async function updateWord(id: string, updates: Partial<WordItem>): Promise<void> {
-  const existing = await db.words.get(id);
-  if (!existing) return;
-  const merged = mergeWordRecords(existing, updates, { mergePolicy: 'preserve-progress' });
-  await db.words.put(merged);
-  warmSearchCache([merged]);
+  const merged = await db.transaction('rw', db.words, async () => {
+    const existing = await db.words.get(id);
+    if (!existing) return;
+    const next = mergeWordRecords(existing, updates, { mergePolicy: 'preserve-progress' });
+    await db.words.put(next);
+    return next;
+  });
+  if (merged) warmSearchCache([merged]);
+}
+
+/** Apply normalization only to content that has not changed since it was read. */
+export async function commitNormalizedContent(snapshot: WordItem, normalized: WordItem) {
+  return db.transaction('rw', db.words, async () => {
+    const fresh = await db.words.get(snapshot.id);
+    if (!fresh) return undefined; // Never resurrect a deleted card.
+    const fields = [
+      'word', 'pos', 'phonetics', 'englishDefinition', 'vietnameseDefinition',
+      'wordFamily', 'collocations', 'examples', 'vietnameseDefinitionProvenance',
+      'rawQuizletTerm', 'rawQuizletDefinition', 'enrichmentStatus',
+    ] as const;
+    const changes = Object.fromEntries(fields
+      .filter(key => JSON.stringify(fresh[key]) === JSON.stringify(snapshot[key]))
+      .map(key => [key, normalized[key]]));
+    if (changes.word && changes.word !== fresh.word) {
+      const collision = await db.words.where('word').equals(String(changes.word)).first();
+      if (collision && collision.id !== fresh.id) delete changes.word;
+    }
+    const updated = { ...fresh, ...changes, updatedAt: Date.now() };
+    await db.words.put(updated);
+    return updated;
+  });
 }
 
 /**
