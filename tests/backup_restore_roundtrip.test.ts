@@ -188,7 +188,7 @@ describe('Reliability Audit: Backup Export/Import & Round-Trip Restoration', () 
     // Verify envelope format and safety
     const parsedEnvelope: BackupEnvelope = JSON.parse(exportedJson);
     expect(parsedEnvelope.type).toBe('lexipulse-backup');
-    expect(parsedEnvelope.version).toBe(1);
+    expect(parsedEnvelope.version).toBe(2);
     expect(Array.isArray(parsedEnvelope.words)).toBe(true);
     expect(parsedEnvelope.words.length).toBe(2);
     expect(parsedEnvelope.settings).toBeDefined();

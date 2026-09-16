@@ -35,3 +35,11 @@ Invalid nested word data or FSRS values reject that record, not the valid record
 beside it. The result reports the original zero-based index and invalid field.
 Rejected records and their histories are never repaired by guessing; keep the
 source backup. Unsupported envelope type/version is rejected before any write.
+
+## Backup envelope v2
+
+Full export snapshots words, dailyStats, settingsTable and quizletSets in one read
+transaction. API-key fields are blanked, including extra settings rows. The v2
+envelope has schemaVersion and a SHA-256 checksum of canonical JSON (sorted object
+keys, array order retained). The checksum detects corruption, not authenticity.
+v1 and bare word arrays remain readable. No IndexedDB schema change is needed.
