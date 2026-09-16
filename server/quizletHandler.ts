@@ -37,6 +37,10 @@ export async function handleQuizletFetch(req: IncomingMessage, res: ServerRespon
   if (req.method !== 'POST') { fail(405, 'method_not_allowed'); return; }
   if (Number(req.headers['content-length']) > MAX_BODY_BYTES) { fail(413, 'request_too_large'); return; }
   if (activeRequests >= 2) { res.setHeader('Retry-After', '5'); fail(503, 'server_busy'); return; }
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  req.once('aborted', abort);
+  res.once('close', abort);
   activeRequests++;
   try {
     const body = await readBody(req);
@@ -44,8 +48,8 @@ export async function handleQuizletFetch(req: IncomingMessage, res: ServerRespon
     try { input = JSON.parse(body)?.url; } catch { /* Accept a plain URL for compatibility. */ }
     const url = normalizeQuizletUrl(input);
     if (!url) { fail(400, 'invalid_url'); return; }
-    const result = await scrapeQuizletWithPlaywright(url);
-    const status = result.success ? 200 : result.code === 'not_found' ? 404
+    const result = await scrapeQuizletWithPlaywright(url, { signal: controller.signal });
+    const status = result.success ? 200 : result.code === 'timeout' ? 504 : result.code === 'not_found' ? 404
       : result.code === 'rate_limited' ? 429 : result.code === 'login_required' ? 403 : 422;
     send(status, result);
   } catch (error) {
@@ -53,5 +57,8 @@ export async function handleQuizletFetch(req: IncomingMessage, res: ServerRespon
     if (code === 'request_too_large') fail(413, code);
     else if (code === 'timeout') fail(408, code);
     else fail(500, 'server_error');
-  } finally { activeRequests--; }
+  } finally {
+    req.off('aborted', abort); res.off('close', abort);
+    activeRequests--;
+  }
 }

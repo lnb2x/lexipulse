@@ -4,6 +4,8 @@ Thay đổi đáng chú ý của LexiPulse. Lịch sử đầy đủ: [Git commi
 
 ## Unreleased
 
+- Sandbox Quizlet Chromium jobs, close on deadline/disconnect and return challenges to paste import.
+
 - Bound Quizlet request bodies, upload time and concurrent jobs in both server modes.
 
 - Isolate cancellable dictionary, suggestion and translation requests between callers.

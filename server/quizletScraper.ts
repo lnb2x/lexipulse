@@ -1,4 +1,4 @@
-import { chromium } from '@playwright/test';
+import { chromium, type Browser, type LaunchOptions } from '@playwright/test';
 import fs from 'node:fs';
 import { normalizeQuizletUrl } from './quizletUrl.ts';
 
@@ -14,7 +14,7 @@ export interface ScrapedQuizletResult {
   cleanUrl?: string;
   terms?: ScrapedQuizletCardItem[];
   error?: string;
-  code?: 'invalid_url' | 'login_required' | 'challenge_blocked' | 'rate_limited' | 'not_found' | 'no_terms_found' | 'server_error';
+  code?: 'invalid_url' | 'login_required' | 'challenge_blocked' | 'rate_limited' | 'not_found' | 'no_terms_found' | 'server_error' | 'timeout' | 'aborted';
   durationMs?: number;
 }
 
@@ -46,46 +46,40 @@ function getBrowserExecutablePath(): string | undefined {
 }
 
 /**
- * Scrapes Quizlet set using Playwright with automated challenge handling.
+ * Scrapes Quizlet set using Playwright with bounded lifetime and sandboxing.
  */
-export async function scrapeQuizletWithPlaywright(rawUrl: string): Promise<ScrapedQuizletResult> {
+export async function scrapeQuizletWithPlaywright(rawUrl: string, options: { signal?: AbortSignal; timeoutMs?: number } = {}): Promise<ScrapedQuizletResult> {
   const startTime = Date.now();
   const trimmed = normalizeQuizletUrl(rawUrl);
   if (!trimmed) {
     return { success: false, code: 'invalid_url', error: 'Vui lòng nhập URL bộ thẻ HTTPS từ quizlet.com.' };
   }
 
-  const execPath = getBrowserExecutablePath();
-  const launchOptions: any = {
-    headless: false,
-    args: [
-      '--headless=new',
-      '--disable-blink-features=AutomationControlled',
-      '--no-sandbox',
-      '--disable-dev-shm-usage',
-    ],
-  };
-
-  if (execPath) {
-    launchOptions.executablePath = execPath;
-  }
-
-  let browser;
+  const controller = new AbortController();
+  const deadline = startTime + Math.max(1, Math.min(options.timeoutMs ?? 30000, 30000));
+  const abort = () => controller.abort(new DOMException('Cancelled', 'AbortError'));
+  options.signal?.addEventListener('abort', abort, { once: true });
+  if (options.signal?.aborted) abort();
+  const timer = setTimeout(() => controller.abort(new DOMException('Deadline exceeded', 'TimeoutError')), Math.max(1, deadline - Date.now()));
+  let browser: Browser | undefined;
+  let closing: Promise<void> | undefined;
+  const close = () => { if (browser) closing ??= browser.close().catch(() => {}); return closing; };
+  const onAbort = () => { void close(); };
+  controller.signal.addEventListener('abort', onAbort, { once: true });
   try {
-    browser = await chromium.launch(launchOptions);
-  } catch (err: any) {
-    try {
-      delete launchOptions.executablePath;
-      browser = await chromium.launch(launchOptions);
-    } catch (fallbackErr: any) {
-      return {
-        success: false,
-        error: `Không thể khởi động trình duyệt Playwright: ${fallbackErr.message || err.message}`,
-      };
+    controller.signal.throwIfAborted();
+    const launchOptions: LaunchOptions = {
+      headless: true, chromiumSandbox: true,
+      executablePath: getBrowserExecutablePath(),
+      timeout: Math.max(1, Math.min(10000, deadline - Date.now())),
+    };
+    try { browser = await chromium.launch(launchOptions); }
+    catch {
+      controller.signal.throwIfAborted();
+      browser = await chromium.launch({ ...launchOptions, executablePath: undefined,
+        timeout: Math.max(1, Math.min(10000, deadline - Date.now())) });
     }
-  }
-
-  try {
+    controller.signal.throwIfAborted();
     const page = await browser.newPage({
       viewport: { width: 1280, height: 800 },
       userAgent:
@@ -120,28 +114,7 @@ export async function scrapeQuizletWithPlaywright(rawUrl: string): Promise<Scrap
 
     await page.waitForTimeout(2000);
 
-    let title = await page.title();
-
-    // Challenge handling (PerimeterX Press & Hold)
-    if (
-      title.includes('Access to this page has been denied') ||
-      (await page.$('.px-captcha-container, #px-captcha'))
-    ) {
-      const px = await page.$('.px-captcha-container, #px-captcha');
-      if (px) {
-        const box = await px.boundingBox();
-        if (box) {
-          const clickX = box.x + box.width / 2;
-          const clickY = box.y + box.height * 0.65;
-          await page.mouse.move(clickX, clickY);
-          await page.mouse.down();
-          await page.waitForTimeout(12000);
-          await page.mouse.up();
-          await page.waitForTimeout(4000);
-          title = await page.title();
-        }
-      }
-    }
+    const title = await page.title();
 
     // Verify if challenge still blocks access
     if (
@@ -261,16 +234,17 @@ export async function scrapeQuizletWithPlaywright(rawUrl: string): Promise<Scrap
       terms,
       durationMs: Date.now() - startTime,
     };
-  } catch (err: any) {
+  } catch {
     return {
       success: false,
-      code: 'server_error',
-      error: `Lỗi khi tải trang bằng Playwright: ${err.message || 'Không xác định'}`,
+      code: controller.signal.aborted ? (options.signal?.aborted ? 'aborted' : 'timeout') : 'server_error',
+      error: 'Quizlet browser job could not complete.',
       durationMs: Date.now() - startTime,
     };
   } finally {
-    if (browser) {
-      await browser.close().catch(() => {});
-    }
+    clearTimeout(timer);
+    options.signal?.removeEventListener('abort', abort);
+    controller.signal.removeEventListener('abort', onAbort);
+    await close();
   }
 }
