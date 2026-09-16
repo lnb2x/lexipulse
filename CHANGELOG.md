@@ -49,3 +49,5 @@ Mốc phiên bản đầu tiên ghi trong changelog; dự án đã có lịch s�
 - Siết xác thực URL Quizlet ở trình duyệt và backend trước khi mở trang bên ngoài.
 
 - Backup v2 giữ riêng các thẻ cùng cách viết, lịch sử và timestamp khi khôi phục.
+
+- Khôi phục settings v2 trực tiếp từ bảng gốc; loại API key trong các dòng cài đặt mở rộng.

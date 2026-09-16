@@ -3,6 +3,7 @@ import { beforeEach, expect, it } from 'vitest';
 import { db } from '../src/services/db/schema';
 import { exportFullBackupToJson } from '../src/services/db/backup';
 import { importDeckFromJson } from '../src/services/vocabRepository';
+import { backupChecksum } from '../src/services/db/backupEnvelope';
 import { integrityWord, fixtureNow } from './dataIntegrityFixture';
 
 beforeEach(async () => { for (const table of db.tables) await table.clear(); });
@@ -33,4 +34,16 @@ it('rejects a changed payload before writing any table', async () => {
   const result = await importDeckFromJson(JSON.stringify(backup));
   expect(result.errors.join(' ')).toContain('checksum');
   expect(await db.words.count()).toBe(0);
+});
+
+it('restores authoritative settingsTable without the compatibility alias', async () => {
+  await db.settingsTable.put({ key: 'appSettings', value: { dailyQuota: 37 } });
+  const payload = JSON.parse(await exportFullBackupToJson());
+  delete payload.settings; delete payload.checksum;
+  payload.settingsTable.push({ key: 'extra', value: { aiApiKey: 'fixture-secret' } });
+  const file = JSON.stringify({ ...payload, checksum: { algorithm: 'SHA-256', value: await backupChecksum(payload) } });
+  await db.settingsTable.clear();
+  expect((await importDeckFromJson(file)).errors).toEqual([]);
+  expect((await db.settingsTable.get('appSettings'))?.value.dailyQuota).toBe(37);
+  expect((await db.settingsTable.get('extra'))?.value.aiApiKey).toBe('');
 });

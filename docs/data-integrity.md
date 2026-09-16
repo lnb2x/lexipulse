@@ -67,3 +67,5 @@ cannot be written and read back. A full localStorage quota can therefore block
 this optional operation; it never bypasses the backup requirement silently.
 
 Backup v2 khôi phục theo ID: các thẻ cùng cách viết nhưng khác ID giữ lịch sử riêng. ID trùng từ khác được bỏ qua và báo lỗi khi merge; replace từ snapshot hợp lệ giữ nguyên timestamp của thẻ.
+
+Trong v2, `settingsTable` là nguồn cài đặt chính; `settings` chỉ để tương thích. Các trường khóa AI cũng được loại khi nhập các dòng settings mở rộng.
