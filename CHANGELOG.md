@@ -4,6 +4,8 @@ Thay đổi đáng chú ý của LexiPulse. Lịch sử đầy đủ: [Git commi
 
 ## Unreleased
 
+- Bound Quizlet request bodies, upload time and concurrent jobs in both server modes.
+
 - Isolate cancellable dictionary, suggestion and translation requests between callers.
 
 - Persist raw Quizlet provenance after auto-enrichment without replacing review history.

@@ -15,3 +15,5 @@ AI cache entries include a hash of the target learning sense. Manual retranslati
 Auto-enriched Quizlet imports attach missing raw source text and set membership in one transaction after rereading current cards. Existing raw provenance, notes and review history are retained.
 
 Calls with an AbortSignal own their request lifetime and do not join another caller’s in-flight promise. Calls without a signal still deduplicate. This trades some overlapping network work for independent cancellation; completed results still share the bounded cache.
+
+Quizlet URL endpoints in Vite and the optional standalone server share admission limits: at most two requests per process (including uploads), an 8 KiB request body and a five-second upload deadline. Excess work receives structured 413/503 responses; paste import remains available. Deploy reverse-proxy rate limits if exposing the optional service publicly.

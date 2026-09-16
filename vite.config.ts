@@ -1,4 +1,5 @@
 import react from '@vitejs/plugin-react'
+import { handleQuizletFetch } from './server/quizletHandler.ts'
 import { defineConfig, type Plugin } from 'vite'
 
 function decodeHtmlEntities(str: string): string {
@@ -79,69 +80,6 @@ function translationPlugin(): Plugin {
 }
 
 function quizletPlugin(): Plugin {
-  const handleQuizletFetch = async (req: any, res: any) => {
-    try {
-      if (req.method !== 'POST') {
-        res.statusCode = 405;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ success: false, error: 'Method not allowed' }));
-        return;
-      }
-
-      const chunks: Buffer[] = [];
-      for await (const chunk of req) {
-        chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
-      }
-      const bodyStr = Buffer.concat(chunks).toString('utf8');
-      let url = '';
-      try {
-        const parsed = JSON.parse(bodyStr);
-        url = parsed.url || '';
-      } catch {
-        url = bodyStr;
-      }
-
-      if (typeof url !== 'string' || !url.trim()) {
-        res.statusCode = 400;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ success: false, error: 'URL không được để trống' }));
-        return;
-      }
-
-      const { scrapeQuizletWithPlaywright } = await import('./server/quizletScraper.ts');
-      const result = await scrapeQuizletWithPlaywright(url.trim());
-
-      res.setHeader('Content-Type', 'application/json');
-      if (result.success) {
-        res.statusCode = 200;
-        res.end(JSON.stringify(result));
-      } else {
-        const status =
-          result.code === 'invalid_url'
-            ? 400
-            : result.code === 'not_found'
-            ? 404
-            : result.code === 'rate_limited'
-            ? 429
-            : result.code === 'login_required'
-            ? 403
-            : 422;
-        res.statusCode = status;
-        res.end(JSON.stringify(result));
-      }
-    } catch (err: any) {
-      res.statusCode = 500;
-      res.setHeader('Content-Type', 'application/json');
-      res.end(
-        JSON.stringify({
-          success: false,
-          code: 'server_error',
-          error: err.message || 'Lỗi server khi trích xuất dữ liệu Quizlet',
-        })
-      );
-    }
-  };
-
   return {
     name: 'quizlet-fetch-middleware',
     configureServer(server) {
