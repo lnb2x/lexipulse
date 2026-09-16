@@ -4,6 +4,10 @@ Thay đổi đáng chú ý của LexiPulse. Lịch sử đầy đủ: [Git commi
 
 ## Unreleased
 
+- Backup v2 giữ riêng các thẻ cùng cách viết, lịch sử và timestamp khi khôi phục.
+- Khôi phục settings v2 trực tiếp từ bảng gốc; loại API key trong các dòng cài đặt mở rộng.
+- Xóa cache tra cứu sau khôi phục để tránh hiển thị lại thẻ đã bị thay thế.
+
 - Stop today's-word normalization when its recovery backup cannot be stored or verified.
 
 - Preview restore differences, select tables and download a recovery file before confirming writes (vi/en).
@@ -47,7 +51,3 @@ Mốc phiên bản đầu tiên ghi trong changelog; dự án đã có lịch s�
 ### Fixed
 
 - Siết xác thực URL Quizlet ở trình duyệt và backend trước khi mở trang bên ngoài.
-
-- Backup v2 giữ riêng các thẻ cùng cách viết, lịch sử và timestamp khi khôi phục.
-
-- Khôi phục settings v2 trực tiếp từ bảng gốc; loại API key trong các dòng cài đặt mở rộng.

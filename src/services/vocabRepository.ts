@@ -6,6 +6,7 @@ import type { DailyStats, EnrichmentStatus, MeaningItem, WordItem } from '../typ
 import { createInitialReviewMeta, migrateLegacyMetaToFSRS } from './fsrs/fsrsService';
 import { saveAppSettings } from './db/statsRepo';
 import { warmSearchCache } from './dictionary';
+import { WORD_LRU_CACHE, SUGGESTION_CACHE } from './dictionary/cache';
 import { isPlaceholderDefinition } from './quizlet/quizletNormalizer';
 import { isMissingOrUntranslated, isWordTranslationComplete } from '../utils/translationAuditor';
 
@@ -890,7 +891,7 @@ export async function importDeckFromJson(
       sessionBefore = sessionStorage.getItem('lexipulse_session_ai_key');
       sessionTouched = true;
     }
-    return await db.transaction('rw', db.tables, async () => {
+    const result = await db.transaction('rw', db.tables, async () => {
     if (recovery) await assertRecoverySnapshot(recovery);
     if (replace) {
       if (skipped > 0 || errors.length > 0) throw new Error('replace_rejected_records');
@@ -981,6 +982,11 @@ export async function importDeckFromJson(
       restoredDailyStats: restoredDailyStats > 0 ? restoredDailyStats : undefined,
     };
     });
+    if (selected.has('words')) {
+      WORD_LRU_CACHE.clear();
+      SUGGESTION_CACHE.clear();
+    }
+    return result;
   } catch (err: any) {
     if (sessionTouched) {
       try {
