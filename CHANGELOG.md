@@ -4,6 +4,8 @@ Thay đổi đáng chú ý của LexiPulse. Lịch sử đầy đủ: [Git commi
 
 ## Unreleased
 
+- Keep Quizlet client deadlines active through the backend response body.
+
 - Reject oversized Quizlet extraction without silently truncating cards.
 
 - Restrict Quizlet resource hosts, pin public DNS, and bound downloads and redirects.

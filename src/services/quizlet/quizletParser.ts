@@ -1,4 +1,5 @@
 import type { QuizletCardItem } from '../../types/vocab';
+import { fetchWithTimeout } from '../dictionary/circuitBreaker';
 import { cleanQuizletTerm } from './quizletNormalizer';
 
 export interface ParsedQuizletUrl {
@@ -456,7 +457,7 @@ export async function fetchQuizletSet(
 
     let backendRes: Response;
     try {
-      backendRes = await fetch('/api/quizlet/fetch', {
+      backendRes = await fetchWithTimeout('/api/quizlet/fetch', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -464,10 +465,10 @@ export async function fetchQuizletSet(
         },
         body: JSON.stringify({ url: targetUrl }),
         signal: controller.signal,
-      });
+      }, timeoutMs);
     } catch (fetchErr: any) {
       clearTimeout(timer);
-      if (fetchErr.name === 'AbortError') {
+      if (fetchErr.name === 'AbortError' || fetchErr.name === 'TimeoutError') {
         if (options.signal?.aborted) {
           return {
             success: false,
