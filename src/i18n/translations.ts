@@ -2,6 +2,18 @@ export type Language = 'vi' | 'en';
 
 export const translations = {
   vi: {
+    quizletErrors: {
+      "server_busy": "Máy chủ nhập đang bận. Hãy thử lại sau hoặc dán nội dung bộ thẻ.",
+      "resource_limit": "Bộ thẻ vượt giới hạn tải an toàn. Hãy xuất và dán nội dung để nhập.",
+      "request_too_large": "Yêu cầu quá lớn. Hãy chỉ dán URL bộ thẻ hoặc nhập bằng văn bản.",
+      "blocked_resource": "Nguồn tải không được phép. Hãy xuất và dán nội dung bộ thẻ.",
+      "timeout": "Tải bộ thẻ quá lâu. Hãy thử lại hoặc dán nội dung bộ thẻ.",
+      "fallback": "Phương án thay thế: xuất nội dung từ Quizlet và dán vào ô bên dưới.",
+      "openSet": "1. Mở bộ từ:",
+      "openOnQuizlet": "Mở trên Quizlet",
+      "onQuizlet": "trên Quizlet",
+      "limitLabel": "Chưa tải được"
+    },
     backup: {
       normalizationBackupFailed: 'Không lưu được bản sao dự phòng; chưa sửa từ nào. Hãy giải phóng dung lượng lưu trữ rồi thử lại.',
       title: "Khôi phục bản sao lưu",
@@ -341,6 +353,18 @@ export const translations = {
     },
   },
   en: {
+    quizletErrors: {
+      "server_busy": "The import service is busy. Try again later or paste the exported cards.",
+      "resource_limit": "This set exceeds safe download limits. Export and paste the cards to import them.",
+      "request_too_large": "The request is too large. Paste only the set URL or import exported text.",
+      "blocked_resource": "The download source is not allowed. Export and paste the cards instead.",
+      "timeout": "Loading the set took too long. Try again or paste the exported cards.",
+      "fallback": "Alternative: export the cards from Quizlet and paste them below.",
+      "openSet": "1. Open the set:",
+      "openOnQuizlet": "Open on Quizlet",
+      "onQuizlet": "on Quizlet",
+      "limitLabel": "Could not load"
+    },
     backup: {
       normalizationBackupFailed: 'The recovery backup could not be saved; no words were changed. Free storage space and try again.',
       title: "Restore backup",

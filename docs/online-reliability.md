@@ -25,3 +25,5 @@ Quizlet page resources are restricted to HTTPS on quizlet.com, www.quizlet.com, 
 Extraction rejects more than 10,000 cards, text fields over 20,000 characters, or embedded JSON above 8 MiB of characters. Limits return resource_limit without partial terms; 1,000-card extraction is covered with a local fixture. These limits do not limit the size of the local deck or alter saved cards.
 
 The Quizlet client deadline also covers backend response bodies, so an incomplete JSON download exits to the timeout state instead of leaving the import spinner running.
+
+Busy, timeout, blocked-source and size-limit responses have Vietnamese/English explanations and a visible paste-import fallback. Technical diagnostics use status/code rather than dumping those backend responses.

@@ -12,6 +12,10 @@ export interface ParsedQuizletUrl {
 }
 
 export type FetchQuizletErrorType =
+  | 'server_busy'
+  | 'resource_limit'
+  | 'request_too_large'
+  | 'blocked_resource'
   | 'invalid_url'
   | 'backend_offline'
   | 'endpoint_not_found'
@@ -540,6 +544,9 @@ export async function fetchQuizletSet(
 
     // Process backend failure with exact code
     const errorCode = data.code || (backendRes.status === 404 ? 'not_found' : backendRes.status === 429 ? 'rate_limited' : 'server_error');
+    if (['server_busy', 'resource_limit', 'request_too_large', 'blocked_resource', 'timeout'].includes(errorCode)) {
+      return { success: false, errorType: errorCode, diagnostics: `HTTP ${backendRes.status}: ${errorCode}` };
+    }
     const userMsg = data.error || 'Lỗi khi trích xuất dữ liệu từ Quizlet.';
 
     if (backendRes.status === 429 || errorCode === 'rate_limited') {

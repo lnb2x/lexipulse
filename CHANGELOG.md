@@ -4,6 +4,8 @@ Thay đổi đáng chú ý của LexiPulse. Lịch sử đầy đủ: [Git commi
 
 ## Unreleased
 
+- Explain Quizlet limits in Vietnamese and English and offer paste import on failures.
+
 - Keep Quizlet client deadlines active through the backend response body.
 
 - Reject oversized Quizlet extraction without silently truncating cards.

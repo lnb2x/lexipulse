@@ -312,12 +312,11 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
         );
       } else {
         setFetchStatus('error');
-        setFetchErrorMessage(res.message || 'Không thể tải bộ từ từ Quizlet.');
+        const localized = t.quizletErrors[res.errorType as keyof typeof t.quizletErrors];
+        setFetchErrorMessage(localized || res.message || 'Không thể tải bộ từ từ Quizlet.');
         setFetchErrorDiagnostics(res.diagnostics || null);
         setFetchErrorType(res.errorType || 'server_error');
-        if (res.errorType === 'quizlet_login_required' || res.errorType === 'challenge_blocked') {
-          setShowManualFallbackGuidance(true);
-        }
+        setShowManualFallbackGuidance(true);
       }
     } catch (err: any) {
       if (controller.signal.aborted) return;
@@ -739,7 +738,7 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
                     <p className="font-bold text-rose-900 dark:text-rose-100">{fetchErrorMessage}</p>
                     {fetchErrorType && (
                       <span className="rounded bg-rose-200/80 dark:bg-rose-900/60 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-rose-800 dark:text-rose-200">
-                        {fetchErrorType === 'backend_offline'
+                        {fetchErrorType in t.quizletErrors ? t.quizletErrors.limitLabel : fetchErrorType === 'backend_offline'
                           ? 'Máy chủ offline'
                           : fetchErrorType === 'quizlet_login_required'
                           ? 'Yêu cầu đăng nhập'
@@ -785,11 +784,11 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
             {showManualFallbackGuidance && (
               <div className="mt-2 pt-2 border-t border-rose-200/60 dark:border-rose-900/60 text-slate-700 dark:text-slate-300 space-y-1.5">
                 <p className="font-semibold text-xs text-rose-950 dark:text-rose-200">
-                  Phương án thay thế: Xuất nội dung từ Quizlet và dán vào ô bên dưới:
+                  {t.quizletErrors.fallback}
                 </p>
                 <div className="pl-4 space-y-1 text-[11px]">
                   <p>
-                    1. Mở bộ từ:{' '}
+                    {t.quizletErrors.openSet}{' '}
                     {parsedUrlInfo.cleanUrl ? (
                       <a
                         href={parsedUrlInfo.cleanUrl}
@@ -797,11 +796,11 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 text-indigo-600 underline hover:text-indigo-700 dark:text-indigo-400 font-medium"
                       >
-                        <span>{parsedUrlInfo.title || 'Mở trên Quizlet'}</span>
+                        <span>{parsedUrlInfo.title || t.quizletErrors.openOnQuizlet}</span>
                         <ExternalLink className="h-3 w-3" />
                       </a>
                     ) : (
-                      <span>trên Quizlet</span>
+                      <span>{t.quizletErrors.onQuizlet}</span>
                     )}
                   </p>
                   <p>{t.modals.quizletStep2}</p>
