@@ -1,12 +1,8 @@
-const CACHE_NAME = 'lexipulse-shell-v1';
-const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/favicon.svg',
-];
+importScripts('/sw-precache.js');
+const CACHE_NAME = `lexipulse-shell-${self.LEXIPULSE_PRECACHE.version}`;
+const STATIC_ASSETS = self.LEXIPULSE_PRECACHE.urls;
 
-// Install: pre-cache minimal app shell
+// Install: pre-cache the complete built app, including unopened lazy routes
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {

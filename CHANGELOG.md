@@ -4,6 +4,8 @@ Thay đổi đáng chú ý của LexiPulse. Lịch sử đầy đủ: [Git commi
 
 ## Unreleased
 
+- Precache unopened deck, review modes and other built routes for offline use.
+
 - Explain Quizlet limits in Vietnamese and English and offer paste import on failures.
 
 - Keep Quizlet client deadlines active through the backend response body.

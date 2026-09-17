@@ -27,3 +27,5 @@ Extraction rejects more than 10,000 cards, text fields over 20,000 characters, o
 The Quizlet client deadline also covers backend response bodies, so an incomplete JSON download exits to the timeout state instead of leaving the import spinner running.
 
 Busy, timeout, blocked-source and size-limit responses have Vietnamese/English explanations and a visible paste-import fallback. Technical diagnostics use status/code rather than dumping those backend responses.
+
+Production builds emit sw-precache.js with every built asset, including nested lazy review modes and export tools. Installation succeeds only when the full precache succeeds. First paint remains separate; offline readiness begins after serviceWorker.ready. Serve the entire dist directory (including sw-precache.js) from the origin root.

@@ -1,4 +1,5 @@
 import react from '@vitejs/plugin-react'
+import { pwaPrecache } from './scripts/pwaBuild.ts'
 import { handleQuizletFetch } from './server/quizletHandler.ts'
 import { defineConfig, type Plugin } from 'vite'
 
@@ -93,7 +94,7 @@ function quizletPlugin(): Plugin {
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), translationPlugin(), quizletPlugin()],
+  plugins: [react(), pwaPrecache(), translationPlugin(), quizletPlugin()],
   test: {
     include: ['tests/**/*.test.{ts,tsx}'],
     exclude: ['**/node_modules/**', '**/dist/**', '**/e2e/**'],

@@ -113,7 +113,7 @@ Nền tảng: React, TypeScript, Vite, Tailwind CSS, Dexie/IndexedDB, `ts-fsrs`,
 - `dist/` là frontend tĩnh. Middleware Vite **không nằm trong bản build**; nhập Quizlet bằng URL cần backend cùng origin hoặc reverse proxy.
 - `npm run preview` dùng để kiểm tra cục bộ. Xem [hướng dẫn triển khai](docs/deployment.md) khi dùng máy chủ riêng.
 - Dữ liệu gắn với trình duyệt, hồ sơ và origin; chưa có đồng bộ tài khoản giữa thiết bị.
-- Service worker hỗ trợ dùng lại tài nguyên đã cache. Tra cứu mới qua mạng, AI từ xa và nhập URL vẫn cần kết nối; màn hình chưa tải có thể chưa dùng được offline.
+- Sau khi service worker cài xong, bản build cache cả các màn hình bộ từ và ôn tập chưa mở. Tra cứu mới qua mạng, AI từ xa và nhập URL vẫn cần kết nối.
 - Backup hiện chưa chứa bảng quản lý bộ Quizlet riêng. Từ đã nhập vẫn được xuất trong bộ từ; giữ export Quizlet gốc nếu cần khôi phục danh sách bộ.
 - Chất lượng nội dung phụ thuộc nguồn và AI. Kiểm tra nghĩa, ví dụ và phát âm trước khi dùng để học.
 
