@@ -35,3 +35,5 @@ Updates wait for user consent. Only the accepting tab reloads; update is disable
 References: [MDN service worker lifecycle](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API/Using_Service_Workers), [Playwright Chromium sandbox](https://playwright.dev/docs/api/class-browsertype).
 
 Static asset cache matches ignore Vary because the same-origin hashed files have identical bytes; this covers preview/proxy hosts that add Vary: Origin. External fonts and remote audio remain optional network resources and are not precached.
+
+The update action supports keyboard activation and has a tested focus-outline contrast of at least 3:1 in dark mode.

@@ -54,7 +54,27 @@ test('update waits for consent and preserves an active review in another tab', a
     await expect.poll(() => first.evaluate(async () => !!(await navigator.serviceWorker.ready).waiting)).toBe(true);
     await expect(first.locator('meta[name="fixture-release"]')).toHaveAttribute('content', 'A');
     await expect(second.getByRole('button', { name: 'Reload to update' })).toBeDisabled();
-    await first.getByRole('button', { name: 'Reload to update' }).click();
+    await first.evaluate(() => document.documentElement.classList.add('dark'));
+    await first.keyboard.press('Tab');
+    const update = first.getByRole('button', { name: 'Reload to update' });
+    await update.focus();
+    await expect(update).toBeFocused();
+    const contrast = await update.evaluate(button => {
+      const style = getComputedStyle(button);
+      if (style.outlineStyle === 'none') return 0;
+      const luminance = (color: string) => {
+        const values = color.match(/[\d.]+/g)!.slice(0, 3).map(value => {
+          const c = Number(value) / 255;
+          return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+        });
+        return values[0] * 0.2126 + values[1] * 0.7152 + values[2] * 0.0722;
+      };
+      const foreground = luminance(style.outlineColor);
+      const background = luminance(getComputedStyle(button.parentElement!).backgroundColor);
+      return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+    });
+    expect(contrast).toBeGreaterThanOrEqual(3);
+    await first.keyboard.press('Enter');
     await expect(first.locator('meta[name="fixture-release"]')).toHaveAttribute('content', 'B');
     expect(await second.evaluate(() => (window as any).__reviewMarker)).toBe('keep');
     expect(await second.evaluate(() => caches.has('unrelated-app'))).toBe(true);
