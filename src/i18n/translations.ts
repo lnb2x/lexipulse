@@ -2,6 +2,7 @@ export type Language = 'vi' | 'en';
 
 export const translations = {
   vi: {
+    pwa: { ready: 'Có phiên bản mới. Tải lại khi bạn sẵn sàng.', busy: 'Có phiên bản mới. Hãy hoàn tất phiên ôn hoặc lưu thao tác đang làm trước khi cập nhật.', apply: 'Tải lại để cập nhật' },
     quizletErrors: {
       "server_busy": "Máy chủ nhập đang bận. Hãy thử lại sau hoặc dán nội dung bộ thẻ.",
       "resource_limit": "Bộ thẻ vượt giới hạn tải an toàn. Hãy xuất và dán nội dung để nhập.",
@@ -353,6 +354,7 @@ export const translations = {
     },
   },
   en: {
+    pwa: { ready: 'A new version is ready. Reload when convenient.', busy: 'A new version is ready. Finish your review or save your current work before updating.', apply: 'Reload to update' },
     quizletErrors: {
       "server_busy": "The import service is busy. Try again later or paste the exported cards.",
       "resource_limit": "This set exceeds safe download limits. Export and paste the cards to import them.",

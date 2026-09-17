@@ -29,3 +29,9 @@ The Quizlet client deadline also covers backend response bodies, so an incomplet
 Busy, timeout, blocked-source and size-limit responses have Vietnamese/English explanations and a visible paste-import fallback. Technical diagnostics use status/code rather than dumping those backend responses.
 
 Production builds emit sw-precache.js with every built asset, including nested lazy review modes and export tools. Installation succeeds only when the full precache succeeds. First paint remains separate; offline readiness begins after serviceWorker.ready. Serve the entire dist directory (including sw-precache.js) from the origin root.
+
+Updates wait for user consent. Only the accepting tab reloads; update is disabled during an active review, import/export, settings or word edit, and lookup requests. Other tabs keep their in-memory session and cached build assets. Navigation uses the active build's cached HTML to avoid mixing versions. Only LexiPulse shell caches can be removed, during a natural activation with no open windows; long-lived tabs may retain multiple builds until all tabs close. Nothing touches IndexedDB. Keep previous deployment assets when upgrading clients from the older partial-cache worker. Worker/update files must be revalidated by the host (Cache-Control: no-cache); deploy assets and manifest before publishing the worker.
+
+References: [MDN service worker lifecycle](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API/Using_Service_Workers), [Playwright Chromium sandbox](https://playwright.dev/docs/api/class-browsertype).
+
+Static asset cache matches ignore Vary because the same-origin hashed files have identical bytes; this covers preview/proxy hosts that add Vary: Origin. External fonts and remote audio remain optional network resources and are not precached.

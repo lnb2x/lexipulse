@@ -1,102 +1,54 @@
 importScripts('/sw-precache.js');
-const CACHE_NAME = `lexipulse-shell-${self.LEXIPULSE_PRECACHE.version}`;
+const PREFIX = 'lexipulse-shell-';
+const CACHE_NAME = `${PREFIX}${self.LEXIPULSE_PRECACHE.version}`;
 const STATIC_ASSETS = self.LEXIPULSE_PRECACHE.urls;
 
-// Install: pre-cache the complete built app, including unopened lazy routes
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
-    }).then(() => self.skipWaiting())
-  );
+self.addEventListener('install', event => {
+  event.waitUntil(caches.open(CACHE_NAME).then(cache =>
+    cache.addAll(STATIC_ASSETS.map(url => new Request(url, { cache: 'reload' })))));
 });
 
-// Activate: clean up old caches
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
-        keys.map((key) => {
-          if (key !== CACHE_NAME) {
-            return caches.delete(key);
-          }
-        })
-      );
-    }).then(() => self.clients.claim())
-  );
+self.addEventListener('message', event => {
+  if (event.data?.type === 'ACTIVATE_UPDATE') event.waitUntil(self.skipWaiting());
 });
 
-// Fetch: serve app shell offline; never cache sensitive API endpoints
-self.addEventListener('fetch', (event) => {
+self.addEventListener('activate', event => {
+  event.waitUntil((async () => {
+    // Old tabs can still import their build's hashed chunks. Retain those caches
+    // until a natural activation with no open windows; never delete other apps' caches.
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    if (windows.length === 0) {
+      for (const key of await caches.keys()) {
+        if (key.startsWith(PREFIX) && key !== CACHE_NAME) await caches.delete(key);
+      }
+    }
+    await self.clients.claim();
+  })());
+});
+
+self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
-
-  // Security rule: NEVER cache AI requests, external dictionary APIs, or requests with API keys
-  if (
-    url.hostname.includes('googleapis.com') ||
-    url.hostname.includes('openai.com') ||
-    url.hostname.includes('anthropic.com') ||
-    url.hostname.includes('deepseek.com') ||
-    url.hostname.includes('groq.com') ||
-    url.hostname.includes('openrouter.ai') ||
-    url.pathname.startsWith('/api/') ||
-    url.search.includes('key=') ||
-    url.search.includes('token=')
-  ) {
-    return;
-  }
-
-  // Only handle GET requests
-  if (event.request.method !== 'GET') {
-    return;
-  }
-
-  // Cache-first for built static assets (/assets/*)
-  if (url.origin === self.location.origin && url.pathname.startsWith('/assets/')) {
-    event.respondWith(
-      caches.open(CACHE_NAME).then(async (cache) => {
-        const cached = await cache.match(event.request.url, { ignoreVary: true });
-        if (cached) return cached;
-        try {
-          const response = await fetch(event.request);
-          if (response && response.status === 200) {
-            cache.put(event.request, response.clone());
-          }
-          return response;
-        } catch {
-          return new Response('', { status: 408, statusText: 'Offline' });
-        }
-      })
-    );
-    return;
-  }
-
-  // Stale-while-revalidate / network-first for navigation & HTML
+  if (event.request.method !== 'GET' || url.origin !== self.location.origin || url.search || url.pathname.startsWith('/api/')) return;
   if (event.request.mode === 'navigate') {
-    event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          if (response && response.status === 200) {
-            const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-          }
-          return response;
-        })
-        .catch(async () => {
-          const cached = (await caches.match('/index.html')) || (await caches.match('/'));
-          if (cached) return cached;
-          return new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } });
-        })
-    );
+    event.respondWith((async () => {
+      const cache = await caches.open(CACHE_NAME);
+      return await cache.match('/index.html') || fetch(event.request);
+    })());
     return;
   }
-
-  // Default fetch fallback
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request).catch(() => {
-        return new Response('', { status: 408, statusText: 'Offline' });
-      });
-    })
-  );
+  if (!STATIC_ASSETS.includes(url.pathname) && !url.pathname.startsWith('/assets/')) return;
+  event.respondWith((async () => {
+    const current = await caches.open(CACHE_NAME);
+    // Immutable, same-origin build assets have identical bytes across Origin headers.
+    const cached = await current.match(event.request, { ignoreVary: true });
+    if (cached) return cached;
+    if (url.pathname.startsWith('/assets/')) {
+      for (const key of await caches.keys()) {
+        if (!key.startsWith(PREFIX) || key === CACHE_NAME) continue;
+        const old = await (await caches.open(key)).match(event.request, { ignoreVary: true });
+        if (old) return old;
+      }
+    }
+    return fetch(event.request);
+  })());
 });

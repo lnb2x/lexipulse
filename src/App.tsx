@@ -1,6 +1,7 @@
 import { Check } from 'lucide-react';
 import { Suspense, lazy, startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { PwaUpdateNotice } from './components/common/PwaUpdateNotice';
 import { Header } from './components/common/Header';
 import { useLanguage } from './context/LanguageContext';
 import { LookupView } from './features/lookup/LookupView';
@@ -586,6 +587,7 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 transition-colors duration-200 dark:bg-[#0b0f19] dark:text-slate-100 flex flex-col font-sans">
+      <PwaUpdateNotice busy={(reviewState.inProgress && !reviewState.isCompleted) || isImportExportOpen || isSettingsOpen || !!editingWord || isSearching} />
       {/* Toast notifications with live region */}
       <div
         aria-live="polite"

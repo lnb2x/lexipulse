@@ -4,6 +4,8 @@ Thay đổi đáng chú ý của LexiPulse. Lịch sử đầy đủ: [Git commi
 
 ## Unreleased
 
+- Offer controlled PWA updates without reloading another tab’s active review or deleting unrelated caches.
+
 - Precache unopened deck, review modes and other built routes for offline use.
 
 - Explain Quizlet limits in Vietnamese and English and offer paste import on failures.
