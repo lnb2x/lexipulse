@@ -84,10 +84,14 @@ function quizletPlugin(): Plugin {
   return {
     name: 'quizlet-fetch-middleware',
     configureServer(server) {
-      server.middlewares.use('/api/quizlet/fetch', handleQuizletFetch);
+      server.middlewares.use('/api/quizlet/fetch', (req, res) => handleQuizletFetch(req, res));
+      server.middlewares.use('/api/quizlet/status', (req, res) => handleQuizletFetch(req, res, 'status'));
+      server.middlewares.use('/api/quizlet/cancel', (req, res) => handleQuizletFetch(req, res, 'cancel'));
     },
     configurePreviewServer(server) {
-      server.middlewares.use('/api/quizlet/fetch', handleQuizletFetch);
+      server.middlewares.use('/api/quizlet/fetch', (req, res) => handleQuizletFetch(req, res));
+      server.middlewares.use('/api/quizlet/status', (req, res) => handleQuizletFetch(req, res, 'status'));
+      server.middlewares.use('/api/quizlet/cancel', (req, res) => handleQuizletFetch(req, res, 'cancel'));
     },
   };
 }

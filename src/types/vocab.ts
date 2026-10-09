@@ -147,6 +147,7 @@ export interface WordItem {
   phonetics: PhoneticInfo;
   pos: string[];
   vietnameseDefinition: string;
+  usageNoteVi?: string;
   englishDefinition: string;
   meanings: MeaningItem[];
   collocations: CollocationItem[];
@@ -224,7 +225,7 @@ export interface FilterOptions {
   sortDirection: 'asc' | 'desc';
 }
 
-export type ReviewMode = 'flashcards' | 'cloze' | 'listen' | 'match' | 'choice';
+export type ReviewMode = 'learn' | 'flashcards' | 'cloze' | 'listen' | 'match' | 'choice';
 
 export interface ClozeQuestion {
   word: WordItem;

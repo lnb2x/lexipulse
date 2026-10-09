@@ -47,6 +47,7 @@ test('update waits for consent and preserves an active review in another tab', a
         reviewMeta: { repetition: 1, interval: 1, easeFactor: 2.5, dueDate: Date.now() - 1000, lastReviewedDate: null, history: [] } });
     });
     await second.getByRole('tab', { name: /Review/i }).click();
+    await second.getByRole('button', { name: /^Flashcards/ }).click();
     await second.getByRole('button', { name: /Review 1 Cards Due Today/i }).click();
     await expect(second.getByText('Front Card')).toBeVisible();
     release = 'B';

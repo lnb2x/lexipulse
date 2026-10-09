@@ -6,9 +6,12 @@ import { lookupWord } from '../../services/dictionary';
 import { playPronunciation } from '../../services/audio';
 import { createInitialReviewMeta } from '../../services/sm2';
 import { AudioButton } from '../common/AudioButton';
+import { GlassButton } from '../common/Glass';
+import { ModalPresence } from '../common/ModalPresence';
 import { WordFamilyInteractive } from '../common/WordFamilyInteractive';
 import { ProvenanceBadge } from '../common/ProvenanceBadge';
 import { parseMultipleMeanings } from '../../utils/definitionUtils';
+import { withCleanDefinitions } from '../../services/definitionCleanup';
 import { isPlaceholderDefinition } from '../../services/quizlet/quizletNormalizer';
 
 const EditableWordModal = React.lazy(() =>
@@ -36,6 +39,7 @@ export const WordCard: React.FC<WordCardProps> = ({
 }) => {
   const { language, t } = useLanguage();
   const [currentWord, setCurrentWord] = useState<WordItem>(word);
+  const cleanDefinition = withCleanDefinitions(currentWord).vietnameseDefinition;
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [newTagInput, setNewTagInput] = useState('');
   const [isSaved, setIsSaved] = useState(false);
@@ -173,21 +177,22 @@ export const WordCard: React.FC<WordCardProps> = ({
   };
 
   return (
-    <div className="w-full max-w-3xl mx-auto rounded-2xl border border-slate-200/90 bg-white p-6 sm:p-7 shadow-card dark:border-slate-800 dark:bg-[#121824] animate-slide-up space-y-6">
+    <section className="dictionary-entry animate-slide-up" aria-label={currentWord.word}>
+      <div className="dictionary-entry-content space-y-6">
       {/* Top Banner: Word + Phonetics + Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5 dark:border-slate-800/80">
+      <div className="dictionary-word-header flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="dictionary-word-title flex flex-wrap items-center gap-3">
             <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 dark:text-white">
               {currentWord.word}
             </h1>
 
             {/* Part of Speech Badges */}
-            <div className="flex flex-wrap gap-1">
+            <div className="dictionary-pos-tags flex flex-wrap gap-2">
               {currentWord.pos.map((pos) => (
                 <span
                   key={pos}
-                  className="rounded-md border border-indigo-100 bg-indigo-50/70 px-2 py-0.5 text-xs font-semibold text-indigo-700 dark:border-indigo-900/50 dark:bg-indigo-950/40 dark:text-indigo-300 italic"
+                  className="dictionary-label px-2 py-0.5 text-xs font-semibold italic"
                 >
                   {pos}
                 </span>
@@ -196,20 +201,17 @@ export const WordCard: React.FC<WordCardProps> = ({
           </div>
 
           {/* Phonetic IPA + Audio Buttons */}
-          <div className="mt-2.5 flex flex-wrap items-center gap-2.5 text-xs">
+          <div className="dictionary-pronunciations flex flex-wrap items-center gap-2.5 text-xs">
             {/* US Audio & IPA */}
-            <div className="flex items-center gap-1.5 rounded-lg border border-slate-200/80 bg-slate-50/80 px-2.5 py-1 dark:border-slate-700/60 dark:bg-slate-800/60">
+            <div data-glass data-glass-variant="thin" className="liquid-glass glass-control glass-pill dictionary-pronunciation">
+              <span className="dictionary-accent-label">US</span>
               {currentWord.phonetics.us &&
               currentWord.phonetics.us !== `/${currentWord.word}/` &&
               currentWord.phonetics.us !== `/${currentWord.word.toLowerCase()}/` ? (
                 <span className="font-mono text-slate-600 dark:text-slate-300 font-medium">
-                  US {currentWord.phonetics.us}
+                  {currentWord.phonetics.us}
                 </span>
-              ) : (
-                <span className="font-mono text-slate-500 dark:text-slate-400 font-medium text-[11px]">
-                  US
-                </span>
-              )}
+              ) : null}
               <AudioButton
                 text={currentWord.word}
                 accent="US"
@@ -222,18 +224,15 @@ export const WordCard: React.FC<WordCardProps> = ({
             </div>
 
             {/* UK Audio & IPA */}
-            <div className="flex items-center gap-1.5 rounded-lg border border-slate-200/80 bg-slate-50/80 px-2.5 py-1 dark:border-slate-700/60 dark:bg-slate-800/60">
+            <div data-glass data-glass-variant="thin" className="liquid-glass glass-control glass-pill dictionary-pronunciation">
+              <span className="dictionary-accent-label">UK</span>
               {(currentWord.phonetics.uk || currentWord.phonetics.us) &&
               (currentWord.phonetics.uk || currentWord.phonetics.us) !== `/${currentWord.word}/` &&
               (currentWord.phonetics.uk || currentWord.phonetics.us) !== `/${currentWord.word.toLowerCase()}/` ? (
                 <span className="font-mono text-slate-600 dark:text-slate-300 font-medium">
-                  UK {currentWord.phonetics.uk || currentWord.phonetics.us}
+                  {currentWord.phonetics.uk || currentWord.phonetics.us}
                 </span>
-              ) : (
-                <span className="font-mono text-slate-500 dark:text-slate-400 font-medium text-[11px]">
-                  UK
-                </span>
-              )}
+              ) : null}
               <AudioButton
                 text={currentWord.word}
                 accent="UK"
@@ -254,25 +253,21 @@ export const WordCard: React.FC<WordCardProps> = ({
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-2 self-start sm:self-center">
-          <button
+        <div className="dictionary-toolbar flex items-center gap-2 self-start sm:self-center">
+          <GlassButton
             type="button"
             onClick={() => setIsEditModalOpen(true)}
-            className="flex items-center gap-1.5 rounded-xl border border-slate-200/90 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-subtle transition-all hover:bg-slate-50 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800/80"
           >
             <Edit3 className="h-3.5 w-3.5 text-slate-400" />
             <span>{t.lookup.editWord}</span>
-          </button>
+          </GlassButton>
 
-          <button
+          <GlassButton
             type="button"
+            prominent={!(isSaved || isAlreadyInDeck)}
+            busy={isSaving}
             onClick={handleSave}
             disabled={isSaving}
-            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold text-white shadow-sm transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed ${
-              isSaved || isAlreadyInDeck
-                ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/20'
-                : 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20'
-            }`}
           >
             {isSaving ? (
               <>
@@ -295,7 +290,7 @@ export const WordCard: React.FC<WordCardProps> = ({
                 <span>{t.lookup.saveToDeck}</span>
               </>
             )}
-          </button>
+          </GlassButton>
         </div>
       </div>
 
@@ -303,17 +298,17 @@ export const WordCard: React.FC<WordCardProps> = ({
       {currentWord.lemma &&
         (currentWord.lemma.toLowerCase() !== currentWord.word.toLowerCase() ||
           (currentWord.originalInput && currentWord.originalInput.toLowerCase() !== currentWord.word.toLowerCase())) && (
-          <div className="rounded-xl border border-indigo-200/90 bg-indigo-50/70 p-4 dark:border-indigo-900/60 dark:bg-indigo-950/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in shadow-subtle">
+          <div className="content-surface dictionary-notice p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in">
             <div className="space-y-1">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-0.5 text-xs font-bold text-white shadow-xs">
+                <span className="dictionary-label inline-flex items-center gap-1 px-2.5 py-0.5 text-xs font-bold">
                   💡 {language === 'vi' ? 'Từ nguyên mẫu:' : 'Lemma:'} {currentWord.lemma}
                 </span>
                 {currentWord.formLabels &&
                   currentWord.formLabels.map((lbl, idx) => (
                     <span
                       key={idx}
-                      className="rounded-md border border-indigo-200 bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-indigo-800 dark:border-indigo-800 dark:bg-slate-900/80 dark:text-indigo-300"
+                      className="dictionary-label px-2 py-0.5 text-[10px] font-semibold"
                     >
                       {lbl}
                     </span>
@@ -330,8 +325,9 @@ export const WordCard: React.FC<WordCardProps> = ({
               {currentWord.word.toLowerCase() !== currentWord.lemma.toLowerCase() ? (
                 <button
                   type="button"
+                  data-glass
                   onClick={() => onLookupWord?.(currentWord.lemma!)}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-500 active:scale-95 transition-all"
+                  className="glass-button glass-prominent inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold"
                 >
                   <span>{language === 'vi' ? `Xem từ gốc "${currentWord.lemma}"` : `View lemma "${currentWord.lemma}"`}</span>
                 </button>
@@ -339,8 +335,9 @@ export const WordCard: React.FC<WordCardProps> = ({
                 currentWord.originalInput.toLowerCase() !== currentWord.word.toLowerCase() ? (
                 <button
                   type="button"
+                  data-glass
                   onClick={() => onLookupWord?.(currentWord.originalInput!)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 transition-all"
+                  className="glass-button inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold"
                 >
                   <span>{language === 'vi' ? `Xem dạng "${currentWord.originalInput}"` : `View form "${currentWord.originalInput}"`}</span>
                 </button>
@@ -350,19 +347,18 @@ export const WordCard: React.FC<WordCardProps> = ({
         )}
 
       {/* Core Vietnamese Definition Card */}
-      <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/40 p-4 sm:p-5 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+      <div className="content-surface dictionary-definition">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
-            <span>{t.lookup.meaningLabel}</span>
-          </div>
+          <h3 className="dictionary-meaning-title">{t.lookup.meaningLabel}</h3>
           <div className="flex items-center gap-2">
             {onReTranslateWithAI && (
               <button
                 type="button"
+                data-glass
                 onClick={handleReTranslate}
                 disabled={isReTranslating}
-                className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 transition-colors disabled:opacity-50"
-                title={language === 'vi' ? 'Dịch lại bằng AI theo chuẩn schema' : 'Re-translate with AI'}
+                className="glass-button dictionary-retranslate inline-flex items-center gap-1 text-[11px] font-semibold disabled:opacity-50"
+                title={language === 'vi' ? 'Làm rõ nghĩa và cách dùng bằng AI' : 'Clarify the meaning and usage with AI'}
               >
                 {isReTranslating ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
@@ -387,16 +383,16 @@ export const WordCard: React.FC<WordCardProps> = ({
               </p>
             );
           }
-          const senses = parseMultipleMeanings(currentWord.vietnameseDefinition);
+          const senses = parseMultipleMeanings(cleanDefinition);
           if (senses.length > 1) {
             return (
-              <div className="mt-2.5 space-y-2">
+              <div className="dictionary-senses">
                 {senses.map((sense) => (
-                  <div key={sense.index} className="flex items-start gap-2.5">
-                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-md bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 text-xs font-bold shrink-0 mt-0.5 shadow-xs">
+                  <div key={sense.index} className="dictionary-sense">
+                    <span className="dictionary-sense-number">
                       {sense.index}
                     </span>
-                    <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-snug">
+                    <p className="dictionary-meaning-text">
                       {sense.text}
                     </p>
                   </div>
@@ -405,29 +401,40 @@ export const WordCard: React.FC<WordCardProps> = ({
             );
           }
           return (
-            <p className="mt-2 text-lg font-bold text-slate-900 dark:text-slate-100">
-              {currentWord.vietnameseDefinition}
+            <p className="dictionary-meaning-text">
+              {cleanDefinition}
             </p>
           );
         })()}
         {currentWord.englishDefinition && !isPlaceholderDefinition(currentWord.englishDefinition) && (
-          <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+          <p className="dictionary-english-definition">
             {currentWord.englishDefinition}
           </p>
+        )}
+        {currentWord.usageNoteVi?.trim() && (
+          <div className="mt-4 space-y-1.5 border-t border-slate-200/70 pt-4 dark:border-slate-700/70">
+            <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+              {language === 'vi' ? 'Cách dùng' : 'Usage'}
+            </h4>
+            <p className="text-sm font-normal leading-relaxed text-slate-600 dark:text-slate-300">
+              {currentWord.usageNoteVi.trim()}
+            </p>
+          </div>
         )}
 
         {/* Provided Context Sentence if any */}
         {currentWord.contextSentence && (
-          <div className="mt-3 rounded-lg border border-emerald-200/80 bg-white/70 p-3 text-xs dark:border-emerald-900/40 dark:bg-slate-900/60 space-y-1.5">
+          <div className="dictionary-context mt-3 p-3 text-xs space-y-1.5">
             <div className="flex items-center justify-between gap-2">
-              <span className="font-bold text-emerald-800 dark:text-emerald-300 uppercase tracking-wider text-[10px]">
+              <span className="font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider text-[10px]">
                 {language === 'vi' ? 'Ngữ cảnh câu tra cứu:' : 'Provided Context Sentence:'}
               </span>
               {onLookupWord && (
                 <button
                   type="button"
+                  data-glass
                   onClick={() => onLookupWord(currentWord.originalInput || currentWord.word, currentWord.contextSentence)}
-                  className="text-[10px] font-semibold text-emerald-700 hover:text-emerald-800 dark:text-emerald-300 dark:hover:text-emerald-200 underline underline-offset-2 transition-colors"
+                  className="glass-button dictionary-retranslate text-[10px] font-semibold"
                 >
                   {language === 'vi' ? 'Dịch lại theo câu này' : 'Re-translate with this sentence'}
                 </button>
@@ -442,20 +449,19 @@ export const WordCard: React.FC<WordCardProps> = ({
 
       {/* Inflections Grid */}
       {currentWord.inflections && currentWord.inflections.length > 0 && (
-        <div className="rounded-xl border border-slate-200/80 bg-slate-50/50 p-4 dark:border-slate-800/80 dark:bg-slate-900/40 space-y-2.5">
+        <div className="content-surface dictionary-section dictionary-inflections space-y-2.5">
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             {language === 'vi' ? 'Bảng biến thể ngữ pháp (Inflections)' : 'Grammatical Inflections'}
           </h3>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="inflection-values">
             {currentWord.inflections.map((inf, idx) => (
               <div
                 key={idx}
-                className="rounded-lg border border-slate-200/70 bg-white p-2.5 dark:border-slate-800 dark:bg-slate-900/80 shadow-xs"
               >
-                <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider block">
+                <span>
                   {inf.label || inf.form}
                 </span>
-                <p className="font-semibold text-xs text-slate-900 dark:text-slate-100 mt-0.5 font-mono">
+                <p>
                   {inf.word || inf.form}
                 </p>
               </div>
@@ -478,14 +484,14 @@ export const WordCard: React.FC<WordCardProps> = ({
           <div className={`grid gap-4 ${hasCollocations && hasWordFamily ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
             {/* Collocations */}
             {hasCollocations && (
-              <div className="rounded-xl border border-slate-200/80 bg-slate-50/50 p-4 dark:border-slate-800/80 dark:bg-slate-900/40 min-w-0">
+              <div className="content-surface dictionary-section min-w-0">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   {t.lookup.collocations}
                 </h3>
                 <ul className="mt-2.5 space-y-2">
                   {currentWord.collocations.slice(0, 4).map((c, idx) => (
                     <li key={idx} className="flex items-start justify-between text-xs gap-2 min-w-0">
-                      <span className="font-semibold text-indigo-600 dark:text-indigo-400 shrink-0">
+                      <span className="font-semibold text-slate-800 dark:text-slate-200 shrink-0">
                         {c.phrase}
                       </span>
                       <span className="text-slate-500 dark:text-slate-400 text-right line-clamp-1 min-w-0">
@@ -499,7 +505,7 @@ export const WordCard: React.FC<WordCardProps> = ({
 
             {/* Word Family */}
             {hasWordFamily && (
-              <div className="rounded-xl border border-slate-200/80 bg-slate-50/50 p-4 dark:border-slate-800/80 dark:bg-slate-900/40 min-w-0">
+              <div className="content-surface dictionary-section min-w-0">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
                   {t.lookup.wordFamily}
                 </h3>
@@ -521,15 +527,11 @@ export const WordCard: React.FC<WordCardProps> = ({
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
           {t.lookup.examples}
         </h3>
-        <div className="space-y-2.5">
+        <div className="dictionary-examples">
           {currentWord.examples.map((ex, idx) => (
             <div
               key={idx}
-              className={`rounded-xl border p-3.5 transition-all ${
-                ex.context === 'toeic'
-                  ? 'border-indigo-200/80 bg-indigo-50/30 dark:border-indigo-900/50 dark:bg-indigo-950/20'
-                  : 'border-slate-200/80 bg-slate-50/40 dark:border-slate-800/80 dark:bg-slate-900/30'
-              }`}
+              className="content-surface dictionary-example"
             >
               <div className="flex items-center justify-between">
                 <span
@@ -561,19 +563,18 @@ export const WordCard: React.FC<WordCardProps> = ({
           <span>{t.lookup.tagsLabel}</span>
         </div>
 
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <div className="dictionary-tags mt-3 flex flex-wrap items-center gap-2">
           {COMMON_TAGS.map((tag) => {
             const isSelected = currentWord.tags.includes(tag);
             return (
               <button
                 key={tag}
                 type="button"
+                data-glass
+                data-glass-variant="thin"
+                aria-pressed={isSelected}
                 onClick={() => handleToggleTag(tag)}
-                className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                  isSelected
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'
-                }`}
+                className="glass-pill dictionary-tag"
               >
                 {tag}
               </button>
@@ -587,8 +588,12 @@ export const WordCard: React.FC<WordCardProps> = ({
               <button
                 key={t}
                 type="button"
+                data-glass
+                data-glass-variant="thin"
+                aria-pressed="true"
+                aria-label={`${language === 'vi' ? 'Xóa nhãn' : 'Remove tag'} ${t}`}
                 onClick={() => handleToggleTag(t)}
-                className="rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-medium text-white"
+                className="glass-pill dictionary-tag"
               >
                 {t} ×
               </button>
@@ -598,16 +603,19 @@ export const WordCard: React.FC<WordCardProps> = ({
           <form onSubmit={handleAddCustomTag} className="flex items-center">
             <input
               type="text"
+              data-glass
+              aria-label={language === 'vi' ? 'Thêm nhãn mới' : 'Add a new tag'}
               placeholder={language === 'vi' ? '+ tag mới' : '+ new tag'}
               value={newTagInput}
               onChange={(e) => setNewTagInput(e.target.value)}
-              className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-800 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              className="liquid-glass glass-control dictionary-custom-tag px-2 py-0.5 text-xs"
             />
           </form>
         </div>
       </div>
 
       {/* Edit Modal */}
+      <ModalPresence open={isEditModalOpen}>
       {isEditModalOpen && (
         <React.Suspense fallback={null}>
           <EditableWordModal
@@ -618,6 +626,8 @@ export const WordCard: React.FC<WordCardProps> = ({
           />
         </React.Suspense>
       )}
-    </div>
+      </ModalPresence>
+      </div>
+    </section>
   );
 };

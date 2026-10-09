@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "LexiPulse — Nhập Quizlet",
+  "version": "1.0.0",
+  "description": "Đọc bộ thẻ Quizlet bạn truy cập được và trả về LexiPulse trên máy này.",
+  "permissions": ["scripting"],
+  "host_permissions": ["https://quizlet.com/*", "https://www.quizlet.com/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "content_scripts": [{
+    "matches": ["http://localhost/*", "http://127.0.0.1/*"],
+    "js": ["bridge.js"],
+    "run_at": "document_start"
+  }]
+}

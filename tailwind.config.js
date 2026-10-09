@@ -8,23 +8,25 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'],
-        display: ['Outfit', 'Inter', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', 'sans-serif'],
+        sans: ['system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'sans-serif'],
+        display: ['system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'sans-serif'],
         mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
       },
       colors: {
+        slate: {
+          50: '#f9f9fb', 100: '#f2f2f7', 200: '#e5e5ea', 300: '#d1d1d6',
+          400: '#8e8e93', 500: '#6e6e73', 600: '#54545c', 700: '#3a3a3f',
+          800: '#2c2c34', 900: '#1c1c24', 950: '#121218',
+        },
+        indigo: {
+          50: '#f0f6ff', 100: '#e1eeff', 200: '#c2dcff', 300: '#91bdff',
+          400: '#5fa2ff', 500: '#007aff', 600: '#0066d6', 700: '#0055b3',
+          800: '#00448f', 900: '#00336b', 950: '#001a36',
+        },
         brand: {
-          50: '#eef2ff',
-          100: '#e0e7ff',
-          200: '#c7d2fe',
-          300: '#a5b4fc',
-          400: '#818cf8',
-          500: '#6366f1',
-          600: '#4f46e5',
-          700: '#4338ca',
-          800: '#3730a3',
-          900: '#312e81',
-          950: '#1e1b4b',
+          50: '#f0f6ff', 100: '#e1eeff', 200: '#c2dcff', 300: '#91bdff',
+          400: '#5fa2ff', 500: '#007aff', 600: '#0066d6', 700: '#0055b3',
+          800: '#00448f', 900: '#00336b', 950: '#001a36',
         },
         accent: {
           50: '#ecfdf5',

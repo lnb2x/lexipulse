@@ -117,7 +117,8 @@ test.describe('LexiPulse E2E Suite', () => {
     const deckNavBtn = page.getByRole('tab', { name: /Bộ từ vựng|Deck/i });
     await deckNavBtn.click();
 
-    // Click "Nhập nhiều từ" / "Bulk Add"
+    // Open the deck action menu before choosing bulk import.
+    await page.locator('summary').filter({ hasText: /Nhập \/ Xuất|Import \/ Export/i }).click();
     const bulkBtn = page.getByRole('button', { name: /Nhập nhiều từ|Bulk Add/i });
     await bulkBtn.click();
 
@@ -189,16 +190,21 @@ test.describe('LexiPulse E2E Suite', () => {
     await page.getByRole('tab', { name: /Ôn tập SRS|Review/i }).click();
 
     // Start the due-card session from the review dashboard.
+    await page.getByRole('button', { name: /^Thẻ ghi nhớ|^Flashcards/ }).click();
     await page.getByRole('button', { name: /Ôn tập 1 thẻ đến hạn hôm nay|Review 1 Cards Due Today/i }).click();
 
-    // Flashcard should display 'innovate'
-    await expect(page.locator('text=innovate').first()).toBeVisible();
+    // Wait for the mounted card to settle before sending a keyboard shortcut.
+    const cardWord = page.getByRole('heading', { name: 'innovate', exact: true });
+    await expect(cardWord).toBeVisible();
+    await cardWord.click({ trial: true });
 
     // Press Space or click to flip
     await page.keyboard.press('Space');
 
     // FSRS uses rating 3 for Good ("Nhớ" in Vietnamese).
-    await page.getByRole('button', { name: /Nhớ|Good/i }).click();
+    const goodRating = page.getByRole('button', { name: /Nhớ|Good/i });
+    await expect(goodRating).toBeEnabled();
+    await goodRating.click();
 
     // Review completion screen should appear
     await expect(page.locator('text=/Hoàn thành|Completed|Finished/i').first()).toBeVisible({ timeout: 5000 });
@@ -292,7 +298,8 @@ test.describe('LexiPulse E2E Suite', () => {
     await page.getByRole('tab', { name: /Bộ từ vựng|Deck/i }).click();
     await expect(page.locator('text=benchmark')).not.toBeVisible();
 
-    // Click Export/Backup button
+    // Open the deck action menu before choosing export/backup.
+    await page.locator('summary').filter({ hasText: /Nhập \/ Xuất|Import \/ Export/i }).click();
     const exportBtn = page.getByRole('button', { name: /Xuất \/ Sao lưu|Export \/ Backup/i });
     await exportBtn.click();
 
@@ -401,7 +408,13 @@ test.describe('LexiPulse E2E Suite', () => {
 
     // Press Alt+2 to switch to Deck tab
     await page.keyboard.press('Alt+2');
+    const deckActions = page.locator('summary').filter({ hasText: /Nhập \/ Xuất|Import \/ Export/i });
+    await expect(deckActions).toBeVisible();
+    await deckActions.focus();
+    await page.keyboard.press('Enter');
     await expect(page.getByRole('button', { name: /Nhập nhiều từ|Bulk Add/i })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(deckActions).toBeFocused();
 
     // Press Alt+1 to switch to Lookup tab
     await page.keyboard.press('Alt+1');

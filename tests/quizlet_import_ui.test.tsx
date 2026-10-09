@@ -37,6 +37,53 @@ describe('QuizletImportView UI State Machine & Interaction Tests', () => {
     expect(screen.queryByText(/Đang đọc bộ từ/i)).toBeNull();
   });
 
+  it('pasting a valid URL automatically loads cards without a fetch click', async () => {
+    const fetchSet = vi.spyOn(parserModule, 'fetchQuizletSet').mockResolvedValue({
+      success: true, title: 'Paste set', terms: [{ term: 'grocery store', definition: 'cửa hàng tạp hóa' }],
+    });
+    renderComponent();
+    expect(screen.queryByRole('textbox', { name: /export/i })).toBeNull();
+    fireEvent.paste(screen.getByPlaceholderText(/quizlet\.com/i), {
+      clipboardData: { getData: () => 'https://quizlet.com/1067700985/cards/' },
+    });
+    await waitFor(() => expect(screen.getByText('grocery store')).toBeDefined());
+    expect(fetchSet).toHaveBeenCalledOnce();
+    expect(fetchSet.mock.calls[0][0]).toBe('https://quizlet.com/1067700985/cards/');
+  });
+
+  it('shows verification progress and resumes automatically with returned cards', async () => {
+    let finish!: (value: parserModule.FetchQuizletResult) => void;
+    vi.spyOn(parserModule, 'fetchQuizletSet').mockImplementation((_url, options) => {
+      options?.onProgress?.('verification_required');
+      return new Promise((resolve) => { finish = resolve; });
+    });
+    renderComponent();
+    fireEvent.paste(screen.getByPlaceholderText(/quizlet\.com/i), {
+      clipboardData: { getData: () => 'https://quizlet.com/1067700985/cards/' },
+    });
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Hãy xác minh'));
+    expect(screen.queryByText(/Phương án thay thế/i)).toBeNull();
+    finish({ success: true, terms: [{ term: 'store', definition: 'cửa hàng' }] });
+    await waitFor(() => expect(screen.getByText('store')).toBeDefined());
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('ignores a superseded request without clearing the next request spinner', async () => {
+    const finishers: ((value: parserModule.FetchQuizletResult) => void)[] = [];
+    vi.spyOn(parserModule, 'fetchQuizletSet').mockImplementation(() => new Promise((resolve) => finishers.push(resolve)));
+    renderComponent();
+    const input = screen.getByPlaceholderText(/quizlet\.com/i);
+    fireEvent.paste(input, { clipboardData: { getData: () => 'https://quizlet.com/111/one/' } });
+    await waitFor(() => expect(finishers).toHaveLength(1));
+    fireEvent.paste(input, { clipboardData: { getData: () => 'https://quizlet.com/222/two/' } });
+    await waitFor(() => expect(finishers).toHaveLength(2));
+    finishers[0]({ success: true, terms: [{ term: 'old', definition: 'cũ' }] });
+    await waitFor(() => expect(screen.getByText(/Đang đọc bộ từ/i)).toBeDefined());
+    expect(screen.queryByText('old')).toBeNull();
+    finishers[1]({ success: true, terms: [{ term: 'new', definition: 'mới' }] });
+    await waitFor(() => expect(screen.getByText('new')).toBeDefined());
+  });
+
   it('2. Transitions from idle -> loading -> error and displays concise reason with Retry button without hanging spinner', async () => {
     let resolveFetch: (val: any) => void;
     const fetchPromise = new Promise((resolve) => {
@@ -155,5 +202,27 @@ describe('QuizletImportView UI State Machine & Interaction Tests', () => {
     expect(screen.getByText('cành cây')).toBeDefined();
     expect(screen.getByText('ladder')).toBeDefined();
     expect(screen.getByText('equipment')).toBeDefined();
+  });
+
+  it('shows comma-separated terms as individual rows after fetching a Quizlet card', async () => {
+    vi.spyOn(parserModule, 'fetchQuizletSet').mockResolvedValue({
+      success: true,
+      title: 'Synonyms',
+      setId: '12345',
+      cleanUrl: 'https://quizlet.com/12345/synonyms/',
+      terms: [{ term: 'go down, decrease, drop off (phr.v)', definition: 'giảm xuống' }],
+    });
+
+    renderComponent();
+    fireEvent.change(screen.getByPlaceholderText(/quizlet\.com/i), {
+      target: { value: 'https://quizlet.com/12345/synonyms/' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Tải bộ từ|Fetch Cards/i }));
+
+    await waitFor(() => expect(screen.getByText('go down')).toBeDefined());
+    expect(screen.getByText('decrease')).toBeDefined();
+    expect(screen.getByText('drop off')).toBeDefined();
+    expect(screen.getAllByText('giảm xuống')).toHaveLength(3);
+    expect(screen.getByText(/Tổng: 3 từ/)).toBeDefined();
   });
 });

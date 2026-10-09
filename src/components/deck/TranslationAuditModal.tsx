@@ -21,6 +21,8 @@ import {
   type BackfillProgress,
   type BackfillResult,
 } from '../../services/missingTranslationEnricher';
+import { db } from '../../services/db/schema';
+import { DEFINITION_CLEANUP_BACKUP_KEY, hasVerboseDefinition, shortenVerboseDefinitions, type DefinitionCleanupProgress } from '../../services/definitionCleanup';
 
 interface TranslationAuditModalProps {
   isOpen: boolean;
@@ -45,6 +47,9 @@ export const TranslationAuditModal: React.FC<TranslationAuditModalProps> = ({
   const [lastResult, setLastResult] = useState<BackfillResult | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const [verboseWords, setVerboseWords] = useState<WordItem[]>([]);
+  const [originalCount, setOriginalCount] = useState(0);
+  const [cleanupProgress, setCleanupProgress] = useState<DefinitionCleanupProgress | null>(null);
 
   // Run audit when modal opens
   useEffect(() => {
@@ -54,6 +59,7 @@ export const TranslationAuditModal: React.FC<TranslationAuditModalProps> = ({
       setLastResult(null);
       setProgress(null);
       setStatusMessage(null);
+      setCleanupProgress(null);
     }
   }, [isOpen]);
 
@@ -61,8 +67,12 @@ export const TranslationAuditModal: React.FC<TranslationAuditModalProps> = ({
     setIsAuditing(true);
     setStatusMessage(null);
     try {
-      const summary = await auditDeckTranslations(allWords);
+      const words = await db.words.toArray();
+      const summary = await auditDeckTranslations(words);
       setAuditSummary(summary);
+      setVerboseWords(words.filter(hasVerboseDefinition));
+      const originals = await db.settingsTable.get(DEFINITION_CLEANUP_BACKUP_KEY);
+      setOriginalCount(originals?.value?.words?.length ?? 0);
     } catch (err: any) {
       setStatusMessage(err?.message || 'Lỗi khi quét từ vựng');
     } finally {
@@ -70,19 +80,48 @@ export const TranslationAuditModal: React.FC<TranslationAuditModalProps> = ({
     }
   };
 
-  const handleDownloadBackup = () => {
-    if (!auditSummary || auditSummary.affectedWords.length === 0) return;
-    const wordsToBackup = auditSummary.affectedWords.map((item) => item.word);
+  const downloadWords = (wordsToBackup: WordItem[], filename: string) => {
     const jsonStr = exportBackupAsJson(wordsToBackup);
     const blob = new Blob([jsonStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `lexipulse_translation_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadBackup = () => {
+    if (!auditSummary || auditSummary.affectedWords.length === 0) return;
+    const wordsToBackup = auditSummary.affectedWords.map((item) => item.word);
+    downloadWords(wordsToBackup, `lexipulse_translation_backup_${new Date().toISOString().slice(0, 10)}.json`);
+  };
+
+  const handleDownloadOriginals = async () => {
+    const backup = await db.settingsTable.get(DEFINITION_CLEANUP_BACKUP_KEY);
+    if (backup?.value?.words?.length) downloadWords(backup.value.words, 'lexipulse_original_definitions.json');
+  };
+
+  const handleShortenDefinitions = async () => {
+    setIsProcessing(true);
+    setStatusMessage(null);
+    setLastResult(null);
+    abortControllerRef.current = new AbortController();
+    try {
+      const result = await shortenVerboseDefinitions({ signal: abortControllerRef.current.signal, onProgress: setCleanupProgress });
+      onEnrichmentComplete();
+      await runAudit();
+      setStatusMessage(language === 'vi'
+        ? `${result.cancelled ? 'Đã dừng. ' : ''}Đã rút gọn ${result.updated} từ; ${result.failed} từ chưa sửa được; ${result.skipped} từ đã thay đổi trong lúc xử lý.`
+        : `${result.cancelled ? 'Stopped. ' : ''}Shortened ${result.updated} words; ${result.failed} failed; ${result.skipped} changed during processing.`);
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : 'Không thể rút gọn nghĩa.');
+    } finally {
+      setIsProcessing(false);
+      setCleanupProgress(null);
+    }
   };
 
   const handleStartBackfill = async () => {
@@ -135,26 +174,27 @@ export const TranslationAuditModal: React.FC<TranslationAuditModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="audit-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in"
+      className="app-dialog-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in"
     >
       <div
         ref={modalRef}
-        className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-[#121824] overflow-hidden"
+        data-glass
+        className="app-dialog dialog-frame w-full max-w-2xl"
       >
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800 shrink-0">
+        <div className="dialog-header flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400">
               <Languages className="h-5 w-5" />
             </div>
             <div>
               <h2 id="audit-modal-title" className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
-                {language === 'vi' ? 'Kiểm tra & Bổ sung Bản dịch Còn thiếu' : 'Translation Audit & Backfill'}
+                {language === 'vi' ? 'Kiểm tra & chỉnh nghĩa' : 'Check & improve definitions'}
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 {language === 'vi'
-                  ? 'Quét và bổ sung chính xác từng nghĩa, loại từ và ngữ cảnh cho dữ liệu đã lưu'
-                  : 'Scan and accurately backfill missing definitions, meanings, and word families'}
+                  ? 'Rút gọn nghĩa dài và bổ sung bản dịch còn thiếu cho toàn bộ bộ từ'
+                  : 'Shorten long definitions and fill missing translations across your deck'}
               </p>
             </div>
           </div>
@@ -170,7 +210,26 @@ export const TranslationAuditModal: React.FC<TranslationAuditModalProps> = ({
         </div>
 
         {/* Modal Content */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+        <div className="dialog-scroll-body space-y-4">
+          <section className="rounded-xl border border-slate-200 p-4 dark:border-slate-800 space-y-3" aria-label={language === 'vi' ? 'Rút gọn nghĩa hàng loạt' : 'Shorten definitions in bulk'}>
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white">{language === 'vi' ? 'Nghĩa ngắn gọn, dễ ôn tập' : 'Concise meanings for study'}</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{language === 'vi'
+              ? `Ví dụ và nhãn từ loại được lọc tự động. Còn ${verboseWords.length} từ có nghĩa dài cần AI viết lại; giữ các nghĩa khác nhau và lịch ôn.`
+              : `Examples and part-of-speech headings are cleaned automatically. ${verboseWords.length} long definitions remain for AI to rephrase; distinct senses and review schedules are preserved.`}</p>
+            {verboseWords.length > 0 && <p className="text-xs text-slate-600 dark:text-slate-300">{verboseWords.slice(0, 10).map(word => word.word).join(', ')}{verboseWords.length > 10 ? '…' : ''}</p>}
+            {cleanupProgress && <div role="status" className="text-xs text-indigo-600 dark:text-indigo-300">
+              {cleanupProgress.processed}/{cleanupProgress.total} · {cleanupProgress.currentWord}
+              <button type="button" onClick={handleCancelBackfill} className="ml-3 underline">{language === 'vi' ? 'Dừng lại' : 'Stop'}</button>
+            </div>}
+            <div className="flex flex-wrap gap-3">
+              {verboseWords.length > 0 && <button type="button" disabled={isProcessing || isAuditing} onClick={handleShortenDefinitions} className="btn-primary text-xs disabled:opacity-50">
+                <Sparkles className="h-4 w-4" />{language === 'vi' ? `Rút gọn nghĩa cho ${verboseWords.length} từ bằng AI` : `Shorten ${verboseWords.length} definitions with AI`}
+              </button>}
+              {originalCount > 0 && <button type="button" disabled={isProcessing} onClick={handleDownloadOriginals} className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 disabled:opacity-50">
+                {language === 'vi' ? `Tải bản gốc (${originalCount} từ)` : `Download originals (${originalCount} words)`}
+              </button>}
+            </div>
+          </section>
           {/* Status Message */}
           {statusMessage && (
             <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs dark:bg-amber-950/30 dark:border-amber-900/50 dark:text-amber-300 flex items-center gap-2">

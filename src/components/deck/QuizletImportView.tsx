@@ -39,6 +39,7 @@ import {
 } from '../../services/quizlet/quizletParser';
 import { reconcileQuizletWithDeck, type ReconciliationSummary } from '../../services/quizlet/quizletReconciler';
 import { cleanQuizletTerm } from '../../services/quizlet/quizletNormalizer';
+import { detectQuizletBrowserBridge, fetchQuizletFromBrowser, type BrowserImportProgress } from '../../services/quizlet/quizletBrowserBridge';
 import {
   deleteQuizletSet,
   getAllQuizletSets,
@@ -84,6 +85,10 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [showManualFallbackGuidance, setShowManualFallbackGuidance] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const [browserConnected, setBrowserConnected] = useState(false);
+  const [showManualImport, setShowManualImport] = useState(false);
+  const [browserProgress, setBrowserProgress] = useState<BrowserImportProgress | null>(null);
+  const [needsCountCheck, setNeedsCountCheck] = useState(false);
 
   // Paste / cards state
   const [exportText, setExportText] = useState('');
@@ -109,7 +114,6 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
   // Review scope state (for review actions)
   const [reviewScopeModal, setReviewScopeModal] = useState<{
     isOpen: boolean;
-    type: 'existing' | 'all';
     targetWords: WordItem[];
   } | null>(null);
 
@@ -219,10 +223,15 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
   };
 
   useEffect(() => {
+    const discovery = new AbortController();
+    void detectQuizletBrowserBridge(discovery.signal).then(ready => {
+      if (!discovery.signal.aborted) setBrowserConnected(ready);
+    });
     refreshSavedSets();
     refreshScopeInfo();
     isAiAvailable().then((avail) => setMigrationUpgradeAi(avail));
     return () => {
+      discovery.abort();
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
@@ -242,6 +251,11 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
 
     // Reset status when user edits the URL
     setFetchStatus('idle');
+    setBrowserProgress(null);
+    setNeedsCountCheck(false);
+    setParsedCards([]);
+    setReconciledItems([]);
+    setStatusMessage(null);
     setFetchErrorMessage(null);
     setFetchErrorDiagnostics(null);
     setFetchErrorType(null);
@@ -250,8 +264,8 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
   };
 
   // Direct fetch attempt from Quizlet via Backend
-  const handleFetchFromUrl = async () => {
-    const targetUrl = urlInput.trim();
+  const handleFetchFromUrl = async (pastedUrl?: string) => {
+    const targetUrl = (pastedUrl ?? urlInput).trim();
     if (!targetUrl) return;
 
     if (abortControllerRef.current) {
@@ -272,11 +286,21 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
     setShowDiagnostics(false);
     setShowManualFallbackGuidance(false);
     setStatusMessage(null);
+    setBrowserProgress(null);
+    setNeedsCountCheck(false);
 
     try {
-      const res = await fetchQuizletSet(targetUrl, {
+      const connected = await detectQuizletBrowserBridge(controller.signal);
+      if (controller.signal.aborted) return;
+      setBrowserConnected(connected);
+      if (connected) setBrowserProgress('loading');
+      const res = connected ? await fetchQuizletFromBrowser(targetUrl, {
         signal: controller.signal,
-        timeoutMs: 35000,
+        onProgress: progress => { if (!controller.signal.aborted) setBrowserProgress(progress); },
+      }) : await fetchQuizletSet(targetUrl, {
+        signal: controller.signal,
+        timeoutMs: 165000,
+        onProgress: progress => { if (!controller.signal.aborted) setBrowserProgress(progress === 'verification_required' ? 'verification' : 'loading'); },
       });
 
       // If aborted or superseded, do not update UI
@@ -286,6 +310,7 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
 
       if (res.success && res.terms && res.terms.length > 0) {
         setFetchStatus('success');
+        setNeedsCountCheck(!!res.needsCountCheck);
         const cleanedCards: QuizletCardItem[] = res.terms.map((c) => {
           const raw = c.rawTerm || c.term;
           const clean = cleanQuizletTerm(c.term);
@@ -312,7 +337,8 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
         );
       } else {
         setFetchStatus('error');
-        const localized = t.quizletErrors[res.errorType as keyof typeof t.quizletErrors];
+        const localized = (connected ? t.quizletBridge.errors[res.errorType as keyof typeof t.quizletBridge.errors] : undefined)
+          || t.quizletErrors[res.errorType as keyof typeof t.quizletErrors];
         setFetchErrorMessage(localized || res.message || 'Không thể tải bộ từ từ Quizlet.');
         setFetchErrorDiagnostics(res.diagnostics || null);
         setFetchErrorType(res.errorType || 'server_error');
@@ -327,8 +353,9 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
     } finally {
       if (abortControllerRef.current === controller) {
         abortControllerRef.current = null;
+        setFetchStatus((curr) => (curr === 'loading' ? 'idle' : curr));
+        setBrowserProgress(null);
       }
-      setFetchStatus((curr) => (curr === 'loading' ? 'idle' : curr));
     }
   };
 
@@ -427,14 +454,15 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
     };
   }, [parsedUrlInfo, urlInput, parsedCards]);
 
-  // ACTION 1: Thêm từ chưa có
+  const selectedNewItems = reconciledItems.filter((item) => item.selected && item.status === 'new');
+  const selectedResolvedItems = reconciledItems.filter((item) => item.selected && item.status === 'needs_review' && item.resolutionChoice);
+
   const handleAddNewWords = async () => {
-    const selectedNewItems = reconciledItems.filter((i) => i.selected && i.status === 'new');
-    if (selectedNewItems.length === 0) {
+    if (selectedNewItems.length === 0 && selectedResolvedItems.length === 0) {
       setStatusMessage(
         language === 'vi'
-          ? 'Chưa có từ mới nào được chọn để thêm vào bộ từ.'
-          : 'No new words selected to add to deck.'
+          ? 'Chưa có từ nào được chọn để lưu vào bộ từ.'
+          : 'No words selected to save to the deck.'
       );
       return;
     }
@@ -453,12 +481,13 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
       });
 
       // 2. Also save needs_review items that user resolved
-      const needsReviewSelected = reconciledItems.filter((i) => i.selected && i.status === 'needs_review');
-      for (const nr of needsReviewSelected) {
+      for (const nr of selectedResolvedItems) {
         if (nr.resolutionChoice) {
           await resolveNeedsReviewWord(nr, nr.resolutionChoice, currentSetRef);
         }
       }
+
+      const savedSetWords = await getWordsByQuizletSet(currentSetRef.id);
 
       // 3. Save Quizlet set record
       await saveQuizletSetMetadata({
@@ -467,7 +496,7 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
         url: currentSetRef.url,
         createdAt: Date.now(),
         updatedAt: Date.now(),
-        wordCount: savedCount,
+        wordCount: savedSetWords.length,
         cardTerms: reconciledItems.filter((i) => Boolean(i.normalizedTerm)).map((i) => i.normalizedTerm),
       });
 
@@ -475,16 +504,17 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
 
       const successMsg =
         language === 'vi'
-          ? `Đã lưu thành công ${savedCount} từ mới từ bộ Quizlet "${currentSetRef.title}"!`
-          : `Successfully saved ${savedCount} new words from Quizlet set "${currentSetRef.title}"!`;
+          ? `Đã lưu ${savedCount} từ mới${selectedResolvedItems.length ? ` và xử lý ${selectedResolvedItems.length} từ cần kiểm tra` : ''} từ bộ Quizlet "${currentSetRef.title}"!`
+          : `Saved ${savedCount} new words${selectedResolvedItems.length ? ` and resolved ${selectedResolvedItems.length} conflicts` : ''} from Quizlet set "${currentSetRef.title}"!`;
 
       setStatusMessage(successMsg);
-      onImportSuccess?.(successMsg);
-
       // Re-reconcile to reflect new DB state
-      const reReconciled = reconcileQuizletWithDeck(parsedCards, [...allWords]);
+      const updatedDeck = new Map(allWords.map((word) => [word.id, word]));
+      for (const word of savedSetWords) updatedDeck.set(word.id, word);
+      const reReconciled = reconcileQuizletWithDeck(parsedCards, Array.from(updatedDeck.values()));
       setReconciledItems(reReconciled.items);
       setReconciledSummary(reReconciled.summary);
+      onImportSuccess?.(successMsg);
     } catch (err: any) {
       console.error('Failed to save Quizlet words:', err);
       setStatusMessage(`Lỗi: ${err.message || 'Không thể lưu từ vựng'}`);
@@ -506,97 +536,46 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
 
     const fromAllWords = allWords.filter((w) => existingTerms.has(w.word.toLowerCase()));
     const mergedMap = new Map<string, WordItem>();
-    for (const w of [...fromDb, ...fromAllWords]) {
+    for (const w of [...fromAllWords, ...fromDb]) {
       mergedMap.set(w.id, w);
     }
     return Array.from(mergedMap.values());
   };
 
-  // ACTION 2: Ôn từ đã có
+  // Review only words already saved in the deck, including the preceding import.
   const handleReviewExistingWords = async () => {
-    const existingWords = await getExistingWordsForSet();
-
-    if (existingWords.length === 0) {
-      setStatusMessage(
-        language === 'vi'
-          ? 'Không tìm thấy từ nào trong bộ Quizlet này đã có trong bộ từ của bạn.'
-          : 'No existing words from this Quizlet set found in your deck.'
-      );
-      return;
-    }
-
-    // Link setRef to existing words idempotently
-    await linkWordsToQuizletSet(existingWords, currentSetRef);
-    await saveQuizletSetMetadata({
-      id: currentSetRef.id,
-      title: currentSetRef.title,
-      url: currentSetRef.url,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      wordCount: existingWords.length,
-    });
-    await refreshSavedSets();
-
-    // Open review scope modal
-    setReviewScopeModal({
-      isOpen: true,
-      type: 'existing',
-      targetWords: existingWords,
-    });
-  };
-
-  // ACTION 3: Thêm và ôn cả bộ
-  const handleAddAndReviewAll = async () => {
+    if (isSaving) return;
     setIsSaving(true);
-    setStatusMessage(null);
-
     try {
-      // 1. Save selected new words first
-      const selectedNewItems = reconciledItems.filter((i) => i.selected && i.status === 'new');
-      if (selectedNewItems.length > 0) {
-        await saveNewQuizletWords({
-          items: selectedNewItems,
-          setRef: currentSetRef,
-          autoEnrich,
-        });
-      }
-
-      // 2. Resolve needs_review items
-      const needsReviewSelected = reconciledItems.filter((i) => i.selected && i.status === 'needs_review');
-      for (const nr of needsReviewSelected) {
-        if (nr.resolutionChoice) {
-          await resolveNeedsReviewWord(nr, nr.resolutionChoice, currentSetRef);
-        }
-      }
-
-      // 3. Link all matching existing words
       const existingWords = await getExistingWordsForSet();
-      if (existingWords.length > 0) {
-        await linkWordsToQuizletSet(existingWords, currentSetRef);
+
+      if (existingWords.length === 0) {
+        setStatusMessage(
+          language === 'vi'
+            ? 'Không tìm thấy từ nào trong bộ Quizlet này đã có trong bộ từ của bạn.'
+            : 'No existing words from this Quizlet set found in your deck.'
+        );
+        return;
       }
 
-      // 4. Save metadata
-      const allCardsForSet = await getWordsByQuizletSet(currentSetRef.id);
+      // Link setRef to existing words idempotently
+      const linkedWords = await linkWordsToQuizletSet(existingWords, currentSetRef);
       await saveQuizletSetMetadata({
         id: currentSetRef.id,
         title: currentSetRef.title,
         url: currentSetRef.url,
         createdAt: Date.now(),
         updatedAt: Date.now(),
-        wordCount: allCardsForSet.length,
-        cardTerms: reconciledItems.filter((i) => Boolean(i.normalizedTerm)).map((i) => i.normalizedTerm),
+        wordCount: linkedWords.length,
       });
       await refreshSavedSets();
 
-      // Open review scope modal for entire set
-      setReviewScopeModal({
-        isOpen: true,
-        type: 'all',
-        targetWords: allCardsForSet,
-      });
+      setReviewScopeModal({ isOpen: true, targetWords: linkedWords });
     } catch (err: any) {
-      console.error('Failed to add and review all:', err);
-      setStatusMessage(`Lỗi: ${err.message || 'Không thể chuẩn bị bộ từ'}`);
+      console.error('Failed to prepare Quizlet review:', err);
+      setStatusMessage(language === 'vi'
+        ? `Không thể chuẩn bị ôn tập: ${err.message || 'Hãy thử lại.'}`
+        : `Could not prepare review: ${err.message || 'Please try again.'}`);
     } finally {
       setIsSaving(false);
     }
@@ -669,11 +648,22 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="quizlet-import-view space-y-6">
       {/* SECTION 1: URL Input & Direct Fetch */}
-      <div className="space-y-3 rounded-2xl border border-slate-200/90 bg-slate-50/70 p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900/40">
+      <div className="quizlet-link-panel space-y-3">
+        <div className="text-xs text-slate-600 dark:text-slate-300">
+          {browserConnected ? <p className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400"><CheckCircle2 className="h-4 w-4" />{t.quizletBridge.connected}</p> : (
+            <>
+              <p>{language === 'vi' ? 'Dán link Quizlet để tự động tải từ vựng. Không cần cài tiện ích.' : 'Paste a Quizlet link to load vocabulary automatically. No extension required.'}</p>
+              <details className="mt-2">
+                <summary className="cursor-pointer text-slate-400">{language === 'vi' ? 'Kết nối tiện ích (tùy chọn)' : 'Browser extension (optional)'}</summary>
+                <a href="/quizlet-bridge/setup.html" target="_blank" rel="noopener noreferrer" className="font-semibold text-indigo-600 underline dark:text-indigo-400">{t.quizletBridge.setup}</a>
+              </details>
+            </>
+          )}
+        </div>
         <div className="flex items-center justify-between">
-          <label className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+          <label htmlFor="quizlet-url" className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
             <BookOpen className="h-4 w-4 text-indigo-500" />
             <span>{t.modals.quizletUrlLabel}</span>
           </label>
@@ -684,19 +674,32 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
           )}
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-2">
+        <div className="quizlet-url-controls flex flex-col sm:flex-row gap-3">
           <input
+            id="quizlet-url"
             type="url"
             value={urlInput}
             onChange={(e) => handleUrlChange(e.target.value)}
+            onPaste={(e) => {
+              const pasted = e.clipboardData.getData('text').trim();
+              if (!parseQuizletUrl(pasted).isValid) return;
+              e.preventDefault();
+              handleUrlChange(pasted);
+              void handleFetchFromUrl(pasted);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && parsedUrlInfo.isValid && fetchStatus !== 'loading') {
+                e.preventDefault(); void handleFetchFromUrl();
+              }
+            }}
             placeholder={t.modals.quizletUrlPlaceholder}
             className="flex-1 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-800 dark:bg-slate-800 dark:text-white"
           />
           <button
             type="button"
-            onClick={handleFetchFromUrl}
+            onClick={() => void handleFetchFromUrl()}
             disabled={!urlInput.trim() || !parsedUrlInfo.isValid || fetchStatus === 'loading'}
-            className="flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            className="btn-primary"
           >
             {fetchStatus === 'loading' ? (
               <>
@@ -713,6 +716,18 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
         </div>
 
         {/* Clean URL & Slug info */}
+        {fetchStatus === 'loading' && (
+          <div className="flex items-start justify-between gap-3 rounded-lg bg-indigo-50 p-3 text-xs text-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-200" role="status">
+            <span>{browserProgress ? t.quizletBridge[browserProgress] : t.quizletBridge.serverLoading}</span>
+            <button type="button" className="shrink-0 font-semibold underline" onClick={() => {
+              abortControllerRef.current?.abort();
+              abortControllerRef.current = null;
+              setFetchStatus('idle');
+              setBrowserProgress(null);
+            }}>{t.quizletBridge.cancel}</button>
+          </div>
+        )}
+        {needsCountCheck && <p className="text-xs text-amber-700 dark:text-amber-300" role="status">{t.quizletBridge.countCheck}</p>}
         {parsedUrlInfo.cleanUrl && (
           <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
             <span className="font-semibold text-slate-600 dark:text-slate-300">Link chuẩn:</span>
@@ -767,7 +782,7 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
               </div>
               <button
                 type="button"
-                onClick={handleFetchFromUrl}
+                onClick={() => void handleFetchFromUrl()}
                 className="inline-flex items-center gap-1 rounded-lg bg-rose-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-rose-500 transition-colors shadow-sm shrink-0"
               >
                 <RefreshCw className="h-3 w-3" />
@@ -813,6 +828,10 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
       </div>
 
       {/* SECTION 2: Paste Content Textarea & Swap Options */}
+      <button type="button" className="text-xs text-slate-500 underline dark:text-slate-400" onClick={() => setShowManualImport(value => !value)}>
+        {language === 'vi' ? (showManualImport ? 'Ẩn nhập văn bản thủ công' : 'Nhập văn bản thủ công (tùy chọn)') : (showManualImport ? 'Hide manual text import' : 'Manual text import (optional)')}
+      </button>
+      {showManualImport && (
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <label className="text-xs font-semibold text-slate-800 dark:text-slate-200">
@@ -862,9 +881,15 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
         </div>
       </div>
 
+      )}
       {/* SECTION 3: Reconciliation Table & Metrics */}
       {reconciledItems.length > 0 && (
         <div className="space-y-4 pt-2 border-t border-slate-200 dark:border-slate-800 animate-fade-in">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            {language === 'vi'
+              ? 'Các từ cách nhau bằng dấu phẩy ở mặt từ vựng được tách thành từng mục và dùng chung nghĩa của thẻ gốc.'
+              : 'Comma-separated terms become separate words that share the original card definition.'}
+          </p>
           {/* Summary counters */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -1066,7 +1091,7 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
             </table>
           </div>
 
-          {/* SECTION 4: The 3 Main Actions */}
+          {/* SECTION 4: Add and review are separate actions. */}
           <div className="space-y-3 pt-2">
             <div className="flex items-center gap-2">
               <input
@@ -1113,12 +1138,11 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
               </div>
             )}
 
-            {/* 3 Main Action Buttons */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+            <div className="quizlet-import-actions grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
               <button
                 type="button"
                 onClick={handleAddNewWords}
-                disabled={isSaving || reconciledSummary.newCount === 0}
+                disabled={isSaving || (selectedNewItems.length === 0 && selectedResolvedItems.length === 0)}
                 className="flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-3.5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
               >
                 <Plus className="h-4 w-4" />
@@ -1132,17 +1156,7 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
                 className="flex items-center justify-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3.5 py-2.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-40 disabled:cursor-not-allowed dark:border-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300 transition-all"
               >
                 <Play className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                <span>{t.modals.quizletActionReviewExisting}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleAddAndReviewAll}
-                disabled={isSaving || reconciledItems.length === 0}
-                className="flex items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-3.5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-indigo-500 dark:hover:bg-indigo-400 transition-all"
-              >
-                <Layers className="h-4 w-4" />
-                <span>{t.modals.quizletActionAddAndReviewAll}</span>
+                <span>{t.modals.quizletActionReview}</span>
               </button>
             </div>
           </div>
@@ -1171,10 +1185,10 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
               savedSets.map((s) => (
                 <div
                   key={s.id}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-xl border border-slate-200/90 bg-slate-50/80 p-3 dark:border-slate-800 dark:bg-slate-800/40 text-xs"
+                  className="quizlet-saved-set"
                 >
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-2">
+                  <div className="quizlet-set-copy space-y-1">
+                    <div className="quizlet-set-title flex flex-wrap items-center gap-2">
                       <span className="font-bold text-slate-900 dark:text-white">{s.title}</span>
                       <span className="rounded bg-slate-200/70 px-1.5 py-0.2 font-mono text-[10px] text-slate-600 dark:bg-slate-700 dark:text-slate-300">
                         #{s.id}
@@ -1196,11 +1210,11 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1.5">
+                  <div className="quizlet-set-actions">
                     <button
                       type="button"
                       onClick={() => handleReviewSavedSet(s, 'due')}
-                      className="rounded-lg bg-indigo-50 px-2.5 py-1 font-semibold text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:text-indigo-300 transition-colors"
+                      className="btn-secondary glass-tinted"
                       title="Chỉ ôn các từ đến hạn FSRS"
                     >
                       {t.modals.quizletReviewScopeDue}
@@ -1208,7 +1222,7 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
                     <button
                       type="button"
                       onClick={() => handleReviewSavedSet(s, 'all')}
-                      className="rounded-lg bg-slate-100 px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-200 transition-colors"
+                      className="btn-secondary"
                       title="Ôn toàn bộ từ (Cram practice)"
                     >
                       {t.modals.quizletReviewScopeAll}
@@ -1216,7 +1230,8 @@ export const QuizletImportView: React.FC<QuizletImportViewProps> = ({
                     <button
                       type="button"
                       onClick={() => handleDeleteSavedSet(s.id)}
-                      className="rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-400 transition-colors"
+                      aria-label={`${t.modals.quizletDeleteSetBtn}: ${s.title}`}
+                      className="glass-button glass-icon-button quizlet-set-delete"
                       title={t.modals.quizletDeleteSetBtn}
                     >
                       <Trash2 className="h-3.5 w-3.5" />

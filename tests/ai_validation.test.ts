@@ -7,6 +7,7 @@ describe('AI Runtime Schema Validation & Normalization', () => {
       ipaUs: '/ˈkɒn.trækt/',
       ipaUk: '/ˈkɒn.trækt/',
       vietnameseDefinition: 'Hợp đồng, thỏa thuận pháp lý',
+      usageNoteVi: '  Thường dùng với động từ sign hoặc renew.  ',
       collocations: [
         { phrase: 'sign a contract', meaningVi: 'ký hợp đồng' },
         { phrase: 'breach of contract', meaningVi: 'vi phạm hợp đồng' },
@@ -25,6 +26,7 @@ describe('AI Runtime Schema Validation & Normalization', () => {
     const result = validateAndNormalizeAIResponse(raw);
     expect(result).not.toBeNull();
     expect(result?.vietnameseDefinition).toBe('Hợp đồng, thỏa thuận pháp lý');
+    expect(result?.usageNoteVi).toBe('Thường dùng với động từ sign hoặc renew.');
     expect(result?.ipaUs).toBe('/ˈkɒn.trækt/');
     expect(result?.collocations).toHaveLength(2);
     expect(result?.wordFamily).toHaveLength(2);
@@ -72,5 +74,17 @@ describe('AI Runtime Schema Validation & Normalization', () => {
     expect(result?.examples).toHaveLength(1);
     expect(result?.examples[0].context).toBe('toeic');
     expect(result?.tags).toEqual(['#Procurement']);
+  });
+
+  it.each([undefined, null, 42, {}, [], '', '   '])('ignores an absent or malformed optional usage note: %j', (usageNoteVi) => {
+    const result = validateAndNormalizeAIResponse({ vietnameseDefinition: 'ngay khi', usageNoteVi });
+    expect(result?.vietnameseDefinition).toBe('ngay khi');
+    expect(result?.usageNoteVi).toBeUndefined();
+  });
+
+  it('preserves legitimate definitions without truncating or guessing their meaning', () => {
+    const vietnameseDefinition = '1. cây; thực vật; 2. nhà máy, cơ sở sản xuất; 3. trồng, gieo; 4. đặt hoặc cài vào một vị trí';
+    const result = validateAndNormalizeAIResponse({ vietnameseDefinition });
+    expect(result?.vietnameseDefinition).toBe(vietnameseDefinition);
   });
 });

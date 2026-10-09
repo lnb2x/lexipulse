@@ -9,6 +9,7 @@ import { Badge } from '../common/Badge';
 import { WordFamilyInteractive } from '../common/WordFamilyInteractive';
 import { ProvenanceBadge } from '../common/ProvenanceBadge';
 import { parseMultipleMeanings } from '../../utils/definitionUtils';
+import { withCleanDefinitions } from '../../services/definitionCleanup';
 import { useModalA11y } from '../../hooks/useModalA11y';
 import { isPlaceholderDefinition } from '../../services/quizlet/quizletNormalizer';
 
@@ -77,17 +78,19 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
 
   if (!word) return null;
 
-  const dueInfo = formatDueText(word.reviewMeta.dueDate);
+  const dueInfo = formatDueText(word.reviewMeta.dueDate, undefined, language);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 overflow-y-auto animate-fade-in">
+    <div className="app-dialog-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 overflow-y-auto animate-fade-in">
       <div
         ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="word-detail-title"
-        className="relative my-8 w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 sm:p-7 shadow-xl dark:border-slate-800 dark:bg-[#111622]"
+        data-glass
+        className="app-dialog dialog-frame relative w-full max-w-2xl"
       >
+        <div className="dialog-scroll-body dialog-scroll-full">
         {/* Header */}
         <div className="flex items-start justify-between border-b border-slate-100 pb-4 dark:border-slate-800">
           <div>
@@ -173,24 +176,24 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
         {/* Content body */}
         <div className="mt-5 space-y-4 max-h-[65vh] overflow-y-auto pr-1">
           {/* Vietnamese Definition */}
-          <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/50 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+          <div className="dictionary-definition">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+              <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">
                 {language === 'vi' ? 'Định nghĩa Tiếng Việt' : 'Vietnamese Meaning'}
               </span>
               <ProvenanceBadge provenance={word.vietnameseDefinitionProvenance} />
             </div>
             {(() => {
-              const senses = parseMultipleMeanings(word.vietnameseDefinition);
+              const senses = parseMultipleMeanings(withCleanDefinitions(word).vietnameseDefinition);
               if (senses.length > 1) {
                 return (
                   <div className="mt-2 space-y-2">
                     {senses.map((sense) => (
                       <div key={sense.index} className="flex items-start gap-2.5">
-                        <span className="inline-flex items-center justify-center w-5 h-5 rounded-md bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 text-xs font-bold shrink-0 mt-0.5 shadow-xs">
+                        <span className="inline-flex items-center justify-center w-5 h-5 rounded-md bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300 text-xs font-medium shrink-0 mt-0.5">
                           {sense.index}
                         </span>
-                        <p className="text-sm sm:text-base font-bold text-slate-900 dark:text-white leading-snug">
+                        <p className="text-sm sm:text-base font-medium text-slate-900 dark:text-white leading-relaxed">
                           {sense.text}
                         </p>
                       </div>
@@ -200,12 +203,12 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
               }
               return (
                 <p className="mt-1 text-base sm:text-lg font-bold text-slate-900 dark:text-white">
-                  {word.vietnameseDefinition}
+                  {withCleanDefinitions(word).vietnameseDefinition}
                 </p>
               );
             })()}
             {word.englishDefinition && !isPlaceholderDefinition(word.englishDefinition) && (
-              <p className="mt-2 text-xs text-slate-600 dark:text-slate-400 leading-relaxed border-t border-emerald-200/60 pt-2 dark:border-emerald-900/40">
+              <p className="mt-2 text-xs text-slate-600 dark:text-slate-400 leading-relaxed border-t border-slate-200 pt-2 dark:border-slate-700">
                 {word.englishDefinition}
               </p>
             )}
@@ -256,7 +259,7 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
               <div className="rounded-lg border border-slate-200/70 bg-white p-2.5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
                 <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">{t.deck.interval}</span>
                 <p className="text-sm font-bold font-mono text-slate-800 dark:text-slate-200 mt-0.5">
-                  {formatInterval(word.reviewMeta.interval)}
+                  {formatInterval(word.reviewMeta.interval, language)}
                 </p>
               </div>
               <div className="rounded-lg border border-slate-200/70 bg-white p-2.5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -305,7 +308,7 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
                           : 'bg-rose-50 text-rose-700 border border-rose-200/80 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800/60'
                       }`}
                     >
-                      {new Date(h.date).toLocaleDateString()}: Rating {h.rating} ({formatInterval(h.interval)})
+                      {new Date(h.date).toLocaleDateString(language === 'vi' ? 'vi-VN' : 'en-US')}: {language === 'vi' ? 'Mức' : 'Rating'} {h.rating} ({formatInterval(h.interval, language)})
                     </span>
                   ))}
                 </div>
@@ -445,6 +448,7 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
               {language === 'vi' ? 'Đóng' : 'Close'}
             </button>
           </div>
+        </div>
         </div>
       </div>
     </div>

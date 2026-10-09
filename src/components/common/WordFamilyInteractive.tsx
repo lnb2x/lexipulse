@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
 import { playPronunciation } from '../../services/audio';
 import type { WordFamilyItem, WordItem } from '../../types/vocab';
+import { GlassButton, GlassIconButton } from './Glass';
 
 interface WordFamilyInteractiveProps {
   wordFamily: WordFamilyItem[];
@@ -146,21 +147,12 @@ export const WordFamilyInteractive: React.FC<WordFamilyInteractiveProps> = ({
           return (
             <div
               key={`${wf.word}-${idx}`}
-              onClick={() => handleWordClick(wf)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  handleWordClick(wf);
-                }
-              }}
               title={
                 isCurrent
                   ? `${wf.word} (${posInfo.label}) - ${t.lookup.currentWordBadge}${meaning ? ` : ${meaning}` : ''}`
                   : `${t.lookup.lookupWordFamily}: "${wf.word}" (${posInfo.label})${meaning ? ` - ${meaning}` : ''}`
               }
-              className={`group relative flex items-center gap-1.5 rounded-xl border transition-all duration-200 cursor-pointer select-none max-w-full ${
+              className={`word-family-item group relative flex items-center gap-1.5 rounded-xl border transition-all duration-200 select-none max-w-full ${
                 compact ? 'px-2 py-1 text-xs' : 'px-2.5 py-1.5 text-xs'
               } ${
                 isCurrent
@@ -176,15 +168,15 @@ export const WordFamilyInteractive: React.FC<WordFamilyInteractiveProps> = ({
               </span>
 
               {/* Word Text */}
-              <span
-                className={`font-medium shrink-0 ${
+              <button type="button" data-glass onClick={() => handleWordClick(wf)}
+                className={`glass-pill font-medium shrink-0 ${
                   isCurrent
                     ? 'text-indigo-900 dark:text-indigo-200 font-bold'
                     : 'text-slate-900 group-hover:text-indigo-600 dark:text-slate-100 dark:group-hover:text-indigo-300'
                 }`}
               >
                 {wf.word}
-              </span>
+              </button>
 
               {/* Vietnamese Meaning Preview */}
               {meaning && (
@@ -206,12 +198,13 @@ export const WordFamilyInteractive: React.FC<WordFamilyInteractiveProps> = ({
 
               {/* Quick Add Button if not in deck */}
               {!isInDeck && onAddWordToDeck && !isCurrent && (
-                <button
+                <GlassButton
                   type="button"
                   onClick={(e) => handleQuickAdd(e, wf.word)}
                   disabled={addingWord === wf.word}
+                  busy={addingWord === wf.word}
                   title={language === 'vi' ? `Thêm "${wf.word}" vào Deck` : `Add "${wf.word}" to Deck`}
-                  className="ml-0.5 flex items-center gap-0.5 rounded-md border border-indigo-200 bg-indigo-50/90 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300 dark:hover:bg-indigo-900/60 transition-all active:scale-95 shrink-0"
+                  className="ml-auto shrink-0"
                 >
                   {addingWord === wf.word ? (
                     <Loader2 className="h-2.5 w-2.5 animate-spin" />
@@ -219,23 +212,20 @@ export const WordFamilyInteractive: React.FC<WordFamilyInteractiveProps> = ({
                     <Plus className="h-2.5 w-2.5" />
                   )}
                   <span>{language === 'vi' ? 'Thêm' : 'Add'}</span>
-                </button>
+                </GlassButton>
               )}
 
               {/* Audio Pronunciation Button */}
-              <button
+              <GlassIconButton
                 type="button"
                 onClick={(e) => handlePlayAudio(e, wf.word)}
                 disabled={isAudioPlaying}
+                busy={isAudioPlaying}
                 title={`${t.lookup.pronounceWordFamily} "${wf.word}"`}
-                className={`ml-0.5 rounded-md p-1 transition-all hover:scale-110 active:scale-95 shrink-0 ${
-                  isAudioPlaying
-                    ? 'bg-indigo-100 text-indigo-700 animate-pulse dark:bg-indigo-900 dark:text-indigo-300'
-                    : 'text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-700 dark:hover:text-indigo-400'
-                }`}
+                className="shrink-0"
               >
                 <Volume2 className={`h-3.5 w-3.5 ${isAudioPlaying ? 'animate-bounce' : ''}`} />
-              </button>
+              </GlassIconButton>
 
               {/* Quick Search Arrow indicator */}
               {!isCurrent && (

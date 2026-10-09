@@ -130,38 +130,44 @@ export async function scrapeQuizletWithPlaywright(rawUrl: string, options: { sig
       };
     }
 
+    const inspectAccess = async (): Promise<ScrapedQuizletResult | undefined> => {
+      const access = await page.evaluate(() => ({
+        title: document.title.slice(0, 300).trim(),
+        challenge: !!document.querySelector(
+          '.px-captcha-container, #px-captcha, #challenge-form, #challenge-error-text, '
+          + 'script[src*="/cdn-cgi/challenge-platform/"], iframe[src*="challenges.cloudflare.com/"]'
+        ),
+        login: !!document.querySelector('[data-testid="LoginModal"], form[action*="login"]'),
+      }));
+      // Quizlet's Cloudflare interstitial uses both titles observed on live requests.
+      // Do not search card/body text: a vocabulary set can itself mention CAPTCHA.
+      const challengeTitle = /^(?:captcha challenge|one more step|just a moment|chờ một chút)(?:\s*[.!…]|\s*$)/i.test(access.title)
+        || /^access to this page has been denied/i.test(access.title);
+      const code = access.challenge || challengeTitle ? 'challenge_blocked'
+        : httpStatus === 401 || page.url().includes('/login') || access.login ? 'login_required'
+        : httpStatus === 403 ? 'challenge_blocked'
+        : httpStatus >= 400 ? 'server_error' : undefined;
+      if (!code) return;
+      const reason = code === 'challenge_blocked'
+        ? 'Quizlet chặn truy cập tự động hoặc yêu cầu xác minh bảo mật.'
+        : code === 'login_required' ? 'Bộ từ yêu cầu đăng nhập tài khoản Quizlet để xem.'
+        : 'Quizlet trả về lỗi khi tải bộ từ.';
+      return {
+        success: false, code,
+        error: `${reason} HTTP ${httpStatus}; ${access.title}`,
+        cleanUrl: page.url(),
+        durationMs: Date.now() - startTime,
+      };
+    };
+
+    // Classify the original response before scripts replace the challenge title,
+    // and check again after hydration for login/challenge screens rendered later.
+    const initialAccessError = await inspectAccess();
+    if (initialAccessError) return initialAccessError;
     await page.waitForTimeout(2000);
-
+    const hydratedAccessError = await inspectAccess();
+    if (hydratedAccessError) return hydratedAccessError;
     const title = await page.title();
-
-    // Verify if challenge still blocks access
-    if (
-      title.includes('Access to this page has been denied') ||
-      title.includes('Chờ một chút') ||
-      (await page.$('.px-captcha-container, #px-captcha'))
-    ) {
-      return {
-        success: false,
-        code: 'challenge_blocked',
-        error: 'Quizlet yêu cầu thử thách bảo mật nâng cao mà trình duyệt tự động chưa thể vượt qua.',
-        cleanUrl: page.url(),
-        durationMs: Date.now() - startTime,
-      };
-    }
-
-    // Check for login wall
-    const isLoginWall =
-      page.url().includes('/login') ||
-      (await page.$('[data-testid="LoginModal"], form[action*="login"]'));
-    if (isLoginWall) {
-      return {
-        success: false,
-        code: 'login_required',
-        error: 'Bộ từ yêu cầu đăng nhập tài khoản Quizlet để xem.',
-        cleanUrl: page.url(),
-        durationMs: Date.now() - startTime,
-      };
-    }
 
     // Extract from Next.js payload __NEXT_DATA__
     const payload = await page.evaluate(() => {

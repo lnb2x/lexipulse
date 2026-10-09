@@ -166,6 +166,7 @@ export async function migrateSingleWord(
     phonetics,
     englishDefinition,
     vietnameseDefinition,
+    usageNoteVi: vietnameseDefinition === word.vietnameseDefinition ? word.usageNoteVi : undefined,
     wordFamily,
     rawQuizletTerm,
     rawQuizletDefinition: rawQuizletDef || (word.rawQuizletTerm ? currentDef : undefined),
@@ -200,6 +201,7 @@ export async function migrateSingleWord(
         baseUpdated = {
           ...baseUpdated,
           vietnameseDefinition: pipelineResult.word.vietnameseDefinition,
+          usageNoteVi: pipelineResult.word.usageNoteVi,
           vietnameseDefinitionProvenance: pipelineResult.word.vietnameseDefinitionProvenance,
           englishDefinition: pipelineResult.word.englishDefinition || baseUpdated.englishDefinition,
           phonetics: {

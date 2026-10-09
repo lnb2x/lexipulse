@@ -62,6 +62,9 @@ export const EditableWordModal: React.FC<EditableWordModalProps> = ({
         setEditedWord((prev) => ({
           ...prev,
           vietnameseDefinition: aiRes.vietnameseDefinition || prev.vietnameseDefinition,
+          usageNoteVi: aiRes.vietnameseDefinition?.trim()
+            ? aiRes.usageNoteVi?.trim() || undefined
+            : prev.usageNoteVi,
           vietnameseDefinitionProvenance: {
             source: 'ai',
             provider: settings.aiProvider || 'gemini',
@@ -203,15 +206,16 @@ export const EditableWordModal: React.FC<EditableWordModalProps> = ({
   const isCreating = isNew || !word.word;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 overflow-y-auto animate-fade-in">
+    <div className="app-dialog-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 overflow-y-auto animate-fade-in">
       <div
         ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="editable-word-dialog-title"
-        className="relative my-8 w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 sm:p-7 shadow-xl dark:border-slate-800 dark:bg-[#111622]"
+        data-glass
+        className="app-dialog dialog-frame relative w-full max-w-2xl"
       >
-        <div className="flex items-center justify-between border-b border-slate-100 pb-4 dark:border-slate-800">
+        <div className="dialog-header flex items-center justify-between">
           <div>
             <h2 id="editable-word-dialog-title" className="font-display text-lg font-bold text-slate-900 dark:text-white">
               {isCreating
@@ -238,7 +242,7 @@ export const EditableWordModal: React.FC<EditableWordModalProps> = ({
           </button>
         </div>
 
-        <form onSubmit={handleFormSubmit} className="mt-5 space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+        <form onSubmit={handleFormSubmit} className="dialog-scroll-body space-y-4">
           {/* Morphological Lemma Banner */}
           {editedWord.lemma && (
             <div className="rounded-xl border border-indigo-200/80 bg-indigo-50/70 p-3.5 dark:border-indigo-900/60 dark:bg-indigo-950/30 space-y-2.5">
@@ -356,6 +360,7 @@ export const EditableWordModal: React.FC<EditableWordModalProps> = ({
                 setEditedWord({
                   ...editedWord,
                   vietnameseDefinition: newVal,
+                  usageNoteVi: newVal !== editedWord.vietnameseDefinition ? undefined : editedWord.usageNoteVi,
                   vietnameseDefinitionProvenance:
                     newVal !== word.vietnameseDefinition
                       ? {

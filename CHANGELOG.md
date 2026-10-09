@@ -4,6 +4,11 @@ Thay đổi đáng chú ý của LexiPulse. Lịch sử đầy đủ: [Git commi
 
 ## Unreleased
 
+- Chọn lượt 10/20 thẻ, lưu và tiếp tục phiên học, luyện riêng từ Quên/Khó mà giữ lịch FSRS.
+- Ghi kết quả theo kỹ năng cùng checkpoint trong một transaction, giữ dữ liệu lần nhập đầu và gợi ý nghe chép.
+- Thêm 16 câu Part 5 tự biên soạn theo bốn chủ đề, giải thích từng lựa chọn và luyện lại câu sai.
+- Nhắc sao lưu, ghi mốc yêu cầu tải JSON đầy đủ và sửa mô tả backup Quizlet v2.
+
 - Improve dark-mode keyboard focus visibility for the PWA update action.
 
 - Offer controlled PWA updates without reloading another tab’s active review or deleting unrelated caches.

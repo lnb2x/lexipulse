@@ -238,7 +238,7 @@ describe('Audio Keyboard Shortcuts', () => {
     expect(screen.getByText(/Bật\/tắt chế độ phát âm lặp lại \(nghỉ 1.5s\)/i)).toBeDefined();
   });
 
-  it('AudioButton: exposes shortcutHint in title and aria-keyshortcuts', () => {
+  it('AudioButton: exposes shortcutHint in its accessible label and aria-keyshortcuts', () => {
     render(
       <AudioButton
         text="persist"
@@ -248,7 +248,7 @@ describe('Audio Keyboard Shortcuts', () => {
     );
 
     const button = screen.getByRole('button');
-    expect(button.getAttribute('title')).toContain('[R]');
+    expect(button.getAttribute('aria-label')).toContain('[R]');
     expect(button.getAttribute('aria-keyshortcuts')).toBe('R');
   });
 

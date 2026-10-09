@@ -214,7 +214,6 @@ describe('Navigation Motion: Header Shared Sliding Active Indicator', () => {
           activeTab="lookup"
           onTabChange={onTabChange}
           streak={5}
-          totalCards={12}
           dueCount={3}
           theme="light"
           onToggleTheme={vi.fn()}
@@ -250,7 +249,7 @@ describe('Navigation Motion: Header Shared Sliding Active Indicator', () => {
     expect(onTabChange).toHaveBeenCalledWith('deck');
   });
 
-  it('supports roving keyboard arrow navigation inside the desktop tablist', () => {
+  it('supports keyboard navigation on both navigation bars and preserves modified browser shortcuts', () => {
     const onTabChange = vi.fn();
 
     render(
@@ -259,7 +258,6 @@ describe('Navigation Motion: Header Shared Sliding Active Indicator', () => {
           activeTab="lookup"
           onTabChange={onTabChange}
           streak={3}
-          totalCards={10}
           dueCount={2}
           theme="light"
           onToggleTheme={vi.fn()}
@@ -269,19 +267,19 @@ describe('Navigation Motion: Header Shared Sliding Active Indicator', () => {
       </LanguageProvider>
     );
 
-    const desktopNav = screen.getAllByRole('tablist')[0];
-
-    // ArrowRight moves to 'deck'
-    fireEvent.keyDown(desktopNav, { key: 'ArrowRight' });
-    expect(onTabChange).toHaveBeenCalledWith('deck');
-
-    // End moves to 'review'
-    fireEvent.keyDown(desktopNav, { key: 'End' });
-    expect(onTabChange).toHaveBeenCalledWith('review');
-
-    // Home moves to 'lookup'
-    fireEvent.keyDown(desktopNav, { key: 'Home' });
-    expect(onTabChange).toHaveBeenCalledWith('lookup');
+    for (const nav of screen.getAllByRole('tablist')) {
+      fireEvent.keyDown(nav, { key: 'ArrowRight' });
+      expect(onTabChange).toHaveBeenLastCalledWith('deck');
+      expect(nav.contains(document.activeElement)).toBe(true);
+      fireEvent.keyDown(nav, { key: 'End' });
+      expect(onTabChange).toHaveBeenLastCalledWith('review');
+      expect(nav.contains(document.activeElement)).toBe(true);
+      fireEvent.keyDown(nav, { key: 'Home' });
+      expect(onTabChange).toHaveBeenLastCalledWith('lookup');
+      onTabChange.mockClear();
+      fireEvent.keyDown(nav, { key: 'Home', ctrlKey: true });
+      expect(onTabChange).not.toHaveBeenCalled();
+    }
   });
 
   it('disables active indicator sliding transition when prefers-reduced-motion is active', () => {
@@ -303,7 +301,6 @@ describe('Navigation Motion: Header Shared Sliding Active Indicator', () => {
           activeTab="lookup"
           onTabChange={vi.fn()}
           streak={2}
-          totalCards={5}
           dueCount={0}
           theme="dark"
           onToggleTheme={vi.fn()}
@@ -317,7 +314,7 @@ describe('Navigation Motion: Header Shared Sliding Active Indicator', () => {
     expect(desktopIndicator.style.transition).toBe('none');
   });
 
-  it('applies spring transition (300ms, cubic-bezier(0.34, 1.15, 0.64, 1)) to active indicators when motion is enabled', () => {
+  it('applies the shared spring easing to active indicators when motion is enabled', () => {
     // Normal motion allowed
     window.matchMedia = vi.fn().mockImplementation((query: string) => ({
       matches: false,
@@ -336,7 +333,6 @@ describe('Navigation Motion: Header Shared Sliding Active Indicator', () => {
           activeTab="lookup"
           onTabChange={vi.fn()}
           streak={4}
-          totalCards={8}
           dueCount={1}
           theme="dark"
           onToggleTheme={vi.fn()}
@@ -347,22 +343,21 @@ describe('Navigation Motion: Header Shared Sliding Active Indicator', () => {
     );
 
     const desktopIndicator = screen.getByTestId('desktop-active-indicator');
-    expect(desktopIndicator.style.transition).toContain('300ms');
-    expect(desktopIndicator.style.transition).toContain('cubic-bezier(0.34, 1.15, 0.64, 1)');
+    expect(desktopIndicator.style.transition).toContain('420ms');
+    expect(desktopIndicator.style.transition).toContain('var(--spring-standard)');
 
     const mobileIndicator = screen.getByTestId('mobile-active-indicator');
-    expect(mobileIndicator.style.transition).toContain('300ms');
-    expect(mobileIndicator.style.transition).toContain('cubic-bezier(0.34, 1.15, 0.64, 1)');
+    expect(mobileIndicator.style.transition).toContain('420ms');
+    expect(mobileIndicator.style.transition).toContain('var(--spring-standard)');
   });
 
-  it('provides 150-200ms color transitions and preserves shortcut labels and counts on tab buttons', () => {
+  it('provides 150-200ms color transitions and preserves shortcut labels without repeating counts on tab buttons', () => {
     render(
       <LanguageProvider>
         <Header
           activeTab="deck"
           onTabChange={vi.fn()}
           streak={5}
-          totalCards={15}
           dueCount={4}
           theme="dark"
           onToggleTheme={vi.fn()}
@@ -386,9 +381,8 @@ describe('Navigation Motion: Header Shared Sliding Active Indicator', () => {
     expect(screen.getByText('Alt+2')).toBeDefined();
     expect(screen.getByText('Alt+3')).toBeDefined();
 
-    // Counts are preserved
-    expect(screen.getByText('15')).toBeDefined();
-    expect(screen.getByText('4')).toBeDefined();
+    // Due counts are shown in the page statistics instead of the navigation.
+    expect(screen.queryByText('4')).toBeNull();
   });
 });
 
@@ -430,7 +424,7 @@ describe('State Preservation & Navigation Transitions in App', () => {
     // Wait for the on-demand Deck module before checking the completed transition.
     await waitFor(() => {
       expect(screen.queryByPlaceholderText(/Tra cứu từ tiếng Anh|Lookup any English word/i)).toBeNull();
-      expect(screen.getByRole('tabpanel').id).toBe('panel-deck');
+      expect(screen.getByRole('tabpanel', { name: /Bộ từ vựng|Deck/i }).id).toBe('panel-deck');
     });
 
     // Switch back to Lookup view (Alt+1)
@@ -499,7 +493,7 @@ describe('State Preservation & Navigation Transitions in App', () => {
       fireEvent.keyDown(window, { key: '2', altKey: true });
     });
 
-    panel = screen.getByRole('tabpanel');
+    panel = screen.getByRole('tabpanel', { name: /Bộ từ vựng|Deck/i });
     expect(panel.id).toBe('panel-deck');
     expect(panel.className).toContain('tab-enter-forward');
 

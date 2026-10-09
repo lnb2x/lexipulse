@@ -98,7 +98,7 @@ export function buildAICacheKey(
     const mod = wordOrParams.model || 'default';
     const lang = wordOrParams.targetLang || 'vi';
     const senseHash = hashString(normalizeContext(wordOrParams.userMeaning));
-    const schema = wordOrParams.schemaVersion || 'v3';
+    const schema = wordOrParams.schemaVersion || 'v5';
     return `ai:${schema}:${prov}:${mod}:${cleanEndpoint}:${lang}:${normPos}:${normWord}:ctx_${contextHash}:sense_${senseHash}`;
   }
 
@@ -107,7 +107,7 @@ export function buildAICacheKey(
   const contextHash = normContext ? hashString(normContext) : 'none';
   const cleanEndpoint = hashString(sanitizeEndpoint(baseUrl));
   const normPos = (pos || 'any').trim().toLowerCase();
-  return `ai:v3:${provider}:${model}:${cleanEndpoint}:${targetLang}:${normPos}:${normWord}:ctx_${contextHash}:sense_${hashString('')}`;
+  return `ai:v5:${provider}:${model}:${cleanEndpoint}:${targetLang}:${normPos}:${normWord}:ctx_${contextHash}:sense_${hashString('')}`;
 }
 
 /**

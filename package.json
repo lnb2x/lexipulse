@@ -18,7 +18,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "node scripts/package-quizlet-bridge.mjs && tsc -b && vite build",
     "lint": "oxlint",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",

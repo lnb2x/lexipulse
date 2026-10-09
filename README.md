@@ -26,13 +26,13 @@ npm run dev
 
 Mở địa chỉ in trong terminal, mặc định là `http://localhost:5173`. Chưa cần API key để tra cứu từ điển và quản lý bộ từ.
 
-Để nhập trực tiếp bằng **URL Quizlet**, cài thêm Chromium:
+Nhập **URL Quizlet** trên máy cá nhân dùng Chrome/Edge đã cài. Nếu chưa có trình duyệt phù hợp, cài Chromium:
 
 ```sh
 npx playwright install chromium
 ```
 
-Vite đã tích hợp endpoint dịch và nhập Quizlet khi chạy `dev` hoặc `preview`; không cần mở backend riêng trong quy trình này. Nếu Quizlet yêu cầu đăng nhập hoặc chặn truy cập, dùng chức năng dán văn bản export.
+Vite đã tích hợp endpoint dịch và nhập Quizlet khi chạy `dev` hoặc `preview`; không cần mở backend riêng trong quy trình này. Dán link để tự tải từ vựng, không cần tiện ích. Nếu Quizlet yêu cầu đăng nhập/xác minh, hoàn tất trong cửa sổ vừa mở để ứng dụng tự tiếp tục.
 
 ## Tính năng
 
@@ -41,6 +41,8 @@ Vite đã tích hợp endpoint dịch và nhập Quizlet khi chạy `dev` hoặc
 | Tra cứu Anh–Việt | Định nghĩa, IPA, ví dụ, collocations, họ từ và gợi ý từ nguyên mẫu; kết hợp dữ liệu cục bộ, cache và nguồn trực tuyến. |
 | AI tùy chọn | Cấu hình provider, model và endpoint; bổ sung nghĩa, ví dụ và hình thái học, có ghi nhận nguồn dữ liệu. |
 | Ôn tập FSRS | Flashcard, điền từ, nghe chép chính tả, trắc nghiệm và nối từ; lưu lịch sử cùng lịch ôn tiếp theo. |
+| Phiên học | Chọn 10/20 thẻ hoặc tất cả, tiếp tục phiên đang dở và luyện lại riêng từ khó mà giữ lịch FSRS. |
+| Điểm yếu và Part 5 | Thống kê theo kỹ năng; 16 câu Part 5 tự biên soạn theo từ loại, thì, giới từ và liên từ, giải thích từng lựa chọn và luyện lại câu sai. |
 | Nghe và phím tắt | Phát âm US/UK, điều chỉnh tốc độ, nghe lặp trên flashcard và bảng phím tắt trong ứng dụng. |
 | Quản lý bộ từ | Tìm kiếm, lọc, tag, chỉnh sửa, thống kê học tập và biểu đồ hoạt động theo ngày. |
 | Nhập Quizlet | URL hoặc văn bản export, xem trước, chuẩn hóa thẻ, xử lý từ trùng và theo dõi liên kết với bộ gốc. |
@@ -114,7 +116,7 @@ Nền tảng: React, TypeScript, Vite, Tailwind CSS, Dexie/IndexedDB, `ts-fsrs`,
 - `npm run preview` dùng để kiểm tra cục bộ. Xem [hướng dẫn triển khai](docs/deployment.md) khi dùng máy chủ riêng.
 - Dữ liệu gắn với trình duyệt, hồ sơ và origin; chưa có đồng bộ tài khoản giữa thiết bị.
 - Sau khi service worker cài xong, bản build cache cả các màn hình bộ từ và ôn tập chưa mở. Tra cứu mới qua mạng, AI từ xa và nhập URL vẫn cần kết nối.
-- Backup hiện chưa chứa bảng quản lý bộ Quizlet riêng. Từ đã nhập vẫn được xuất trong bộ từ; giữ export Quizlet gốc nếu cần khôi phục danh sách bộ.
+- Backup JSON v2 chứa từ vựng, bộ Quizlet, thống kê ngày và cài đặt đã bỏ API key, gồm lịch sử luyện theo kỹ năng. Phiên học đang dở và mốc tải backup chỉ lưu cục bộ, không đưa vào backup.
 - Chất lượng nội dung phụ thuộc nguồn và AI. Kiểm tra nghĩa, ví dụ và phát âm trước khi dùng để học.
 
 ## Tài liệu và đóng góp

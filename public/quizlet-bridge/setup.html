@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kết nối Quizlet · LexiPulse</title>
+  <link rel="stylesheet" href="setup.css">
+</head>
+<body>
+  <main>
+    <p class="eyebrow">LEXIPULSE · QUIZLET</p>
+    <h1>Dán link, đọc thẻ trong trình duyệt của bạn.</h1>
+    <p class="intro">Kết nối một lần để LexiPulse tự mở bộ từ và đọc các thẻ bạn có quyền xem. Bạn không cần xuất rồi sao chép nội dung mỗi lần.</p>
+    <a class="download" href="../quizlet-bridge.zip" download>Tải tiện ích LexiPulse (.zip)</a>
+    <ol>
+      <li><strong>Tải và giải nén</strong> file ZIP vào một thư mục cố định trên máy.</li>
+      <li>Mở <code>chrome://extensions</code> trên Chrome hoặc <code>edge://extensions</code> trên Edge.</li>
+      <li>Bật <strong>Chế độ dành cho nhà phát triển</strong> (Developer mode), chọn <strong>Tải tiện ích đã giải nén</strong> (Load unpacked), rồi chọn thư mục chứa <code>manifest.json</code>.</li>
+      <li>Quay về LexiPulse trong <strong>cùng trình duyệt và hồ sơ</strong>, tải lại trang. Mục Quizlet sẽ hiện <strong>Đã kết nối trình duyệt</strong>.</li>
+      <li>Dán link rồi bấm <strong>Tải bộ từ</strong>. Xem trước danh sách và nhập vào kho từ như bình thường.</li>
+    </ol>
+    <aside><strong>Nếu Quizlet yêu cầu xác minh hoặc đăng nhập:</strong> hoàn thành trực tiếp trong tab Quizlet được mở. LexiPulse chờ tối đa 3 phút và tự tiếp tục khi thẻ xuất hiện. Tiện ích không tự giải CAPTCHA.</aside>
+    <h2>Quyền truy cập</h2>
+    <p>Tiện ích chỉ đọc bộ từ được yêu cầu trên <code>quizlet.com</code> và gửi từ–nghĩa về trang LexiPulse đang yêu cầu. Không đọc hoặc xuất cookie, mật khẩu, lịch sử duyệt web; không gửi dữ liệu tới dịch vụ trung gian.</p>
+    <p>Bản này kết nối LexiPulse tại <code>localhost:5173</code>, <code>127.0.0.1:5173</code> và cổng xem trước <code>4173</code>. Mở bằng trình duyệt có tiện ích; trình duyệt bên trong ứng dụng khác có thể không hỗ trợ tiện ích này.</p>
+    <p>Nếu số lượng thẻ chưa đầy đủ, mở danh sách đầy đủ trên Quizlet và kiểm tra số lượng trước khi nhập. Có thể hủy tải bất kỳ lúc nào trong LexiPulse.</p>
+    <a class="back" href="/">Quay về LexiPulse →</a>
+  </main>
+</body>
+</html>

@@ -3,6 +3,7 @@ import { SEED_WORDS } from './db/seedData';
 import { DEFAULT_SETTINGS } from './db/statsRepo';
 import { runFSRSMigration } from './db/migration';
 import { formatLocalDate } from '../utils/dateUtils';
+import { cleanStoredDefinitions } from './definitionCleanup';
 
 // Re-export core modules
 export { db, LexiPulseDatabase } from './db/schema';
@@ -65,6 +66,7 @@ export async function initializeDatabase(options: InitializeDbOptions = {}): Pro
 
   // Idempotently migrate all words to FSRS if not yet migrated
   await runFSRSMigration();
+  await cleanStoredDefinitions();
 
   // Ensure today's stats exist without creating fake streaks or review activity
   const todayStats = await db.dailyStats.get(todayDateStr);

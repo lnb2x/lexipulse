@@ -1,6 +1,8 @@
 import { Volume2 } from 'lucide-react';
 import { useState } from 'react';
 import { playPronunciation } from '../../services/audio';
+import { GlassButton } from './Glass';
+import { GlassTooltip } from './GlassTooltip';
 
 interface AudioButtonProps {
   text: string;
@@ -55,18 +57,14 @@ export const AudioButton: React.FC<AudioButtonProps> = ({
   const tooltip = `Pronounce ${text} (${accent})${shortcutHint ? ` [${shortcutHint}]` : ''}`;
 
   return (
-    <button
+    <GlassTooltip label={tooltip}><GlassButton
       type="button"
       onClick={handlePlay}
       disabled={isPlaying}
-      title={tooltip}
+      busy={isPlaying}
       aria-label={tooltip}
       aria-keyshortcuts={shortcutHint}
-      className={`inline-flex items-center gap-1.5 rounded-lg border transition-all duration-200 active:scale-95 ${
-        accent === 'US'
-          ? 'border-indigo-200 bg-indigo-50/70 text-indigo-700 hover:bg-indigo-100 hover:border-indigo-300 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-900/60'
-          : 'border-emerald-200 bg-emerald-50/70 text-emerald-700 hover:bg-emerald-100 hover:border-emerald-300 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/60'
-      } ${paddingClasses[size]} ${className}`}
+      className={`glass-pronunciation-button ${!showLabel ? 'glass-icon-button' : ''} ${paddingClasses[size]} ${className}`}
     >
       <Volume2 className={`${iconSizes[size]} ${isPlaying ? 'animate-bounce text-indigo-500' : ''}`} />
       {showLabel && (
@@ -74,6 +72,6 @@ export const AudioButton: React.FC<AudioButtonProps> = ({
           {accent}
         </span>
       )}
-    </button>
+    </GlassButton></GlassTooltip>
   );
 };

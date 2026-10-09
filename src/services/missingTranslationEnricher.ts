@@ -7,6 +7,7 @@ import { WORD_LRU_CACHE } from './dictionary/cache';
 import { AI_PROVIDERS } from './ai';
 import { groqPoolManager } from './ai/groqPoolManager';
 import { translateToVietnamese } from './dictionary/adapters/translation';
+import { normalizeVietnameseDefinition } from '../utils/definitionUtils';
 
 export interface BackfillProgress {
   total: number;
@@ -143,6 +144,7 @@ export async function restoreFromBackup(backupWords: WordItem[]): Promise<number
 
 interface AIResponseStructure {
   vietnameseDefinition?: string;
+  usageNoteVi?: string;
   meanings?: Array<{ idx: number; vietnameseDefinition: string }>;
   collocations?: Array<{ idx: number; meaningVi: string }>;
   wordFamily?: Array<{ idx: number; meaningVi: string }>;
@@ -193,6 +195,9 @@ async function callAiForMissingParts(
 
   if (missing.needMainDef) {
     instructions.push(`- Nghĩa chính (vietnameseDefinition) cho từ "${word.word}" (POS: ${word.pos?.join(', ') || 'noun'}).`);
+    instructions.push(`- vietnameseDefinition phải bắt đầu bằng nghĩa tương đương tiếng Việt ngắn gọn, tự nhiên. Đánh số các nghĩa phổ biến khác nhau khi cần. Không gộp giải thích ngữ pháp hoặc câu ví dụ vào nghĩa chính.`);
+    instructions.push(`- Nghĩa chính nên tối đa 30 từ tiếng Việt; bỏ nhãn từ loại như "Danh từ:". Ví dụ promise: "lời hứa; hứa, cam kết; tiềm năng, triển vọng". Câu ví dụ chỉ nằm trong examples.`);
+    instructions.push(`- Đưa cách dùng cần thiết vào usageNoteVi bằng tiếng Việt ngắn gọn, chính xác; để rỗng nếu không cần. Ví dụ: as soon as = ngay khi; vừa … thì … (chỉ thời gian).`);
   }
 
   if (missing.meanings.length > 0) {
@@ -228,6 +233,7 @@ async function callAiForMissingParts(
     `Trả về DUY NHẤT một JSON hợp lệ có cấu trúc:`,
     `{`,
     missing.needMainDef ? `  "vietnameseDefinition": "nghĩa tiếng Việt chính",` : '',
+    missing.needMainDef ? `  "usageNoteVi": "cách dùng ngắn gọn hoặc chuỗi rỗng",` : '',
     missing.meanings.length > 0 ? `  "meanings": [{"idx": number, "vietnameseDefinition": "nghĩa tiếng Việt"}],` : '',
     missing.collocations.length > 0 ? `  "collocations": [{"idx": number, "meaningVi": "nghĩa tiếng Việt"}],` : '',
     missing.wordFamily.length > 0 ? `  "wordFamily": [{"idx": number, "meaningVi": "nghĩa tiếng Việt"}],` : '',
@@ -506,7 +512,7 @@ export async function enrichSingleWordMissingTranslations(
 
   // Count valid newly translated items
   const validMainDef = needMainDef && translations.vietnameseDefinition && !isMissingOrUntranslated(translations.vietnameseDefinition, word.word)
-    ? translations.vietnameseDefinition.trim()
+    ? normalizeVietnameseDefinition(translations.vietnameseDefinition) || undefined
     : undefined;
 
   const validMeanings = (translations.meanings || []).filter((m) => m && m.vietnameseDefinition && !isMissingOrUntranslated(m.vietnameseDefinition));
@@ -584,6 +590,11 @@ export async function enrichSingleWordMissingTranslations(
 
   const patch: Partial<WordItem> = {
     vietnameseDefinition: finalMainDef,
+    ...(validMainDef ? {
+      usageNoteVi: typeof translations.usageNoteVi === 'string'
+        ? translations.usageNoteVi.trim() || undefined
+        : undefined,
+    } : {}),
     vietnameseDefinitionProvenance: finalProvenance,
     meanings: updatedMeanings,
     collocations: updatedCollocations,

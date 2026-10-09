@@ -8,6 +8,43 @@ export interface ParsedSense {
   text: string;
 }
 
+const EXAMPLE_LABEL = /^(?:ví dụ|v[íi]\s*dụ|vd\.?|example(?:s)?|e\.g\.)\s*(?:[:：]|["“]|$)/i;
+const POS_LABEL = /^(?:\((?:danh từ(?: trừu tượng)?|động từ|tính từ|trạng từ|noun|verb|adjective|adverb|n\.?|v\.?|adj\.?|adv\.?)\)\s*:?|(?:danh từ(?: trừu tượng)?|động từ|tính từ|trạng từ|noun|verb|adjective|adverb)\s*:)\s*/i;
+
+/** Remove labelled examples, keeping short sense qualifiers and every numbered sense. */
+export function normalizeVietnameseDefinition(raw: string): string {
+  let withoutExamples = '';
+  for (let index = 0; index < raw.length; index++) {
+    if (raw[index] !== '(') {
+      withoutExamples += raw[index];
+      continue;
+    }
+    let end = index + 1;
+    let depth = 1;
+    while (end < raw.length && depth > 0) {
+      if (raw[end] === '(') depth++;
+      else if (raw[end] === ')') depth--;
+      end++;
+    }
+    const group = raw.slice(index, end);
+    if (!EXAMPLE_LABEL.test(group.slice(1).trimStart())) withoutExamples += group;
+    index = end - 1;
+  }
+
+  return withoutExamples.trim().split(/(?:^|\s+)(?=\d+[.)]\s+)|\n+|;\s*(?=(?:\(|danh từ|động từ|tính từ|trạng từ|noun|verb|adjective|adverb))/i)
+    .map(part => {
+      part = part.replace(/^\s*[-•]\s+/, '').trim();
+      const number = part.match(/^\d+[.)]\s+/)?.[0] ?? '';
+      const meaning = part.slice(number.length)
+        .replace(POS_LABEL, '')
+        .replace(/(?:^|[\s;.!])(?:ví dụ|vd\.?|examples?|e\.g\.)\s*[:：][\s\S]*$/i, '')
+        .replace(/\s+/g, ' ')
+        .replace(/\s+([;,])/g, '$1')
+        .replace(/[\s;,.]+$/, '').trim();
+      return meaning ? number + meaning : '';
+    }).filter(Boolean).join('; ');
+}
+
 /**
  * Parses raw definition string into distinct senses (e.g. 1. Bể bơi; 2. Nhóm người...)
  */

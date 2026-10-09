@@ -5,6 +5,7 @@ import type { WordItem, SpellingSuggestion } from '../../types/vocab';
 import { LOCAL_KNOWLEDGE_BASE, getSpellingSuggestions } from '../../services/dictionary';
 import { analyzeMorphology } from '../../services/morphology/lemmatizer';
 import { findFuzzyMatches } from '../../utils/fuzzySearch';
+import { GlassButton, GlassSearchField } from '../common/Glass';
 
 export interface SearchBarProps {
   onSearch: (word: string, contextSentence?: string) => void;
@@ -96,6 +97,18 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   });
 
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const focusSearch = (event: KeyboardEvent) => {
+      if (event.key !== '/' || event.altKey || event.ctrlKey || event.metaKey) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select, [role="combobox"], [role="dialog"]'))) return;
+      if (document.querySelector('[role="dialog"]')) return;
+      event.preventDefault(); inputRef.current?.focus();
+    };
+    window.addEventListener('keydown', focusSearch);
+    return () => window.removeEventListener('keydown', focusSearch);
+  }, []);
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeQueryRef = useRef<string>('');
 
@@ -346,14 +359,18 @@ export const SearchBar: React.FC<SearchBarProps> = ({
     combinedFuzzySuggestions.length > 0;
 
   return (
-    <div ref={wrapperRef} className="relative w-full max-w-2xl mx-auto space-y-2.5">
+    <div ref={wrapperRef} className="dictionary-search relative w-full space-y-2.5">
       <form onSubmit={handleSubmit} className="relative flex items-center">
+        <GlassSearchField aria-busy={isLoading || undefined}>
         <div className="pointer-events-none absolute left-3.5 text-slate-400 dark:text-slate-500">
           <Search className="h-4.5 w-4.5" />
         </div>
 
         <input
+          ref={inputRef}
           type="text"
+          aria-label={t.lookup.searchPlaceholder}
+          aria-keyshortcuts="/"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -364,8 +381,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
           onKeyDown={handleKeyDown}
           placeholder={t.lookup.searchPlaceholder}
           disabled={isLoading}
-          autoFocus
-          className="w-full rounded-xl border border-slate-200/90 bg-white py-3 pl-11 pr-24 text-sm text-slate-900 shadow-subtle placeholder-slate-400 transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-800 dark:bg-[#121824] dark:text-slate-100 dark:placeholder-slate-500"
+          className="search-query w-full border-0 bg-transparent py-3 pl-11 pr-24 text-sm text-slate-900 placeholder-slate-400 focus:outline-none dark:text-slate-100 dark:placeholder-slate-400"
         />
 
         <div className="absolute right-2 flex items-center gap-1">
@@ -378,7 +394,8 @@ export const SearchBar: React.FC<SearchBarProps> = ({
                 setQuery('');
                 setIsOpen(false);
               }}
-              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-colors"
+              data-glass
+              className="glass-button search-clear p-1.5 text-slate-500 dark:text-slate-300"
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -388,10 +405,12 @@ export const SearchBar: React.FC<SearchBarProps> = ({
             </kbd>
           )}
 
-          <button
+          <GlassButton
             type="submit"
+            prominent
+            busy={isLoading}
             disabled={isLoading || !query.trim()}
-            className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-500 active:scale-95 disabled:opacity-40 transition-all"
+            className="search-submit"
           >
             {isLoading ? (
               <>
@@ -403,13 +422,12 @@ export const SearchBar: React.FC<SearchBarProps> = ({
                 <span>{t.lookup.searchBtn}</span>
               </>
             )}
-          </button>
+          </GlassButton>
         </div>
-      </form>
-
+        </GlassSearchField>
       {/* Autocomplete & Fuzzy Suggestion Dropdown */}
       {isOpen && (hasSuggestions || (query.trim() === '' && history.length > 0)) && (
-        <div className="absolute left-0 right-0 top-12 z-50 overflow-hidden rounded-xl border border-slate-200/90 bg-white/95 p-1.5 shadow-dropdown backdrop-blur-md dark:border-slate-800 dark:bg-[#121824]/95 space-y-1.5 divide-y divide-slate-100 dark:divide-slate-800/80">
+        <div data-glass className="liquid-glass glass-popover dictionary-suggestions absolute left-0 right-0 top-12 z-50 overflow-hidden p-1.5 space-y-1.5 divide-y divide-slate-100 dark:divide-slate-800/80">
           {/* Morphological Lemma Recommendation */}
           {morphologicalMatch && (
             <div className="p-1">
@@ -578,14 +596,18 @@ export const SearchBar: React.FC<SearchBarProps> = ({
           )}
         </div>
       )}
+      </form>
 
       {/* Context sentence input toggle */}
       <div className="space-y-1.5 pt-0.5">
         <div className="flex items-center justify-between px-1">
           <button
             type="button"
+            data-glass
+            aria-expanded={showContextInput}
+            aria-controls="lookup-context-sentence"
             onClick={() => setShowContextInput((prev) => !prev)}
-            className="inline-flex items-center gap-1.5 text-[11px] font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 transition-colors"
+            className="glass-button search-context-toggle inline-flex items-center gap-1.5 text-[11px] font-medium"
           >
             <Sparkles className="h-3 w-3" />
             <span>
@@ -597,8 +619,9 @@ export const SearchBar: React.FC<SearchBarProps> = ({
           {contextSentence.trim() && (
             <button
               type="button"
+              data-glass
               onClick={() => setContextSentence('')}
-              className="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+              className="glass-button search-context-clear text-[10px]"
             >
               {language === 'vi' ? 'Xóa câu ngữ cảnh' : 'Clear context'}
             </button>
@@ -608,7 +631,10 @@ export const SearchBar: React.FC<SearchBarProps> = ({
         {showContextInput && (
           <div className="relative animate-fade-in">
             <input
+              id="lookup-context-sentence"
               type="text"
+              data-glass
+              aria-label={language === 'vi' ? 'Câu ngữ cảnh' : 'Context sentence'}
               value={contextSentence}
               onChange={(e) => setContextSentence(e.target.value)}
               placeholder={
@@ -616,7 +642,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
                   ? 'Nhập câu chứa từ (ví dụ: She went to the regional office for the annual inspection)...'
                   : 'Enter a sentence with the word (e.g.: She went to the regional office...)...'
               }
-              className="w-full rounded-xl border border-indigo-200/90 bg-indigo-50/50 py-2 px-3 text-xs text-slate-900 placeholder-slate-400 transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-indigo-900/60 dark:bg-indigo-950/30 dark:text-slate-100 dark:placeholder-slate-500"
+              className="liquid-glass glass-control search-context-field w-full py-2 px-3 text-xs text-slate-900 placeholder-slate-400 dark:text-slate-100 dark:placeholder-slate-400"
             />
           </div>
         )}
@@ -633,8 +659,9 @@ export const SearchBar: React.FC<SearchBarProps> = ({
             <button
               key={word}
               type="button"
+              data-glass
               onClick={() => handleSelectWord(word)}
-              className="rounded-lg border border-slate-200 bg-white/70 px-2.5 py-1 font-medium text-slate-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50/50 hover:text-indigo-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-indigo-900 dark:hover:bg-indigo-950/40 dark:hover:text-indigo-400 shrink-0"
+              className="glass-pill search-recommendation px-2.5 py-1 font-medium shrink-0"
             >
               {word}
             </button>

@@ -4,6 +4,9 @@ import { db, getAppSettings, getTodayStats, recordReviewActivity } from '../serv
 import { applyFSRSReview, previewFSRS, DEFAULT_REQUEST_RETENTION } from '../services/fsrs/fsrsService';
 import { generateClozeQuestion as generateClozeQuestionUtil } from '../utils/clozeGenerator';
 import type { AppSettings, ClozeQuestion, ReviewQueueStats, ReviewRating, WordItem } from '../types/vocab';
+import type { ReviewSubmission } from '../types/study';
+import { recordStudyAttempt, saveStudySession } from '../services/studyProgress';
+import { withCleanDefinitions } from '../services/definitionCleanup';
 
 export type ReviewSessionType = 'due' | 'cram';
 
@@ -45,7 +48,8 @@ export function useSpacedRepetition(deckWords?: WordItem[]) {
     return await db.words.toArray();
   }, [hasDeckWords]);
 
-  const allCards = deckWords ?? dbCards ?? EMPTY_CARDS;
+  const rawCards = deckWords ?? dbCards ?? EMPTY_CARDS;
+  const allCards = useMemo(() => rawCards.map(withCleanDefinitions), [rawCards]);
 
   // Due cards (dueDate <= currentTime)
   const dueCards = useMemo(() => {
@@ -151,9 +155,10 @@ export function useSpacedRepetition(deckWords?: WordItem[]) {
   const submitRating = async (
     wordId: string,
     rating: ReviewRating,
-    sessionType: ReviewSessionType = 'due'
+    sessionType: ReviewSessionType = 'due',
+    submission?: ReviewSubmission
   ) => {
-    if (isSubmittingRef.current) return;
+    if (isSubmittingRef.current) return false;
     isSubmittingRef.current = true;
     setIsSubmitting(true);
 
@@ -162,9 +167,16 @@ export function useSpacedRepetition(deckWords?: WordItem[]) {
       const targetRetention = settings?.desiredRetention || DEFAULT_REQUEST_RETENTION;
 
       // Atomic Dexie transaction reading FRESH word from DB to avoid stale snapshot bugs
-      await db.transaction('rw', [db.words, db.dailyStats], async () => {
+      const submitted = await db.transaction('rw', [db.words, db.dailyStats, db.settingsTable], async () => {
         const freshWord = await db.words.get(wordId);
-        if (!freshWord) return;
+        if (!freshWord) return false;
+        if (submission && !await recordStudyAttempt(submission.attempt)) return false;
+
+        if (submission?.practice) {
+          // Adaptive recognition and retries keep evidence/checkpoint, without rescheduling.
+          if (submission.checkpoint) await saveStudySession(submission.checkpoint);
+          return true;
+        }
 
         const { nextMeta, newStatus } = applyFSRSReview(
           freshWord.reviewMeta,
@@ -188,17 +200,23 @@ export function useSpacedRepetition(deckWords?: WordItem[]) {
             updatedAt: now,
           });
         }
+        if (submission?.checkpoint) await saveStudySession(submission.checkpoint);
+        return true;
       });
+      if (!submitted) return false;
 
       // Update local clock to reveal relearning or newly due cards
       setCurrentTime(Date.now());
 
-      // Move session queue
-      if (sessionIndex + 1 >= dueCards.length) {
-        setSessionCompleted(true);
-      } else {
-        setSessionIndex((prev) => prev + 1);
+      // Only a scheduled check advances the hook's ordinary review count.
+      if (!submission?.practice) {
+        if (sessionIndex + 1 >= dueCards.length) {
+          setSessionCompleted(true);
+        } else {
+          setSessionIndex((prev) => prev + 1);
+        }
       }
+      return true;
     } finally {
       isSubmittingRef.current = false;
       setIsSubmitting(false);

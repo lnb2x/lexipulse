@@ -76,6 +76,9 @@ let activeAudioResolver: (() => void) | null = null;
 export function stopPronunciation(): void {
   if (typeof window === 'undefined') return;
 
+  const resolver = activeAudioResolver;
+  activeAudioResolver = null;
+
   if (activeAudioElement) {
     try {
       activeAudioElement.pause();
@@ -96,11 +99,7 @@ export function stopPronunciation(): void {
     }
   }
 
-  if (activeAudioResolver) {
-    const resolver = activeAudioResolver;
-    activeAudioResolver = null;
-    resolver();
-  }
+  resolver?.();
 }
 
 /**
@@ -112,7 +111,7 @@ export function playPronunciation(
   remoteAudioUrl?: string,
   options?: AudioOptions
 ): Promise<void> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     if (typeof window === 'undefined') {
       resolve();
       return;
@@ -124,8 +123,8 @@ export function playPronunciation(
     activeAudioResolver = resolve;
 
     const cleanupAndResolve = () => {
-      activeAudioElement = null;
       if (activeAudioResolver === resolve) {
+        activeAudioElement = null;
         activeAudioResolver = null;
         resolve();
       }
@@ -134,22 +133,29 @@ export function playPronunciation(
     // If remote audio URL is explicitly provided and preferNative is false, try remote audio first
     if (remoteAudioUrl && options?.preferNative === false) {
       const audio = new Audio(remoteAudioUrl);
+      audio.playbackRate = options?.rate ?? 1.0;
       activeAudioElement = audio;
+      let fallbackStarted = false;
+      const startFallback = () => {
+        // A media error may also reject play(). Ignore duplicate or canceled requests.
+        if (fallbackStarted || activeAudioResolver !== resolve) return;
+        fallbackStarted = true;
+        audio.onended = null;
+        audio.onerror = null;
+        audio.pause();
+        activeAudioElement = null;
+        fallbackToSpeechSynthesis(text, accent, options, cleanupAndResolve);
+      };
       audio.onended = () => {
         cleanupAndResolve();
       };
-      audio.onerror = () => {
-        // Fallback to SpeechSynthesis if remote URL fails
-        fallbackToSpeechSynthesis(text, accent, options, cleanupAndResolve, reject);
-      };
-      audio.play().catch(() => {
-        fallbackToSpeechSynthesis(text, accent, options, cleanupAndResolve, reject);
-      });
+      audio.onerror = startFallback;
+      audio.play().catch(startFallback);
       return;
     }
 
     // Default: use Native Web Speech API for instant zero-latency speech
-    fallbackToSpeechSynthesis(text, accent, options, cleanupAndResolve, reject);
+    fallbackToSpeechSynthesis(text, accent, options, cleanupAndResolve);
   });
 }
 
@@ -157,8 +163,7 @@ function fallbackToSpeechSynthesis(
   text: string,
   accent: 'US' | 'UK',
   options: AudioOptions | undefined,
-  resolve: () => void,
-  _reject: (err: any) => void
+  resolve: () => void
 ) {
   if (!('speechSynthesis' in window)) {
     resolve();

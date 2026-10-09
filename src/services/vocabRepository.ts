@@ -9,6 +9,8 @@ import { warmSearchCache } from './dictionary';
 import { WORD_LRU_CACHE, SUGGESTION_CACHE } from './dictionary/cache';
 import { isPlaceholderDefinition } from './quizlet/quizletNormalizer';
 import { isMissingOrUntranslated, isWordTranslationComplete } from '../utils/translationAuditor';
+import { getStudyAttempts } from './studyProgress';
+import type { StudyAttempt } from '../types/study';
 
 export type MergePolicy = 'preserve-progress' | 'replace-progress';
 
@@ -213,6 +215,7 @@ export function mergeWordRecords(
   const isIncomingPlaceholder = isMissingOrUntranslated(incoming.vietnameseDefinition, existing.word);
 
   let vietnameseDef = existing.vietnameseDefinition;
+  let usageNoteVi = existing.usageNoteVi;
   let mergedProvenance = existing.vietnameseDefinitionProvenance;
 
   // Allow overwrite if:
@@ -232,6 +235,11 @@ export function mergeWordRecords(
 
   if (canOverwriteDef && incoming.vietnameseDefinition && incoming.vietnameseDefinition.trim()) {
     vietnameseDef = incoming.vietnameseDefinition.trim();
+    if (Object.prototype.hasOwnProperty.call(incoming, 'usageNoteVi')) {
+      usageNoteVi = incoming.usageNoteVi?.trim() || undefined;
+    } else if (vietnameseDef !== existing.vietnameseDefinition) {
+      usageNoteVi = undefined;
+    }
     mergedProvenance = incoming.vietnameseDefinitionProvenance || (
       isIncomingUserEdited
         ? { source: 'user_edit', isUserEdited: true, createdAt: Date.now() }
@@ -368,6 +376,7 @@ export function mergeWordRecords(
       tags: mergedTags,
       phonetics: mergedPhonetics,
       vietnameseDefinition: vietnameseDef,
+      usageNoteVi,
       vietnameseDefinitionProvenance: mergedProvenance,
       englishDefinition: englishDef,
       meanings: mergedMeanings,
@@ -404,6 +413,7 @@ export function mergeWordRecords(
     // Update linguistic enrichments
     phonetics: mergedPhonetics,
     vietnameseDefinition: vietnameseDef,
+    usageNoteVi,
     vietnameseDefinitionProvenance: mergedProvenance,
     englishDefinition: englishDef,
     meanings: mergedMeanings,
@@ -523,6 +533,7 @@ export async function saveOrUpdateWord(
         word: normalized,
         englishDefinition: cleanedEnDef,
         vietnameseDefinition: cleanedViDef,
+        usageNoteVi: word.usageNoteVi?.trim() || undefined,
         status: word.status || 'new',
         createdAt: word.createdAt && !isNaN(word.createdAt) ? word.createdAt : Date.now(),
         updatedAt: Date.now(),
@@ -607,6 +618,7 @@ export async function bulkUpsertWords(
           ...item,
           id: finalId,
           word: normalized,
+          usageNoteVi: item.usageNoteVi?.trim() || undefined,
           status: item.status || 'new',
           createdAt: item.createdAt && !isNaN(item.createdAt) ? item.createdAt : Date.now(),
           updatedAt: Date.now(),
@@ -678,12 +690,13 @@ export async function commitNormalizedContent(snapshot: WordItem, normalized: Wo
     const fresh = await db.words.get(snapshot.id);
     if (!fresh) return undefined; // Never resurrect a deleted card.
     const fields = [
-      'word', 'pos', 'phonetics', 'englishDefinition', 'vietnameseDefinition',
+      'word', 'pos', 'phonetics', 'englishDefinition', 'vietnameseDefinition', 'usageNoteVi',
       'wordFamily', 'collocations', 'examples', 'vietnameseDefinitionProvenance',
       'rawQuizletTerm', 'rawQuizletDefinition', 'enrichmentStatus',
     ] as const;
     const changes = Object.fromEntries(fields
-      .filter(key => JSON.stringify(fresh[key]) === JSON.stringify(snapshot[key]))
+      .filter(key => JSON.stringify(fresh[key]) === JSON.stringify(snapshot[key]) &&
+        (key !== 'usageNoteVi' || fresh.vietnameseDefinition === snapshot.vietnameseDefinition))
       .map(key => [key, normalized[key]]));
     if (changes.word && changes.word !== fresh.word) {
       const collision = await db.words.where('word').equals(String(changes.word)).first();
@@ -846,6 +859,7 @@ export async function importDeckFromJson(
         phonetics: item.phonetics && typeof item.phonetics === 'object' ? item.phonetics : {},
         pos: Array.isArray(item.pos) && item.pos.length > 0 ? item.pos : ['noun'],
         vietnameseDefinition: item.vietnameseDefinition || item.meaningVi || 'Chưa có định nghĩa',
+        usageNoteVi: item.usageNoteVi?.trim() || undefined,
         englishDefinition: item.englishDefinition || item.definition || '',
         meanings: Array.isArray(item.meanings) ? item.meanings : [],
         collocations: Array.isArray(item.collocations) ? item.collocations : [],
@@ -932,7 +946,13 @@ export async function importDeckFromJson(
           errors.push(`settingsTable[${index}]: invalid record`);
           continue;
         }
-        if (row.key !== 'appSettings' && !await db.settingsTable.get(row.key)) await db.settingsTable.put(sanitizeBackupSettings(row));
+        if (['studySession', 'toeicSession', 'lastBackupDownload'].includes(row.key)) continue;
+        if (row.key === 'studyAttempts') {
+          const existingAttempts = await getStudyAttempts();
+          const byId = new Map(existingAttempts.map(a => [a.id, a]));
+          for (const attempt of row.value as StudyAttempt[]) if (!byId.has(attempt.id)) byId.set(attempt.id, attempt);
+          await db.settingsTable.put({ key: row.key, value: [...byId.values()] });
+        } else if (row.key !== 'appSettings' && !await db.settingsTable.get(row.key)) await db.settingsTable.put(sanitizeBackupSettings(row));
       }
     }
 

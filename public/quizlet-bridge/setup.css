@@ -1,0 +1,17 @@
+:root { color-scheme: dark; font-family: system-ui, sans-serif; background: #0c1120; color: #e6eaf5; }
+body { margin: 0; padding: 48px 24px; }
+main { max-width: 720px; margin: auto; }
+.eyebrow { color: #a5b4fc; font-size: 13px; letter-spacing: .14em; font-weight: 700; }
+h1 { font-size: clamp(28px, 5vw, 42px); line-height: 1.18; letter-spacing: -.025em; margin-bottom: 24px; }
+h2 { font-size: 22px; margin-top: 36px; }
+p, li { line-height: 1.75; color: #bfc9de; }
+.intro { font-size: 18px; }
+a { color: #b5b9ff; }
+.download { display: inline-block; background: #5145df; color: white; text-decoration: none; padding: 14px 20px; border-radius: 12px; font-weight: 700; margin: 16px 0; }
+ol { padding-left: 24px; }
+li { padding: 8px 0 8px 8px; }
+strong { color: #f5f6fb; }
+code { overflow-wrap: anywhere; color: #c7d2fe; background: #1d2639; padding: 2px 5px; border-radius: 4px; }
+aside { padding: 20px; border: 1px solid #776534; background: #262318; border-radius: 12px; line-height: 1.7; margin: 28px 0; }
+a:focus-visible { outline: 3px solid #f6cd68; outline-offset: 5px; }
+.back { display: inline-block; margin-top: 24px; }

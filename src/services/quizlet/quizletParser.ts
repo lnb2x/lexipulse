@@ -12,6 +12,9 @@ export interface ParsedQuizletUrl {
 }
 
 export type FetchQuizletErrorType =
+  | 'browser_disconnected'
+  | 'browser_closed'
+  | 'incomplete_set'
   | 'server_busy'
   | 'resource_limit'
   | 'request_too_large'
@@ -31,6 +34,7 @@ export type FetchQuizletErrorType =
 
 export interface FetchQuizletResult {
   success: boolean;
+  needsCountCheck?: boolean;
   title?: string;
   setId?: string;
   cleanUrl?: string;
@@ -427,7 +431,7 @@ export function extractQuizletFromHtml(html: string): { title?: string; terms: Q
  */
 export async function fetchQuizletSet(
   rawUrl: string,
-  options: { signal?: AbortSignal; timeoutMs?: number } = {}
+  options: { signal?: AbortSignal; timeoutMs?: number; onProgress?: (progress: 'loading' | 'verification_required') => void } = {}
 ): Promise<FetchQuizletResult> {
   const parsed = parseQuizletUrl(rawUrl);
   if (!parsed.isValid || !parsed.cleanUrl || !parsed.setId) {
@@ -446,9 +450,10 @@ export async function fetchQuizletSet(
     };
   }
 
-  const timeoutMs = options.timeoutMs ?? 35000;
+  const timeoutMs = options.timeoutMs ?? 165000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let requestId: string | undefined;
 
   const onParentAbort = () => controller.abort();
   if (options.signal) {
@@ -467,9 +472,25 @@ export async function fetchQuizletSet(
           'Content-Type': 'application/json',
           Accept: 'application/json',
         },
-        body: JSON.stringify({ url: targetUrl }),
+        body: JSON.stringify({ url: targetUrl, async: true }),
         signal: controller.signal,
       }, timeoutMs);
+      while (backendRes.status === 202) {
+        const pending = await backendRes.json();
+        if (typeof pending.requestId !== 'string' || !pending.requestId) throw new Error('Thiếu mã phiên tải Quizlet.');
+        requestId = pending.requestId;
+        options.onProgress?.(pending.progress === 'verification_required' ? 'verification_required' : 'loading');
+        await new Promise<void>((resolve, reject) => {
+          const abort = () => { clearTimeout(pollTimer); reject(new DOMException('Aborted', 'AbortError')); };
+          const pollTimer = setTimeout(() => { controller.signal.removeEventListener('abort', abort); resolve(); }, 750);
+          controller.signal.addEventListener('abort', abort, { once: true });
+          if (controller.signal.aborted) abort();
+        });
+        backendRes = await fetchWithTimeout('/api/quizlet/status', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ requestId }), signal: controller.signal,
+        }, timeoutMs);
+      }
     } catch (fetchErr: any) {
       clearTimeout(timer);
       if (fetchErr.name === 'AbortError' || fetchErr.name === 'TimeoutError') {
@@ -571,12 +592,12 @@ export async function fetchQuizletSet(
       return {
         success: false,
         errorType: 'challenge_blocked',
-        message: 'Quizlet yêu cầu thử thách xác minh nâng cao mà trình duyệt tự động chưa thể vượt qua.',
+        message: 'Chưa hoàn tất xác minh trong cửa sổ Quizlet. Bấm Thử lại; ứng dụng sẽ tự lấy từ sau khi bạn xác minh.',
         diagnostics: userMsg,
       };
     }
 
-    if (errorCode === 'not_found' || backendRes.status === 404) {
+    if (errorCode === 'not_found') {
       return {
         success: false,
         errorType: 'not_found' as any,
@@ -602,6 +623,12 @@ export async function fetchQuizletSet(
     };
   } finally {
     clearTimeout(timer);
+    if (requestId) {
+      void fetch('/api/quizlet/cancel', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requestId }), keepalive: true,
+      }).catch(() => {});
+    }
     if (options.signal) {
       options.signal.removeEventListener('abort', onParentAbort);
     }

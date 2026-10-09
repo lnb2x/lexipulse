@@ -225,16 +225,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 animate-fade-in">
+    <div className="app-dialog-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 animate-fade-in">
       <div
         ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-dialog-title"
-        className="relative w-full max-w-lg max-h-[92vh] flex flex-col rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-[#111622] overflow-hidden"
+        data-glass
+        className="app-dialog dialog-frame relative w-full max-w-lg"
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 p-5 sm:p-6 pb-4 dark:border-slate-800 shrink-0">
+        <div className="dialog-header flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400">
               <Settings className="h-5 w-5" />
@@ -246,7 +247,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </h2>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Configure AI, language, speech & quotas
+                {language === 'vi' ? 'Tùy chỉnh AI, ngôn ngữ, phát âm và lịch học.' : 'Customize AI, language, speech and study limits.'}
               </p>
             </div>
           </div>
@@ -261,7 +262,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto px-5 sm:px-6 py-4 space-y-5">
+        <div className="dialog-scroll-body space-y-5">
           {/* Language Selection */}
           <div className="space-y-1.5">
             <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300">
@@ -762,6 +763,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <input
               type="range"
               min="0.7"
+              aria-label={t.modals.speechRateLabel}
               max="1.3"
               step="0.05"
               value={settings.speechRate}
@@ -869,14 +871,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             onClick={onClose}
             className="rounded-xl px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
           >
-            Cancel
+            {language === 'vi' ? 'Hủy' : 'Cancel'}
           </button>
           <button
             type="button"
             onClick={handleSave}
             className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-500 active:scale-[0.99] transition-all"
           >
-            {isSaved ? 'Saved!' : t.modals.saveSettingsBtn}
+            {isSaved ? (language === 'vi' ? 'Đã lưu!' : 'Saved!') : t.modals.saveSettingsBtn}
           </button>
         </div>
       </div>

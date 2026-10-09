@@ -256,6 +256,7 @@ export function mergePipelineSources(params: MergePipelineParams): {
     phonetics,
     pos,
     vietnameseDefinition,
+    usageNoteVi: sourceVi === 'ai' ? aiResult?.usageNoteVi : dictResult?.usageNoteVi,
     englishDefinition,
     meanings,
     collocations,

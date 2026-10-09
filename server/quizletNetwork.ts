@@ -12,13 +12,13 @@ privateIPs.addSubnet('2001::', 23, 'ipv6');
 privateIPs.addSubnet('2001:db8::', 32, 'ipv6');
 privateIPs.addSubnet('2002::', 16, 'ipv6');
 
-function allowedUrl(raw: string): URL {
+export function allowedUrl(raw: string): URL {
   const url = new URL(raw);
   if (url.protocol !== 'https:' || !HOSTS.has(url.hostname) || url.port || url.username || url.password) throw new Error('blocked_resource');
   return url;
 }
 
-async function resolvePublic(host: string, signal: AbortSignal) {
+export async function resolvePublic(host: string, signal: AbortSignal) {
   signal.throwIfAborted();
   let abort!: () => void;
   try {

@@ -7,6 +7,9 @@ export interface UseModalA11yOptions {
   initialFocusRef?: React.RefObject<HTMLElement | null>;
 }
 
+const modalStack: HTMLElement[] = [];
+let previousOverflow = '';
+
 /**
  * WAI-ARIA compliant modal accessibility hook:
  * - Traps Tab navigation inside modal dialog
@@ -17,6 +20,8 @@ export interface UseModalA11yOptions {
 export function useModalA11y({ isOpen, onClose, initialFocusRef }: UseModalA11yOptions) {
   const modalRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -26,8 +31,16 @@ export function useModalA11y({ isOpen, onClose, initialFocusRef }: UseModalA11yO
     window.dispatchEvent(new CustomEvent('lexipulse:modal-opened'));
 
     previouslyFocusedElementRef.current = document.activeElement as HTMLElement | null;
+    const modal = modalRef.current;
+    if (!modal) return;
+    if (!modalStack.length) {
+      previousOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+    }
+    modalStack.push(modal);
 
     const focusTimer = setTimeout(() => {
+      if (modalStack.at(-1) !== modal || modal.closest('[inert]')) return;
       if (initialFocusRef?.current) {
         initialFocusRef.current.focus();
       } else if (modalRef.current) {
@@ -41,9 +54,12 @@ export function useModalA11y({ isOpen, onClose, initialFocusRef }: UseModalA11yO
     }, 50);
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (modalStack.at(-1) !== modal || modal.closest('[inert]')) return;
       if (e.key === 'Escape') {
+        if (document.activeElement?.matches('[role="combobox"][aria-expanded="true"]')) return;
+        e.preventDefault();
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
 
@@ -60,12 +76,12 @@ export function useModalA11y({ isOpen, onClose, initialFocusRef }: UseModalA11yO
         const last = focusables[focusables.length - 1];
 
         if (e.shiftKey) {
-          if (document.activeElement === first) {
+          if (document.activeElement === first || !modal.contains(document.activeElement)) {
             e.preventDefault();
             last.focus();
           }
         } else {
-          if (document.activeElement === last) {
+          if (document.activeElement === last || !modal.contains(document.activeElement)) {
             e.preventDefault();
             first.focus();
           }
@@ -78,11 +94,15 @@ export function useModalA11y({ isOpen, onClose, initialFocusRef }: UseModalA11yO
     return () => {
       clearTimeout(focusTimer);
       window.removeEventListener('keydown', handleKeyDown, true);
-      if (previouslyFocusedElementRef.current && typeof previouslyFocusedElementRef.current.focus === 'function') {
-        previouslyFocusedElementRef.current.focus();
+      const index = modalStack.indexOf(modal);
+      if (index >= 0) modalStack.splice(index, 1);
+      if (!modalStack.length) document.body.style.overflow = previousOverflow;
+      const focusedDialog = document.activeElement?.closest('[role="dialog"]');
+      if ((!focusedDialog || focusedDialog === modal) && previouslyFocusedElementRef.current?.isConnected) {
+        previouslyFocusedElementRef.current.focus({ preventScroll: true });
       }
     };
-  }, [isOpen, onClose, initialFocusRef]);
+  }, [isOpen, initialFocusRef]);
 
   return modalRef;
 }

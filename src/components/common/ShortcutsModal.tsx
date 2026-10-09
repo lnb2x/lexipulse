@@ -16,6 +16,7 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
 
   const shortcuts = language === 'vi' ? [
     { key: 'Enter', description: 'Tra cứu từ vựng hoặc nộp đáp án câu hỏi' },
+    { key: '/', description: 'Đưa con trỏ vào ô tra cứu từ vựng' },
     { key: 'Space', description: 'Lật qua lại giữa mặt trước & sau flashcard' },
     { key: 'P', description: 'Phát âm tiếng Anh của từ hiện tại (1 lần)' },
     { key: 'Shift + P', description: 'Bật/tắt chế độ phát âm lặp lại (nghỉ 1.5s)' },
@@ -30,6 +31,7 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
     { key: 'Alt + 3', description: 'Chuyển nhanh sang tab Ôn tập SRS' },
   ] : [
     { key: 'Enter', description: 'Search dictionary word or submit answers' },
+    { key: '/', description: 'Focus the vocabulary search field' },
     { key: 'Space', description: 'Flip flashcard between Front & Back' },
     { key: 'P', description: 'Play English pronunciation once' },
     { key: 'Shift + P', description: 'Toggle repeat pronunciation mode (1.5s delay)' },
@@ -45,14 +47,16 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 animate-fade-in">
+    <div className="app-dialog-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 animate-fade-in">
       <div
         ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="shortcuts-dialog-title"
-        className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 sm:p-7 shadow-xl dark:border-slate-800 dark:bg-[#111622]"
+        data-glass
+        className="app-dialog dialog-frame relative w-full max-w-md"
       >
+        <div className="dialog-scroll-body dialog-scroll-full">
         <div className="flex items-center justify-between border-b border-slate-100 pb-4 dark:border-slate-800">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400">
@@ -96,6 +100,7 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
           >
             {language === 'vi' ? 'Đã hiểu' : 'Got it'}
           </button>
+        </div>
         </div>
       </div>
     </div>

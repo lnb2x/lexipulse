@@ -3,6 +3,8 @@ import { Suspense, lazy, startTransition, useCallback, useEffect, useRef, useSta
 import { useLiveQuery } from 'dexie-react-hooks';
 import { PwaUpdateNotice } from './components/common/PwaUpdateNotice';
 import { Header } from './components/common/Header';
+import { GlassLighting } from './components/common/GlassLighting';
+import { ModalPresence } from './components/common/ModalPresence';
 import { useLanguage } from './context/LanguageContext';
 import { LookupView } from './features/lookup/LookupView';
 import type { ReviewSessionState } from './features/review/ReviewView';
@@ -17,6 +19,11 @@ import { vocabRepository } from './services/vocabRepository';
 import { inspectTodayWordsScope, migrateTodayWords } from './services/quizlet/quizletMigration';
 import { formatLocalDate } from './utils/dateUtils';
 import type { ClozeQuestion, ReviewMode, ReviewRating, SpellingSuggestion, WordItem } from './types/vocab';
+import type { AttemptEvidence } from './types/study';
+import { getStudyAttempts, saveStudySession } from './services/studyProgress';
+import { advanceLearnQuestion, createLearnState, getLearnQuestion, hasLearnMeaning, reconcileLearnSession } from './services/adaptiveLearning';
+import { findNextUnreviewedCardIndex } from './utils/reviewNavigation';
+import { getTargetLearningSense } from './utils/learningSense';
 
 // Load secondary screens and modals when they are opened.
 const DeckView = lazy(() =>
@@ -205,6 +212,22 @@ export function App() {
     sessionHistory: [],
     isCompleted: false,
   });
+  const reviewSubmitRef = useRef(false);
+  const studyAttempts = useLiveQuery(getStudyAttempts, []) ?? [];
+  useEffect(() => {
+    if (deckLoading || isSubmitting || reviewSubmitRef.current) return;
+    const refreshed = reconcileLearnSession(reviewState, allWords);
+    if (refreshed === reviewState) return;
+    setReviewState(refreshed);
+    if (reviewState.mode === 'learn' && !refreshed.inProgress) showToast(language === 'vi'
+      ? 'Các từ trong lượt học đã bị xóa hoặc chưa có nghĩa. Hãy chọn lượt học mới.'
+      : 'This round no longer has words with definitions. Start a new round.', 'info');
+  }, [allWords, deckLoading, isSubmitting, reviewState, language, showToast]);
+  useEffect(() => {
+    saveStudySession(reviewState).catch(() => {
+      showToast(language === 'vi' ? 'Không thể lưu phiên học. Hãy kiểm tra dung lượng trình duyệt.' : 'Could not save this session. Check browser storage.', 'error');
+    });
+  }, [reviewState, language, showToast]);
 
   // Latest request wins tracking
   const searchAbortControllerRef = useRef<AbortController | null>(null);
@@ -327,7 +350,7 @@ export function App() {
 
       // Check if existing record had a preferred meaning/context (e.g. from Quizlet or existing notes)
       const existingForContext = await vocabRepository.findWordByTerm(trimmed);
-      const userMeaning = existingForContext?.vietnameseDefinition || existingForContext?.rawQuizletDefinition;
+      const userMeaning = getTargetLearningSense(existingForContext);
 
       const pipelineResult = await runEnrichmentPipeline({
         query: trimmed,
@@ -349,6 +372,7 @@ export function App() {
                 return {
                   ...update.word,
                   vietnameseDefinition: prev.vietnameseDefinition,
+                  usageNoteVi: prev.usageNoteVi,
                   vietnameseDefinitionProvenance: prev.vietnameseDefinitionProvenance,
                   notes: prev.notes !== undefined ? prev.notes : update.word.notes,
                   tags: prev.tags.length > 0 ? prev.tags : update.word.tags,
@@ -403,6 +427,7 @@ export function App() {
             return {
               ...pipelineResult.word,
               vietnameseDefinition: prev.vietnameseDefinition,
+              usageNoteVi: prev.usageNoteVi,
               vietnameseDefinitionProvenance: prev.vietnameseDefinitionProvenance,
               notes: prev.notes !== undefined ? prev.notes : pipelineResult.word.notes,
               tags: prev.tags.length > 0 ? prev.tags : pipelineResult.word.tags,
@@ -459,7 +484,7 @@ export function App() {
       'info'
     );
     try {
-      await handleSearch(wordToTranslate.word, undefined, { forceReTranslate: true });
+      await handleSearch(wordToTranslate.word, wordToTranslate.contextSentence, { forceReTranslate: true });
       showToast(
         language === 'vi'
           ? `Đã hoàn tất dịch AI cho "${wordToTranslate.word}"!`
@@ -505,8 +530,18 @@ export function App() {
     sessionType?: 'due' | 'cram'
   ) => {
     const isDue = sessionType ? sessionType === 'due' : (!cardsToReview || cardsToReview === dueCards);
-    const targetCards = cardsToReview && cardsToReview.length > 0 ? cardsToReview : (dueCards.length > 0 ? dueCards : allWords);
-    if (targetCards.length === 0) return;
+    const requestedCards = cardsToReview ?? (dueCards.length > 0 ? dueCards : allWords);
+    const targetCards = mode === 'learn' ? requestedCards.filter(hasLearnMeaning) : requestedCards;
+    if (targetCards.length === 0) {
+      if (mode === 'learn' && requestedCards.length) showToast(language === 'vi'
+        ? 'Các từ này chưa có nghĩa. Hãy thêm nghĩa trong bộ từ rồi bắt đầu Học thông minh.'
+        : 'These words have no definitions. Add meanings in your deck before starting Learn.', 'info');
+      return;
+    }
+    const skipped = requestedCards.length - targetCards.length;
+    if (skipped) showToast(language === 'vi'
+      ? `Đã bỏ qua ${skipped} từ chưa có nghĩa. Hãy thêm nghĩa trong bộ từ để học các từ này.`
+      : `Skipped ${skipped} words without definitions. Add meanings in your deck to learn them.`, 'info');
 
     let clozeQuestions: ClozeQuestion[] = [];
     if (mode === 'cloze') {
@@ -514,6 +549,7 @@ export function App() {
     }
 
     setReviewState({
+      sessionId: crypto.randomUUID(),
       inProgress: true,
       mode,
       cards: targetCards,
@@ -522,24 +558,47 @@ export function App() {
       sessionHistory: [],
       isCompleted: false,
       sessionType: sessionType ?? (isDue ? 'due' : 'cram'),
+      learn: mode === 'learn' ? createLearnState(targetCards, studyAttempts) : undefined,
     });
     handleTabChange('review');
   };
 
   // Switch review mode on the fly
   const handleSwitchReviewMode = (newMode: ReviewMode) => {
-    if (reviewState.mode === newMode) return;
+    if (reviewSubmitRef.current || reviewState.mode === newMode) return;
+    const pending = reviewState.cards.filter(word => !reviewState.sessionHistory.some(h => h.word.id === word.id));
+    const skipped = newMode === 'learn' ? pending.filter(word => !hasLearnMeaning(word)).length : 0;
+    if (newMode === 'learn' && pending.length && skipped === pending.length) {
+      showToast(language === 'vi'
+        ? 'Các từ còn lại chưa có nghĩa. Hãy thêm nghĩa trong bộ từ để dùng Học thông minh.'
+        : 'The remaining words have no definitions. Add meanings in your deck to use Learn.', 'info');
+      return;
+    }
+    const nextPending = findNextUnreviewedCardIndex(reviewState);
     let questions = reviewState.clozeQuestions;
     if (newMode === 'cloze' && questions.length === 0) {
       questions = generateClozeQuestions(reviewState.cards);
     }
-    setReviewState((prev) => ({
-      ...prev,
-      mode: newMode,
-      clozeQuestions: questions,
-    }));
+    setReviewState((prev) => {
+      const learnNextKey = prev.learn?.nextKey ?? prev.learnNextKey ?? 1;
+      const learn = newMode === 'learn'
+        ? createLearnState(prev.cards.filter(word => !prev.sessionHistory.some(h => h.word.id === word.id)), studyAttempts, learnNextKey, prev.learn)
+        : prev.learn;
+      const question = newMode === 'learn' ? getLearnQuestion(learn) : null;
+      return {
+        ...prev,
+        mode: newMode,
+        currentIndex: question ? Math.max(0, prev.cards.findIndex(word => word.id === question.word.id))
+          : prev.sessionHistory.some(h => h.word.id === prev.cards[prev.currentIndex]?.id) ? Math.max(0, nextPending) : prev.currentIndex,
+        isCompleted: newMode === 'learn' ? !question : nextPending < 0,
+        clozeQuestions: questions,
+        learn,
+        learnNextKey: learn?.nextKey ?? learnNextKey,
+      };
+    });
 
     const modeLabels: Record<ReviewMode, { vi: string; en: string }> = {
+      learn: { vi: 'Học thông minh', en: 'Learn' },
       flashcards: { vi: 'Thẻ Flashcard', en: 'Flashcards' },
       cloze: { vi: 'Điền từ ngữ cảnh', en: 'Cloze Quiz' },
       listen: { vi: 'Chính tả phát âm', en: 'Listening Dictation' },
@@ -549,44 +608,106 @@ export function App() {
 
     showToast(
       language === 'vi'
-        ? `Đã chuyển chế độ: ${modeLabels[newMode]?.vi || newMode}`
-        : `Switched mode: ${modeLabels[newMode]?.en || newMode}`,
+        ? `Đã chuyển chế độ: ${modeLabels[newMode]?.vi || newMode}${skipped ? `. Đã bỏ qua ${skipped} từ chưa có nghĩa; hãy thêm nghĩa trong bộ từ.` : ''}`
+        : `Switched mode: ${modeLabels[newMode]?.en || newMode}${skipped ? `. Skipped ${skipped} words without definitions; add meanings in your deck.` : ''}`,
       'info'
     );
   };
 
   // Grade review item
-  const handleGradeReview = async (rating: ReviewRating) => {
+  const handleGradeReview = async (rating: ReviewRating, evidence?: AttemptEvidence) => {
+    if (reviewSubmitRef.current) return;
+    if (reviewState.mode === 'learn' && reviewState.learn) {
+      const result = advanceLearnQuestion(reviewState.learn, rating, evidence);
+      if (!result) return;
+      reviewSubmitRef.current = true;
+      const sessionHistory = result.schedule && !reviewState.sessionHistory.some(h => h.word.id === result.word.id)
+        ? [...reviewState.sessionHistory, { word: result.word, rating: result.rating }]
+        : reviewState.sessionHistory;
+      const question = getLearnQuestion(result.learn);
+      const nextState = { ...reviewState, learn: result.learn, learnNextKey: result.learn.nextKey, sessionHistory,
+        currentIndex: question ? Math.max(0, reviewState.cards.findIndex(word => word.id === question.word.id)) : reviewState.currentIndex,
+        isCompleted: !question };
+      try {
+        const submitted = await submitRating(result.word.id, result.rating, reviewState.sessionType || 'due', {
+          attempt: { ...result.evidence,
+            id: result.schedule ? `${reviewState.sessionId}:${result.word.id}` : `${reviewState.sessionId}:learn:${result.questionKey}`,
+            date: Date.now(), wordId: result.word.id, questionId: result.questionKey, mode: 'learn',
+            rating: result.rating, sessionType: reviewState.sessionType || 'due' },
+          checkpoint: nextState,
+          practice: !result.schedule,
+        });
+        if (!submitted) {
+          showToast(language === 'vi' ? 'Chưa lưu được kết quả. Hãy thử lại.' : 'Result was not saved. Please try again.', 'error');
+          return;
+        }
+        setReviewState(nextState);
+        if (nextState.isCompleted) showToast(language === 'vi' ? 'Đã hoàn thành lượt học thông minh!' : 'Learn round completed!');
+      } catch {
+        showToast(language === 'vi' ? 'Chưa lưu được kết quả. Hãy thử lại.' : 'Result was not saved. Please try again.', 'error');
+      } finally {
+        reviewSubmitRef.current = false;
+      }
+      return;
+    }
     const currentWord = reviewState.cards[reviewState.currentIndex];
     if (!currentWord) return;
-
-    await submitRating(currentWord.id, rating, reviewState.sessionType || 'due');
-
-    const nextIndex = reviewState.currentIndex + 1;
+    if (reviewState.sessionHistory.some(h => h.word.id === currentWord.id)) {
+      const pendingIndex = findNextUnreviewedCardIndex(reviewState);
+      setReviewState(prev => ({ ...prev, currentIndex: Math.max(0, pendingIndex), isCompleted: pendingIndex < 0 }));
+      return;
+    }
+    reviewSubmitRef.current = true;
     const newHistory = [...reviewState.sessionHistory, { word: currentWord, rating }];
+    const nextIndex = findNextUnreviewedCardIndex({ ...reviewState, sessionHistory: newHistory });
+    const nextState = { ...reviewState, currentIndex: nextIndex, sessionHistory: newHistory,
+      isCompleted: nextIndex < 0 };
+    try {
+      const submitted = await submitRating(currentWord.id, rating, reviewState.sessionType || 'due', {
+        attempt: { ...evidence, id: `${reviewState.sessionId}:${currentWord.id}`, date: Date.now(),
+          wordId: currentWord.id, mode: reviewState.mode, rating, sessionType: reviewState.sessionType || 'due' },
+        checkpoint: nextState,
+      });
+      if (!submitted) return;
+      setReviewState(nextState);
+      if (nextState.isCompleted) {
+        showToast(
+          reviewState.sessionType === 'cram'
+            ? (language === 'vi' ? 'Đã hoàn thành luyện thêm! Lịch ôn chính thức được giữ nguyên.' : 'Finished extra practice! Official schedule preserved.')
+            : (language === 'vi' ? 'Đã hoàn thành phiên ôn tập!' : 'Review session completed! Great job!')
+        );
+      }
+    } catch {
+      showToast(language === 'vi' ? 'Chưa lưu được kết quả. Hãy thử lại.' : 'Result was not saved. Please try again.', 'error');
+    } finally {
+      reviewSubmitRef.current = false;
+    }
+  };
 
-    if (nextIndex >= reviewState.cards.length) {
-      setReviewState((prev) => ({
-        ...prev,
-        sessionHistory: newHistory,
-        isCompleted: true,
-      }));
-      showToast(
-        reviewState.sessionType === 'cram'
-          ? (language === 'vi' ? 'Đã hoàn thành luyện thêm! Lịch ôn chính thức được giữ nguyên.' : 'Finished extra practice! Official schedule preserved.')
-          : (language === 'vi' ? 'Đã hoàn thành phiên ôn tập!' : 'Review session completed! Great job!')
-      );
-    } else {
-      setReviewState((prev) => ({
-        ...prev,
-        currentIndex: nextIndex,
-        sessionHistory: newHistory,
-      }));
+  const handleGradeMatch = async (wordId: string, rating: ReviewRating) => {
+    if (reviewSubmitRef.current) throw new Error('Review is being saved');
+    reviewSubmitRef.current = true;
+    try {
+      const word = reviewState.cards.find(w => w.id === wordId);
+      if (!word) throw new Error('Card no longer exists');
+      const sessionHistory = [...reviewState.sessionHistory, { word, rating }];
+      const nextState = { ...reviewState, sessionHistory,
+        isCompleted: reviewState.cards.every(w => sessionHistory.some(h => h.word.id === w.id)) };
+      const submitted = await submitRating(wordId, rating, reviewState.sessionType || 'due', {
+        attempt: { id: `${reviewState.sessionId}:${wordId}`, date: Date.now(), wordId,
+          mode: 'match', rating, firstAttemptCorrect: rating >= 3, sessionType: reviewState.sessionType || 'due' },
+        checkpoint: nextState,
+      });
+      if (!submitted) throw new Error('Result was not saved');
+      setReviewState(nextState);
+    } finally {
+      reviewSubmitRef.current = false;
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 transition-colors duration-200 dark:bg-[#0b0f19] dark:text-slate-100 flex flex-col font-sans">
+    <div className="lexipulse-app min-h-screen transition-colors duration-200 flex flex-col font-sans">
+      <GlassLighting />
       <PwaUpdateNotice busy={(reviewState.inProgress && !reviewState.isCompleted) || isImportExportOpen || isSettingsOpen || !!editingWord || isSearching} />
       {/* Toast notifications with live region */}
       <div
@@ -598,7 +719,8 @@ export function App() {
           <div
             key={t.id}
             role="status"
-            className={`pointer-events-auto flex items-center gap-2 rounded-xl px-4 py-3 text-xs font-semibold shadow-lg backdrop-blur-md animate-slide-up border ${
+            data-tone={t.type}
+            className={`app-toast pointer-events-auto flex items-center gap-2 rounded-xl px-4 py-3 text-xs font-semibold shadow-lg backdrop-blur-md animate-slide-up border ${
               t.type === 'success'
                 ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-900/20'
                 : t.type === 'error'
@@ -617,7 +739,6 @@ export function App() {
         activeTab={activeTab}
         onTabChange={(tab) => handleTabChange(tab)}
         streak={streak}
-        totalCards={allWords.length}
         dueCount={dueCards.length}
         theme={theme}
         onToggleTheme={toggleTheme}
@@ -626,7 +747,7 @@ export function App() {
       />
 
       {/* Main Content Area */}
-      <main className="relative flex-1 mx-auto w-full max-w-5xl px-4 sm:px-6 py-6 sm:py-8">
+      <main className="app-main relative flex-1 mx-auto w-full px-4 sm:px-6 py-6 sm:py-8">
         <Suspense fallback={
           <p role="status" className="py-12 text-center text-slate-500">
             {language === 'vi' ? 'Đang tải…' : 'Loading…'}
@@ -723,6 +844,7 @@ export function App() {
               }}
               onStartReviewSession={(mode, cards) => handleStartReviewSession(mode, cards)}
               onNavigateToLookup={() => handleTabChange('lookup')}
+              onNavigateToReview={() => handleTabChange('review')}
               showToast={showToast}
             />
           )}
@@ -730,6 +852,7 @@ export function App() {
           {/* TAB 3: REVIEW */}
           {displayedTab === 'review' && (
             <ReviewView
+              studyAttempts={studyAttempts}
               allWords={allWords}
               dueCards={dueCards}
               streak={streak}
@@ -741,7 +864,7 @@ export function App() {
               onStartReviewSession={handleStartReviewSession}
               onSwitchReviewMode={handleSwitchReviewMode}
               onGradeReview={handleGradeReview}
-              onGradeSingleWord={(wordId, rating) => submitRating(wordId, rating, reviewState.sessionType || 'due')}
+              onGradeSingleWord={handleGradeMatch}
               onGoToDeck={() => {
                 setReviewState((prev) => ({ ...prev, inProgress: false }));
                 handleTabChange('deck');
@@ -762,6 +885,7 @@ export function App() {
 
       {/* Global Modals - Lazy loaded with Suspense */}
       <Suspense fallback={null}>
+        <ModalPresence open={isSettingsOpen}>
         {isSettingsOpen && (
           <SettingsModal
             isOpen={isSettingsOpen}
@@ -773,14 +897,16 @@ export function App() {
             }}
           />
         )}
-
+        </ModalPresence>
+        <ModalPresence open={isShortcutsOpen}>
         {isShortcutsOpen && (
           <ShortcutsModal
             isOpen={isShortcutsOpen}
             onClose={() => setIsShortcutsOpen(false)}
           />
         )}
-
+        </ModalPresence>
+        <ModalPresence open={isImportExportOpen}>
         {isImportExportOpen && (
           <ImportExportModal
             isOpen={isImportExportOpen}
@@ -791,7 +917,7 @@ export function App() {
             availableDates={availableDates}
             activeFilterDate={filterOptions.createdDate}
             onStartReviewSession={handleStartReviewSession}
-            onImportComplete={(addedDate?: string) => {
+            onImportComplete={(addedDate, options) => {
               showToast(
                 language === 'vi'
                   ? 'Dữ liệu từ vựng đã được cập nhật thành công!'
@@ -805,11 +931,12 @@ export function App() {
                 }));
               }
               refresh();
-              setIsImportExportOpen(false);
+              if (!options?.keepOpen) setIsImportExportOpen(false);
             }}
           />
         )}
-
+        </ModalPresence>
+        <ModalPresence open={!!detailWord}>
         {detailWord && (
           <WordDetailModal
             word={detailWord}
@@ -841,7 +968,8 @@ export function App() {
             }}
           />
         )}
-
+        </ModalPresence>
+        <ModalPresence open={!!editingWord}>
         {editingWord && (
           <EditableWordModal
             isOpen={!!editingWord}
@@ -854,6 +982,7 @@ export function App() {
             }}
           />
         )}
+        </ModalPresence>
       </Suspense>
     </div>
   );

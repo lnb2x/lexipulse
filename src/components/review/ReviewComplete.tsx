@@ -10,6 +10,8 @@ interface ReviewCompleteProps {
   onRestart: () => void;
   onGoToDeck: () => void;
   history: Array<{ word: WordItem; rating: number }>;
+  difficultCount?: number;
+  onRetryDifficult?: () => void;
 }
 
 export const ReviewComplete: React.FC<ReviewCompleteProps> = ({
@@ -18,6 +20,8 @@ export const ReviewComplete: React.FC<ReviewCompleteProps> = ({
   onRestart,
   onGoToDeck,
   history,
+  difficultCount = 0,
+  onRetryDifficult,
 }) => {
   const { language, t } = useLanguage();
 
@@ -46,7 +50,7 @@ export const ReviewComplete: React.FC<ReviewCompleteProps> = ({
   const retentionRate = history.length > 0 ? Math.round((goodOrEasyCount / history.length) * 100) : 100;
 
   return (
-    <div className="w-full max-w-xl mx-auto text-center p-7 sm:p-8 card-elevated animate-slide-up">
+    <div className="review-exercise w-full max-w-xl mx-auto text-center p-7 sm:p-8 card-elevated animate-slide-up">
       <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm">
         <Award className="h-7 w-7" />
       </div>
@@ -131,6 +135,11 @@ export const ReviewComplete: React.FC<ReviewCompleteProps> = ({
 
       {/* Action Buttons */}
       <div className="mt-7 flex flex-col sm:flex-row items-center justify-center gap-3">
+        {difficultCount > 0 && onRetryDifficult && (
+          <button type="button" className="btn-primary" onClick={onRetryDifficult}>
+            {language === 'vi' ? `Luyện lại ${difficultCount} từ chưa nhớ` : `Practice ${difficultCount} difficult words`}
+          </button>
+        )}
         <button
           type="button"
           onClick={onRestart}

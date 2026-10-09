@@ -82,6 +82,10 @@ const server = http.createServer(async (req, res) => {
   const reqUrl = req.url || '';
   if (reqUrl.startsWith('/api/quizlet/fetch')) {
     await handleQuizletFetch(req, res);
+  } else if (reqUrl.startsWith('/api/quizlet/status')) {
+    await handleQuizletFetch(req, res, 'status');
+  } else if (reqUrl.startsWith('/api/quizlet/cancel')) {
+    await handleQuizletFetch(req, res, 'cancel');
   } else if (reqUrl.startsWith('/api/translate')) {
     await handleTranslate(req, res);
   } else if (reqUrl === '/api/health') {

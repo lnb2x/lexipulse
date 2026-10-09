@@ -44,7 +44,9 @@ export async function exportDeckToJson(
       return { words, settingsTable, dailyStats, quizletSets };
     });
     const includeSettings = options.includeSettings ?? true;
-    const settingsTable = includeSettings ? sanitizeBackupSettings(snapshot.settingsTable) : undefined;
+    // A session references live local cards; do not resume it after a restore.
+    const settingsTable = includeSettings ? sanitizeBackupSettings(snapshot.settingsTable.filter(row =>
+      !['studySession', 'toeicSession', 'lastBackupDownload'].includes(row.key))) : undefined;
     const storedSettings = settingsTable?.find(row => row.key === 'appSettings')?.value;
     const settings = includeSettings
       ? { ...DEFAULT_SETTINGS, ...(storedSettings as Partial<AppSettings> ?? {}), aiApiKey: '', geminiApiKey: '' }

@@ -245,4 +245,29 @@ describe('Quizlet Deck Reconciliation Tests', () => {
     expect(validItem?.status).toBe('new');
     expect(validItem?.selected).toBe(true);
   });
+
+  it('splits comma-separated Quizlet alternatives into separate words with their shared definition', () => {
+    const { items, summary } = reconcileQuizletWithDeck([
+      { term: 'go down, decrease, drop off', rawTerm: 'go down, decrease, drop off (phr.v)', definition: 'giảm xuống' },
+    ], []);
+
+    expect(items.map((item) => item.term)).toEqual(['go down', 'decrease', 'drop off']);
+    expect(items.map((item) => item.definition)).toEqual(['giảm xuống', 'giảm xuống', 'giảm xuống']);
+    expect(items.map((item) => item.rawTerm)).toEqual(Array(3).fill('go down, decrease, drop off (phr.v)'));
+    expect(items[2].extractedPos).toEqual(['verb']);
+    expect(summary.newCount).toBe(3);
+  });
+
+  it('keeps commas inside parentheses together and deduplicates split terms against the deck and batch', () => {
+    const { items, summary } = reconcileQuizletWithDeck([
+      { term: 'bank (n, v), decrease, , bank', definition: 'giảm' },
+      { term: 'decrease', definition: 'giảm' },
+    ], mockDeck);
+
+    expect(items.map((item) => item.term)).toEqual(['bank', 'decrease']);
+    expect(items[0].status).toBe('needs_review');
+    expect(items[0].extractedPos).toEqual(['noun', 'verb']);
+    expect(items[1].status).toBe('new');
+    expect(summary.duplicatesInBatch).toBe(2);
+  });
 });

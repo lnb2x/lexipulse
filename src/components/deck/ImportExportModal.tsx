@@ -11,11 +11,14 @@ import { useModalA11y } from '../../hooks/useModalA11y';
 import { QuizletImportView } from './QuizletImportView';
 import { BackupRestorePanel } from './BackupRestorePanel';
 import type { ReviewMode } from '../../types/vocab';
+import { markBackupDownloaded } from '../../services/studyProgress';
+import { GlassIconButton } from '../common/Glass';
+import { SlidingSelection } from '../common/SlidingSelection';
 
 interface ImportExportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onImportComplete: (dateAdded?: string) => void;
+  onImportComplete: (dateAdded?: string, options?: { keepOpen?: boolean }) => void;
   allWords?: WordItem[];
   filteredWords?: WordItem[];
   availableDates?: Array<{ date: string; count: number }>;
@@ -98,6 +101,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
     a.download = `lexipulse_deck${suffix}_${formatLocalDate()}.json`;
     a.click();
     URL.revokeObjectURL(url);
+    if (isAll) await markBackupDownloaded();
   };
 
   const handleDownloadXlsx = async () => {
@@ -208,16 +212,17 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 animate-fade-in">
+    <div className="app-dialog-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 animate-fade-in">
       <div
         ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="import-export-dialog-title"
-        className="relative w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 sm:p-7 shadow-xl dark:border-slate-800 dark:bg-[#111622]"
+        data-glass
+        className="app-dialog dialog-frame import-export-dialog relative w-full"
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 pb-4 dark:border-slate-800">
+        <div className="dialog-header flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400">
               <Layers className="h-5 w-5" />
@@ -231,20 +236,21 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
               </p>
             </div>
           </div>
-          <button
+          <GlassIconButton
             type="button"
             onClick={onClose}
             aria-label={language === 'vi' ? 'Đóng cửa sổ nhập xuất' : 'Close import export modal'}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-colors"
           >
             <X className="h-5 w-5" />
-          </button>
+          </GlassIconButton>
         </div>
 
         {/* Navigation Tabs */}
-        <div className="mt-4 flex rounded-xl border border-slate-200 bg-slate-100/80 p-1 dark:border-slate-800 dark:bg-slate-800/80">
+        <div className="dialog-scroll-body">
+        <SlidingSelection value={activeTab} className="import-export-tabs" role="group" aria-label={language === 'vi' ? 'Nhập, xuất và sao lưu' : 'Import, export and backup'}>
           <button
             type="button"
+            aria-pressed={activeTab === 'bulk'}
             onClick={() => {
               setActiveTab('bulk');
               setBulkSuccessMsg(null);
@@ -259,6 +265,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
           </button>
           <button
             type="button"
+            aria-pressed={activeTab === 'quizlet'}
             onClick={() => {
               setActiveTab('quizlet');
               setBulkSuccessMsg(null);
@@ -273,6 +280,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
           </button>
           <button
             type="button"
+            aria-pressed={activeTab === 'export'}
             onClick={() => {
               setActiveTab('export');
               setBulkSuccessMsg(null);
@@ -287,6 +295,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
           </button>
           <button
             type="button"
+            aria-pressed={activeTab === 'import'}
             onClick={() => {
               setActiveTab('import');
               setBulkSuccessMsg(null);
@@ -299,7 +308,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
           >
             {t.modals.backupTab}
           </button>
-        </div>
+        </SlidingSelection>
 
         {/* TAB 1: BULK ADD */}
         {activeTab === 'bulk' && (
@@ -446,7 +455,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
             <QuizletImportView
               allWords={allWords}
               onImportSuccess={() => {
-                onImportComplete();
+                onImportComplete(undefined, { keepOpen: true });
               }}
               onStartReviewSession={onStartReviewSession}
               onCloseModal={onClose}
@@ -568,7 +577,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
         )}
 
         {activeTab === 'import' && <BackupRestorePanel onComplete={() => onImportComplete()} />}
-
+        </div>
       </div>
     </div>
   );

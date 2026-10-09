@@ -28,3 +28,19 @@ it('manual retranslation bypasses a warm AI cache', async () => {
   const refreshed = await enrichWordWithAI('bank', 'noun', { ...config, forceReTranslate: true });
   expect(refreshed?.vietnameseDefinition).toBe('meaning 2');
 });
+
+it('preserves the intended learning sense while allowing a clearer Vietnamese equivalent', async () => {
+  let prompt = '';
+  vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body));
+    prompt = body.messages.find((message: { role: string }) => message.role === 'user').content;
+    return Response.json({ choices: [{ message: { content: JSON.stringify({ vietnameseDefinition: 'bờ sông' }) } }] });
+  });
+
+  const intendedMeaning = 'Phần đất ở hai bên một con sông';
+  const result = await enrichWordWithAI('bank', 'noun', config, undefined, intendedMeaning);
+  expect(prompt).toContain(`TARGET LEARNING SENSE: "${intendedMeaning}"`);
+  expect(prompt).toContain('Preserve its meaning, but rewrite it as concise, natural Vietnamese equivalents');
+  expect(prompt).not.toContain('MUST prioritize and match this exact intended meaning');
+  expect(result?.vietnameseDefinition).toBe('bờ sông');
+});

@@ -1,3 +1,5 @@
+import { isStudyAttempt } from '../studyProgress';
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -26,7 +28,8 @@ export function validateSupplementalTables(parsed: Record<string, unknown>): str
     dailyStats: row => validDate(row.date) && integer(row.cardsReviewed) &&
       (row.streak === undefined || integer(row.streak)) && (row.lastActiveDate === undefined || validDate(row.lastActiveDate)),
     settingsTable: row => typeof row.key === 'string' && !!row.key && 'value' in row &&
-      (row.key !== 'appSettings' || validSettings(row.value)),
+      (row.key !== 'appSettings' || validSettings(row.value)) &&
+      (row.key !== 'studyAttempts' || Array.isArray(row.value) && row.value.every(isStudyAttempt)),
   };
   for (const [name, check] of Object.entries(checks)) {
     if (parsed[name] === undefined) continue;
@@ -47,7 +50,7 @@ export function validateSupplementalTables(parsed: Record<string, unknown>): str
 /** Return a field path, never raw imported content or credentials. */
 export function validateBackupWord(item: unknown): string | undefined {
   if (!isRecord(item) || typeof item.word !== 'string' || !item.word.trim()) return 'word';
-  for (const key of ['id', 'vietnameseDefinition', 'englishDefinition', 'meaningVi', 'definition',
+  for (const key of ['id', 'vietnameseDefinition', 'usageNoteVi', 'englishDefinition', 'meaningVi', 'definition',
     'notes', 'lemma', 'originalInput', 'contextSentence', 'rawQuizletTerm', 'rawQuizletDefinition']) {
     if (item[key] !== undefined && typeof item[key] !== 'string') return key;
   }

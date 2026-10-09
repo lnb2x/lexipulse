@@ -264,6 +264,7 @@ async function scheduleBackgroundEnrichment(
       let richWordFamily = [...baseWord.wordFamily];
       let richExamples = [...baseWord.examples];
       let richVietnameseDef = baseWord.vietnameseDefinition;
+      let richUsageNoteVi = baseWord.usageNoteVi;
       let richUsIpa = baseWord.phonetics.us;
       let richUkIpa = baseWord.phonetics.uk;
       let tags = [...baseWord.tags];
@@ -312,6 +313,7 @@ async function scheduleBackgroundEnrichment(
             if (!richUkIpa && richUsIpa) richUkIpa = richUsIpa;
             if (!isDefinitionProtected && aiData.vietnameseDefinition && !isPlaceholderDefinition(aiData.vietnameseDefinition)) {
               richVietnameseDef = aiData.vietnameseDefinition;
+              richUsageNoteVi = aiData.usageNoteVi?.trim() || undefined;
             }
             if (aiData.collocations?.length) richCollocations = aiData.collocations;
             if (aiData.wordFamily?.length) richWordFamily = aiData.wordFamily;
@@ -338,6 +340,7 @@ async function scheduleBackgroundEnrichment(
           uk: richUkIpa || baseWord.phonetics.uk,
         },
         vietnameseDefinition: richVietnameseDef,
+        usageNoteVi: richUsageNoteVi,
         collocations: richCollocations,
         wordFamily: richWordFamily,
         examples: richExamples,

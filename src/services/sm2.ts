@@ -46,7 +46,13 @@ export function calculateNextReview(
 /**
  * Format interval in days into human-friendly text (e.g. "1d", "3d", "2w", "1mo")
  */
-export function formatInterval(days: number): string {
+export function formatInterval(days: number, language: 'en' | 'vi' = 'en'): string {
+  if (language === 'vi') {
+    if (days <= 0) return 'hôm nay';
+    if (days < 7) return `${days} ngày`;
+    if (days < 30) return `${Math.round(days / 7)} tuần`;
+    return `${Math.round(days / 30)} tháng`;
+  }
   if (days <= 0) return 'Today';
   if (days === 1) return '1 day';
   if (days < 7) return `${days} days`;
@@ -61,9 +67,16 @@ export function formatInterval(days: number): string {
 /**
  * Format relative due time (e.g. "Due today", "Due in 2 days", "Overdue by 1 day")
  */
-export function formatDueText(dueDate: number, now: number = Date.now()): { text: string; isOverdue: boolean } {
+export function formatDueText(dueDate: number, now: number = Date.now(), language: 'en' | 'vi' = 'en'): { text: string; isOverdue: boolean } {
   const diffMs = dueDate - now;
   const diffDays = Math.round(diffMs / MS_PER_DAY);
+
+  if (language === 'vi') {
+    if (diffDays < 0) return { text: `Quá hạn ${Math.abs(diffDays)} ngày`, isOverdue: true };
+    if (diffDays === 0) return { text: 'Đến hạn hôm nay', isOverdue: true };
+    if (diffDays === 1) return { text: 'Đến hạn ngày mai', isOverdue: false };
+    return { text: `Còn ${diffDays} ngày`, isOverdue: false };
+  }
 
   if (diffDays < 0) {
     const abs = Math.abs(diffDays);

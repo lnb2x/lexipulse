@@ -38,6 +38,7 @@ describe('Unified Enrichment Pipeline', () => {
     // Mock AI returning a high quality translation
     vi.spyOn(aiModule, 'enrichWordWithAI').mockResolvedValueOnce({
       vietnameseDefinition: 'Đi (dạng quá khứ của go)',
+      usageNoteVi: 'Dùng went cho hành động đi trong quá khứ.',
       lemma: 'go',
       formLabels: ['Quá khứ đơn (V2)'],
       collocations: [{ phrase: 'went home', meaningVi: 'đã về nhà' }],
@@ -73,6 +74,7 @@ describe('Unified Enrichment Pipeline', () => {
     // AI definition MUST NOT be overwritten by dictionary
     expect(res.sourceVi).toBe('ai');
     expect(res.word.vietnameseDefinition).toBe('Đi (dạng quá khứ của go)');
+    expect(res.word.usageNoteVi).toBe('Dùng went cho hành động đi trong quá khứ.');
     // But dictionary phonetics should be merged if present
     expect(res.word.phonetics.us).toBe('/ɡoʊ/');
   });

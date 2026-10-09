@@ -58,6 +58,25 @@ export function areDefinitionsCompatible(defA: string, defB: string): boolean {
   return false;
 }
 
+/** Split alternative terms while keeping commas inside POS/other parentheses intact. */
+function splitCommaSeparatedTerms(term: string): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  let depth = 0;
+  for (let index = 0; index < term.length; index++) {
+    if (term[index] === '(') depth++;
+    else if (term[index] === ')') depth = Math.max(0, depth - 1);
+    else if (term[index] === ',' && depth === 0) {
+      const part = term.slice(start, index).trim();
+      if (part) parts.push(part);
+      start = index + 1;
+    }
+  }
+  const last = term.slice(start).trim();
+  if (last) parts.push(last);
+  return parts.length > 0 ? parts : [term];
+}
+
 /**
  * Reconciles Quizlet cards with the existing deck in LexiPulse:
  * - Normalizes term/POS/IPA using normalizeQuizletCard
@@ -83,8 +102,13 @@ export function reconcileQuizletWithDeck(
   let duplicatesInBatch = 0;
   let invalidCount = 0;
 
-  for (const card of quizletCards) {
-    const rawCardTerm = card.rawTerm || card.term || '';
+  const expandedCards = quizletCards.flatMap((card) => {
+    const sourceTerm = card.rawTerm || card.term || '';
+    const terms = card.isValid === false ? [sourceTerm] : splitCommaSeparatedTerms(sourceTerm);
+    return terms.map((term) => ({ card, term, sourceTerm }));
+  });
+
+  for (const { card, term: rawCardTerm, sourceTerm } of expandedCards) {
     const rawCardDef = card.definition || '';
     if (!rawCardTerm.trim() && !rawCardDef.trim()) continue;
 
@@ -113,7 +137,7 @@ export function reconcileQuizletWithDeck(
       invalidCount++;
       items.push({
         term: rawCardTerm,
-        rawTerm: norm.rawWord || rawCardTerm,
+        rawTerm: sourceTerm,
         normalizedTerm: '',
         definition: norm.definition,
         rawDefinition: norm.rawDefinition,
@@ -132,7 +156,7 @@ export function reconcileQuizletWithDeck(
       invalidCount++;
       items.push({
         term: cleanTerm,
-        rawTerm: norm.rawWord || rawCardTerm,
+        rawTerm: sourceTerm,
         normalizedTerm: '',
         definition: norm.definition,
         rawDefinition: norm.rawDefinition,
@@ -168,7 +192,7 @@ export function reconcileQuizletWithDeck(
         selected: true, // Selected by default for easy import
         extractedPos: norm.pos.length > 0 ? norm.pos : undefined,
         extractedIpa: norm.extractedIpa || undefined,
-        rawTerm: norm.rawWord,
+        rawTerm: sourceTerm,
         rawDefinition: norm.rawDefinition,
       });
     } else {
@@ -187,7 +211,7 @@ export function reconcileQuizletWithDeck(
           selected: false,
           extractedPos: norm.pos.length > 0 ? norm.pos : existing.pos,
           extractedIpa: norm.extractedIpa || existing.phonetics?.us,
-          rawTerm: norm.rawWord,
+          rawTerm: sourceTerm,
           rawDefinition: norm.rawDefinition,
           existingWord: existing,
           existingDefinition: existingDef,
@@ -203,7 +227,7 @@ export function reconcileQuizletWithDeck(
           selected: false,
           extractedPos: norm.pos.length > 0 ? norm.pos : existing.pos,
           extractedIpa: norm.extractedIpa || existing.phonetics?.us,
-          rawTerm: norm.rawWord,
+          rawTerm: sourceTerm,
           rawDefinition: norm.rawDefinition,
           existingWord: existing,
           existingDefinition: existingDef,

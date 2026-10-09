@@ -84,6 +84,88 @@ describe('Review Idempotency & Rapid Input Protection Regression Suite', () => {
     cleanup();
   });
 
+  async function startNavigationSession(sessionType: 'due' | 'cram' = 'due') {
+    const dueDate = Date.now() + (sessionType === 'due' ? -10000 : 60000);
+    const cards = Array.from({ length: 13 }, (_, index): WordItem => ({
+      ...seedDueCard,
+      id: `navigation-${String(index).padStart(2, '0')}`,
+      word: `navigation${index}`,
+      reviewMeta: {
+        ...seedDueCard.reviewMeta,
+        dueDate: dueDate + index,
+        fsrs: { ...seedDueCard.reviewMeta.fsrs!, due: dueDate + index },
+      },
+    }));
+    await db.words.bulkPut(cards);
+    render(<LanguageProvider><App /></LanguageProvider>);
+    fireEvent.click(document.getElementById('tab-desktop-review')!);
+    fireEvent.click(await screen.findByRole('button', { name: /^Thẻ ghi nhớ|^Flashcards/ }, { timeout: 5000 }));
+    fireEvent.click(await screen.findByRole('radio', { name: 'Tất cả' }));
+    fireEvent.click(await screen.findByRole('button', {
+      name: sessionType === 'due' ? 'Ôn tập 13 thẻ đến hạn hôm nay' : 'Luyện thêm 13 thẻ',
+    }));
+    await screen.findByRole('heading', { name: 'navigation0' });
+    for (let index = 1; index <= 10; index++) {
+      fireEvent.click(screen.getByTitle('Thẻ tiếp theo (phím →)'));
+      await screen.findByRole('heading', { name: `navigation${index}` });
+    }
+    expect(screen.getByText('Thẻ 11 / 13')).toBeDefined();
+  }
+
+  async function gradeNavigationCard(title: string) {
+    fireEvent.click(screen.getByRole('heading', { name: /^navigation\d+$/ }));
+    const button = await screen.findByTitle(title) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+  }
+
+  it.each([
+    ['Again', 1], ['Hard', 2], ['Good', 3], ['Easy', 4],
+  ] as const)('grading %s after seeking to card 11 advances to card 12 and saves that position', async (title, rating) => {
+    await startNavigationSession();
+    await gradeNavigationCard(title);
+
+    await screen.findByText('Thẻ 12 / 13');
+    expect(screen.getByRole('heading', { name: 'navigation11' })).toBeDefined();
+    expect((await db.words.get('navigation-10'))?.reviewMeta.history).toHaveLength(1);
+    expect((await db.words.get('navigation-10'))?.reviewMeta.history[0].rating).toBe(rating);
+    expect((await db.words.get('navigation-00'))?.reviewMeta.history).toHaveLength(0);
+    expect((await getTodayStats()).cardsReviewed).toBe(1);
+    await waitFor(async () => {
+      expect((await db.settingsTable.get('studySession'))?.value).toMatchObject({ currentIndex: 11, isCompleted: false });
+    });
+
+    // Revisiting a graded card must advance from that position without grading it twice.
+    fireEvent.click(screen.getByTitle('Thẻ trước (phím ←)'));
+    await screen.findByText('Thẻ 11 / 13');
+    await gradeNavigationCard(title);
+    await screen.findByText('Thẻ 12 / 13');
+    expect((await db.words.get('navigation-10'))?.reviewMeta.history).toHaveLength(1);
+    expect((await getTodayStats()).cardsReviewed).toBe(1);
+
+    // Earlier skipped cards are revisited only after the end of the queue.
+    for (const nextPosition of ['Thẻ 13 / 13', 'Thẻ 1 / 13']) {
+      await gradeNavigationCard(title);
+      await screen.findByText(nextPosition);
+    }
+    expect(screen.getByRole('heading', { name: 'navigation0' })).toBeDefined();
+    expect((await getTodayStats()).cardsReviewed).toBe(3);
+  });
+
+  it('keyboard rating after seeking advances in extra practice without changing the SRS schedule', async () => {
+    await startNavigationSession('cram');
+    const before = (await db.words.get('navigation-10'))!.reviewMeta;
+    await act(async () => { fireEvent.keyDown(window, { code: 'Space', key: ' ' }); });
+    await act(async () => { fireEvent.keyDown(window, { key: '3' }); });
+
+    await screen.findByText('Thẻ 12 / 13');
+    expect((await db.words.get('navigation-10'))!.reviewMeta).toEqual(before);
+    expect((await getTodayStats()).cardsReviewed).toBe(0);
+    const attempts = (await db.settingsTable.get('studyAttempts'))?.value;
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]).toMatchObject({ wordId: 'navigation-10', rating: 3, sessionType: 'cram' });
+  });
+
   it('1. Exactly one due card: double click + keyboard shortcut "3" updates FSRS once, adds 1 history entry, increments cardsReviewed once, and advances session', async () => {
     await db.words.put({ ...seedDueCard });
     await saveAppSettings({ desiredRetention: 0.9 });
@@ -104,9 +186,8 @@ describe('Review Idempotency & Rapid Input Protection Regression Suite', () => {
     });
 
     await waitFor(() => expect(document.getElementById('panel-review')).not.toBeNull());
-    const panel = document.getElementById('panel-review')!;
-    const buttons = panel.querySelectorAll('button');
-    const startBtn = buttons[0];
+    fireEvent.click(await screen.findByRole('button', { name: /^Thẻ ghi nhớ|^Flashcards/ }));
+    const startBtn = screen.getByRole('button', { name: /Ôn tập .* thẻ đến hạn hôm nay|Review .* Cards Due Today/i });
     act(() => {
       fireEvent.click(startBtn);
     });
@@ -188,9 +269,8 @@ describe('Review Idempotency & Rapid Input Protection Regression Suite', () => {
     });
 
     await waitFor(() => expect(document.getElementById('panel-review')).not.toBeNull());
-    const panel = document.getElementById('panel-review')!;
-    const buttons = panel.querySelectorAll('button');
-    const startBtn = buttons[0];
+    fireEvent.click(await screen.findByRole('button', { name: /^Thẻ ghi nhớ|^Flashcards/ }));
+    const startBtn = screen.getByRole('button', { name: /Ôn tập .* thẻ đến hạn hôm nay|Review .* Cards Due Today/i });
     act(() => {
       fireEvent.click(startBtn);
     });
@@ -230,6 +310,7 @@ describe('Review Idempotency & Rapid Input Protection Regression Suite', () => {
     expect(stats.cardsReviewed).toBe(1);
 
     // Review session cleanly advanced to Card 2
+    const panel = document.getElementById('panel-review')!;
     expect(panel.textContent).toContain('Thẻ 2 / 2');
     expect(panel.textContent).toContain('perseverance');
   });
@@ -265,14 +346,13 @@ describe('Review Idempotency & Rapid Input Protection Regression Suite', () => {
     });
 
     // Select Cloze Quiz mode
-    const clozeModeCard = screen.getByText(/điền từ ngữ cảnh|quiz/i);
+    const clozeModeCard = screen.getByRole('button', { name: /điền từ ngữ cảnh|quiz/i });
     act(() => {
       fireEvent.click(clozeModeCard);
     });
 
     await waitFor(() => expect(document.getElementById('panel-review')).not.toBeNull());
-    const panel = document.getElementById('panel-review')!;
-    const startBtn = panel.querySelector('button.bg-indigo-600') as HTMLButtonElement;
+    const startBtn = screen.getByRole('button', { name: /Ôn tập .* thẻ đến hạn hôm nay|Review .* Cards Due Today/i });
     act(() => {
       fireEvent.click(startBtn);
     });

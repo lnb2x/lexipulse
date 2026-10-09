@@ -55,6 +55,7 @@ const POS_MAP: Record<string, string> = {
   'phr v': 'verb',
   'phr. v.': 'verb',
   'phr. v': 'verb',
+  'phr.v': 'verb',
   np: 'phrase',
   'np.': 'phrase',
   'noun phrase': 'phrase',

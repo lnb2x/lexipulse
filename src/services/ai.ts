@@ -1,6 +1,7 @@
 import { fetchWithTimeout as fetchWithTimeoutAI } from './dictionary/circuitBreaker';
 import type { AIProvider, CollocationItem, ExampleItem, WordFamilyItem, InflectionItem } from '../types/vocab';
 import { getCachedAIEnrichment, setCachedAIEnrichment } from './ai/aiCache';
+import { normalizeVietnameseDefinition } from '../utils/definitionUtils';
 import {
   analyzeWordMorphologyWithAI,
   type AIMorphologyResult,
@@ -146,6 +147,7 @@ export interface AIEnrichmentResult {
   ipaUs?: string;
   ipaUk?: string;
   vietnameseDefinition: string;
+  usageNoteVi?: string;
   collocations: CollocationItem[];
   wordFamily: WordFamilyItem[];
   examples: ExampleItem[];
@@ -256,10 +258,13 @@ export function validateAndNormalizeAIResponse(data: unknown, queriedWord?: stri
   const obj = data as Record<string, unknown>;
 
   // Vietnamese definition is mandatory
-  const rawVi = typeof obj.vietnameseDefinition === 'string' ? obj.vietnameseDefinition.trim() : '';
+  const rawVi = typeof obj.vietnameseDefinition === 'string' ? normalizeVietnameseDefinition(obj.vietnameseDefinition) : '';
   if (!rawVi) {
     return null;
   }
+  const usageNoteVi = typeof obj.usageNoteVi === 'string' && obj.usageNoteVi.trim()
+    ? obj.usageNoteVi.trim()
+    : undefined;
 
   // IPA pronunciations
   const ipaUs = typeof obj.ipaUs === 'string' && obj.ipaUs.trim() ? obj.ipaUs.trim() : undefined;
@@ -381,6 +386,7 @@ export function validateAndNormalizeAIResponse(data: unknown, queriedWord?: stri
     ipaUs,
     ipaUk,
     vietnameseDefinition: rawVi,
+    usageNoteVi,
     collocations,
     wordFamily,
     examples,
@@ -593,7 +599,9 @@ export async function enrichWordWithAI(
     ? `\nTARGET LEARNING SENSE: "${userMeaning.trim()}".
 CRITICAL SENSE REQUIREMENT:
 - The user is specifically learning this vocabulary item with the meaning: "${userMeaning.trim()}".
-- The "vietnameseDefinition" MUST prioritize and match this exact intended meaning. Do not replace it with an unrelated alternate sense.
+- The "vietnameseDefinition" MUST prioritize this intended sense. Preserve its meaning, but rewrite it as concise, natural Vietnamese equivalents rather than copying the supplied wording or explanation.
+- Do not replace it with an unrelated alternate sense.
+- If the supplied meaning includes multiple distinct senses, retain all of them as short equivalents; do not drop a sense just to shorten the text.
 - Collocations and examples should reflect this intended sense.\n`
     : '';
 
@@ -601,14 +609,25 @@ CRITICAL SENSE REQUIREMENT:
     ? `\nSentence context: "${contextSentence.trim()}".
 CRITICAL CONTEXT REQUIREMENT:
 - Determine the specific meaning and inflection form of "${word}" in this sentence.
-- The "vietnameseDefinition" MUST prioritize the meaning fitting this sentence context.
+- The "vietnameseDefinition" MUST give concise, natural Vietnamese equivalents for the meaning fitting this sentence context.
 - The first example in "examples" MUST be this exact sentence, with its precise Vietnamese translation preserving tense and tone.\n`
     : `\nCRITICAL REQUIREMENT:
-- If "${word}" is polysemous (e.g. pool, plant, board, address), clearly number and explain its primary meanings (1. [Nghĩa 1]; 2. [Nghĩa 2]). Do not falsely claim only a single meaning exists.\n`;
+- If "${word}" is polysemous (e.g. pool, plant, board, address), clearly number its primary meanings as concise Vietnamese equivalents (1. [Nghĩa 1]; 2. [Nghĩa 2]). Do not falsely claim only a single meaning exists.\n`;
 
   const prompt = `You are an expert English linguist and TOEIC/IELTS instructor. Analyze the English word or phrase "${word}" (primary part of speech: ${pos}).
 ${meaningPrompt}
 ${contextPrompt}
+CRITICAL VIETNAMESE MEANING REQUIREMENT:
+- "vietnameseDefinition" must begin with direct, natural Vietnamese equivalents that a learner can understand and memorize immediately.
+- Keep each meaning concise. Include a short sense qualifier only when needed for clarity; preserve distinct numbered senses when there are multiple common meanings.
+- Aim for at most 30 Vietnamese words in total, using short equivalents. Omit part-of-speech headings such as "Danh từ:" and "Động từ:". Never append "ví dụ:" or "e.g." to a meaning.
+- Example: "promise" -> "lời hứa; hứa, cam kết; tiềm năng, triển vọng". Its example sentences belong only in "examples".
+- Do not put grammar explanations, general descriptions such as "Cụm từ dùng để...", English example sentences, or their translations in "vietnameseDefinition".
+- Put any necessary grammar or usage explanation in "usageNoteVi", as a short, accurate Vietnamese note. Return an empty string when no note is needed.
+- Put full bilingual sentences only in "examples". Translate examples naturally and preserve the word or phrase's specific meaning, tense, and tone.
+- Example: "as soon as" -> "vietnameseDefinition": "ngay khi; vừa … thì …". It introduces a time clause, not a conditional clause; that distinction belongs in "usageNoteVi".
+- Translate "as soon as possible" as "sớm nhất có thể". Avoid adding unsupported grammar claims.
+
 CRITICAL MORPHOLOGY REQUIREMENT:
 - Determine the canonical dictionary lemma of "${word}".
 - Do NOT perform naive stemming. Do NOT simply delete suffixes such as "-ing", "-ed", "-s", "-es", "-er", "-est".
@@ -635,7 +654,8 @@ Respond ONLY with a valid JSON object matching this exact TypeScript structure:
   ],
   "ipaUs": "Standard US IPA pronunciation enclosed in slashes (e.g. '/wɛnt/' or '/ɡoʊ/')",
   "ipaUk": "Standard UK IPA pronunciation enclosed in slashes",
-  "vietnameseDefinition": "Comprehensive, precise Vietnamese definition. If context was provided, highlight the contextual meaning first.",
+  "vietnameseDefinition": "Concise, direct Vietnamese equivalents; number distinct common senses when needed. Prioritize the contextual or intended learning sense when provided.",
+  "usageNoteVi": "Short Vietnamese grammar or usage note, separate from the meaning; empty string if unnecessary.",
   "collocations": [
     {"phrase": "common collocation 1", "meaningVi": "nghĩa tiếng Việt 1"},
     {"phrase": "workplace/TOEIC collocation 2", "meaningVi": "nghĩa tiếng Việt 2"}

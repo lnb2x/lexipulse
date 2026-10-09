@@ -24,7 +24,9 @@ Quizlet page resources are restricted to HTTPS on quizlet.com, www.quizlet.com, 
 
 Extraction rejects more than 10,000 cards, text fields over 20,000 characters, or embedded JSON above 8 MiB of characters. Limits return resource_limit without partial terms; 1,000-card extraction is covered with a local fixture. These limits do not limit the size of the local deck or alter saved cards.
 
-The Quizlet client deadline also covers backend response bodies, so an incomplete JSON download exits to the timeout state instead of leaving the import spinner running.
+Local desktop imports use asynchronous jobs with a 150-second deadline and a 165-second client deadline. At most two jobs remain active, including cancellation cleanup. Windows/macOS loopback requests can open installed Chrome/Edge normally with a separate persistent profile and an ephemeral loopback CDP port for reading cards; the user completes login or verification in the visible window. The port and browser close on completion or cancellation. Native browser TLS and profile cookies stay in Chromium through a loopback CONNECT proxy that allowlists the Quizlet hosts above plus challenges.cloudflare.com, pins public DNS addresses, and bounds tunnels (150) and total encrypted traffic (32 MiB). WebSockets are blocked; the headless fallback also blocks service workers and downloads. Extracted payloads are limited to 8 MiB, 10,000 cards and 20,000 characters per side. This local path differs from the headless server transport described above. Successful results are cached for 15 minutes, with at most 32 sets per process.
+
+The Quizlet client deadline also covers backend response bodies, so an incomplete JSON download exits to the timeout state instead of leaving the import spinner running. Changing the URL, canceling or closing the dialog releases its asynchronous job.
 
 Busy, timeout, blocked-source and size-limit responses have Vietnamese/English explanations and a visible paste-import fallback. Technical diagnostics use status/code rather than dumping those backend responses.
 

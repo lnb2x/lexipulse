@@ -5,6 +5,7 @@ import { saveOrUpdateWord, deleteWord as repoDeleteWord } from '../services/voca
 import type { FilterOptions, WordItem } from '../types/vocab';
 import { formatLocalDate } from '../utils/dateUtils';
 import { findFuzzyMatches } from '../utils/fuzzySearch';
+import { withCleanDefinitions } from '../services/definitionCleanup';
 
 const EMPTY_WORDS: WordItem[] = [];
 
@@ -27,7 +28,7 @@ export function useVocabulary() {
   const queriedWords = useLiveQuery(async () => {
     return await db.words.toArray();
   }, []);
-  const allWords = queriedWords ?? EMPTY_WORDS;
+  const allWords = useMemo(() => queriedWords?.map(withCleanDefinitions) ?? EMPTY_WORDS, [queriedWords]);
 
   // Memoized Set for instant O(1) deck membership checks (including lemmas & variants)
   const deckWordSet = useMemo(() => {

@@ -1,7 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpen, Lightbulb, Loader2, Search, X } from 'lucide-react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ArrowRight, BarChart3, BookOpen, List, Lightbulb, Loader2, Search, ShieldCheck, X } from 'lucide-react';
 import { ContributionHeatmap } from '../../components/deck/ContributionHeatmap';
+import { SlidingSelection } from '../../components/common/SlidingSelection';
+import { GlassButton } from '../../components/common/Glass';
+import { ModalPresence } from '../../components/common/ModalPresence';
 import { DeckHeader } from '../../components/deck/DeckHeader';
+import { DeckActions } from '../../components/deck/DeckActions';
+import { WeeklyActivity } from '../../components/deck/WeeklyActivity';
 import { DeckStats } from '../../components/deck/DeckStats';
 import { WordListItem } from '../../components/deck/WordListItem';
 import { TranslationAuditModal } from '../../components/deck/TranslationAuditModal';
@@ -34,6 +39,7 @@ export interface DeckViewProps {
   onQuickExportXlsx: () => void;
   onStartReviewSession: (mode: ReviewMode, cards: WordItem[]) => void;
   onNavigateToLookup: () => void;
+  onNavigateToReview?: () => void;
   showToast: (message: string, type?: 'success' | 'info' | 'error') => void;
 }
 
@@ -56,10 +62,25 @@ export const DeckView: React.FC<DeckViewProps> = ({
   onQuickExportXlsx,
   onStartReviewSession,
   onNavigateToLookup,
+  onNavigateToReview,
   showToast,
 }) => {
   const { language, t } = useLanguage();
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState<'list' | 'stats'>('list');
+  const sectionTabsRef = useRef<HTMLDivElement>(null);
+  const shouldScrollSection = useRef(false);
+  const selectSection = (section: 'list' | 'stats') => {
+    if (section === activeSection) return;
+    shouldScrollSection.current = true;
+    setActiveSection(section);
+  };
+  useLayoutEffect(() => {
+    if (!shouldScrollSection.current) return;
+    shouldScrollSection.current = false;
+    document.getElementById(`deck-tab-${activeSection}`)?.focus({ preventScroll: true });
+    sectionTabsRef.current?.parentElement?.scrollIntoView?.({ block: 'start', behavior: 'instant' });
+  }, [activeSection]);
 
   // Progressive rendering for instantaneous mount & silky smooth 60fps transitions
   const INITIAL_BATCH = 30;
@@ -103,7 +124,7 @@ export const DeckView: React.FC<DeckViewProps> = ({
     return () => {
       if (el) observer.unobserve(el);
     };
-  }, [visibleCount, words.length]);
+  }, [visibleCount, words.length, activeSection]);
 
   const visibleWords = useMemo(() => {
     return words.slice(0, visibleCount);
@@ -130,6 +151,8 @@ export const DeckView: React.FC<DeckViewProps> = ({
 
   const handleFilterDate = useCallback(
     (date: string) => {
+      shouldScrollSection.current = true;
+      setActiveSection('list');
       setFilterOptions((prev) => ({
         ...prev,
         createdDate: prev.createdDate === date ? undefined : date,
@@ -145,20 +168,39 @@ export const DeckView: React.FC<DeckViewProps> = ({
   );
 
   return (
-    <div className="space-y-6">
-      {/* Quick Metrics */}
+    <div className="deck-workspace">
+      <div className="study-page-heading">
+        <div>
+          <div className="study-title-line"><h1>{language === 'vi' ? 'Bộ từ vựng' : 'Your vocabulary'}</h1></div>
+          <p>{language === 'vi' ? 'Tìm từ, nghe phát âm và theo dõi lịch ôn.' : 'Find words, hear pronunciation and keep track of reviews.'}</p>
+        </div>
+        <DeckActions
+          onOpenImportExport={onOpenImportExport}
+          onAddNewWord={onNavigateToLookup}
+          onQuickExportCsv={onQuickExportCsv}
+          onQuickExportXlsx={onQuickExportXlsx}
+          onOpenTranslationAudit={() => setIsAuditModalOpen(true)}
+        />
+      </div>
       <DeckStats stats={deckStats} />
-
-      {/* GitHub-style Contribution Heatmap */}
-      <ContributionHeatmap
-        words={allWords}
-        dailyStats={dailyStats}
-        onReviewDateWords={handleReviewDateWords}
-        onFilterDate={handleFilterDate}
-      />
-
-      {/* Deck Filters & Search */}
+      <div className="deck-section-navigation" ref={sectionTabsRef}>
+        <SlidingSelection value={activeSection} role="tablist" aria-label={language === 'vi' ? 'Nội dung bộ từ' : 'Deck sections'} className="workspace-tabs" onKeyDown={event => {
+          if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+          const next = event.key === 'Home' ? 'list' : event.key === 'End' ? 'stats' : ['ArrowLeft', 'ArrowRight'].includes(event.key) ? (activeSection === 'list' ? 'stats' : 'list') : null;
+          if (!next) return;
+          event.preventDefault();
+          selectSection(next);
+          document.getElementById(`deck-tab-${next}`)?.focus();
+        }}>
+          <button type="button" role="tab" id="deck-tab-list" aria-controls="deck-panel-list" aria-selected={activeSection === 'list'} tabIndex={activeSection === 'list' ? 0 : -1} onClick={() => selectSection('list')}><List size={17} />{language === 'vi' ? 'Danh sách từ' : 'Word list'}</button>
+          <button type="button" role="tab" id="deck-tab-stats" aria-controls="deck-panel-stats" aria-selected={activeSection === 'stats'} tabIndex={activeSection === 'stats' ? 0 : -1} onClick={() => selectSection('stats')}><BarChart3 size={17} />{language === 'vi' ? 'Thống kê' : 'Statistics'}</button>
+        </SlidingSelection>
+        {onNavigateToReview && <GlassButton className="deck-review-link" onClick={onNavigateToReview}>{language === 'vi' ? 'Ôn tập ngay' : 'Review now'}<ArrowRight size={16} /></GlassButton>}
+      </div>
+      <section role="tabpanel" id="deck-panel-list" aria-labelledby="deck-tab-list" hidden={activeSection !== 'list'} tabIndex={0}>
+      {activeSection === 'list' && <div className="study-panel deck-list-panel">
       <DeckHeader
+        showActions={false}
         filterOptions={filterOptions}
         onFilterChange={setFilterOptions}
         allTags={allTags}
@@ -210,22 +252,25 @@ export const DeckView: React.FC<DeckViewProps> = ({
         <div className="rounded-2xl border-2 border-dashed border-slate-200 p-12 text-center dark:border-slate-800 bg-white/40 dark:bg-slate-900/20">
           <BookOpen className="mx-auto h-9 w-9 text-slate-300 dark:text-slate-600" />
           <h3 className="mt-3 font-display text-base font-bold text-slate-800 dark:text-slate-200">
-            {t.deck.emptyDeckTitle}
+            {allWords.length === 0 ? t.deck.emptyDeckTitle : t.deck.noFilterMatchesTitle}
           </h3>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-            {t.deck.emptyDeckDesc}
+            {allWords.length === 0 ? t.deck.emptyDeckDesc : t.deck.noFilterMatchesDesc}
           </p>
           <button
             type="button"
-            onClick={onNavigateToLookup}
+            onClick={allWords.length === 0 ? onNavigateToLookup : () => setFilterOptions(prev => ({
+              ...prev, search: '', tags: [], status: 'all', createdDate: undefined,
+            }))}
             className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-500 active:scale-[0.99] transition-all"
           >
-            <Search className="h-3.5 w-3.5" />
-            <span>{t.deck.exploreLookupBtn}</span>
+            {allWords.length === 0 ? <Search className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
+            <span>{allWords.length === 0 ? t.deck.exploreLookupBtn : t.deck.clearFilters}</span>
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-2.5">
+        <div className="deck-word-list">
+          <div className="deck-list-labels" aria-hidden="true"><span>{language === 'vi' ? 'Từ vựng' : 'Word'}</span><span>{language === 'vi' ? 'Ý nghĩa' : 'Meaning'}</span><span>{language === 'vi' ? 'Lịch ôn' : 'Review'}</span><span /></div>
           {visibleWords.map((word: WordItem) => (
             <WordListItem
               key={word.id}
@@ -262,8 +307,22 @@ export const DeckView: React.FC<DeckViewProps> = ({
         </div>
       )}
 
+      {words.length > 0 && <div className="deck-list-footer">{language === 'vi' ? `${words.length} từ khớp bộ lọc · Chọn một từ để xem chi tiết` : `${words.length} matching words · Select a word for details`}</div>}
+      </div>}
+      </section>
+      <section role="tabpanel" id="deck-panel-stats" aria-labelledby="deck-tab-stats" hidden={activeSection !== 'stats'} tabIndex={0}>
+        {activeSection === 'stats' && <div className="deck-statistics-grid">
+          <ContributionHeatmap words={allWords} dailyStats={dailyStats} onReviewDateWords={handleReviewDateWords} onFilterDate={handleFilterDate} />
+          <aside className="study-sidebar">
+            <WeeklyActivity dailyStats={dailyStats} />
+            <div className="deck-storage-note"><ShieldCheck size={19} /><p>{language === 'vi' ? 'Bộ từ được lưu trên thiết bị này. Xuất bản sao lưu để bảo vệ tiến độ của bạn.' : 'Your deck is saved on this device. Export a backup to protect your progress.'}</p></div>
+          </aside>
+        </div>}
+      </section>
+
       {/* Translation Audit & Backfill Modal */}
-      <TranslationAuditModal
+      <ModalPresence open={isAuditModalOpen}>
+      {isAuditModalOpen && <TranslationAuditModal
         isOpen={isAuditModalOpen}
         onClose={() => setIsAuditModalOpen(false)}
         allWords={allWords}
@@ -275,7 +334,8 @@ export const DeckView: React.FC<DeckViewProps> = ({
             'success'
           );
         }}
-      />
+      />}
+      </ModalPresence>
     </div>
   );
 };

@@ -314,7 +314,7 @@ export const Flashcard: React.FC<FlashcardProps> = ({
   const workplaceEx = word.examples.find((e) => e.context === 'toeic') || word.examples[0];
 
   return (
-    <div className="w-full max-w-2xl mx-auto space-y-5">
+    <div className="review-exercise w-full max-w-2xl mx-auto space-y-5">
       {/* Top progress indicator & Prev/Next navigation */}
       <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
         <div className="flex items-center gap-2">
@@ -366,13 +366,13 @@ export const Flashcard: React.FC<FlashcardProps> = ({
       </div>
 
       {/* 3D Flashcard Container */}
-      <div className="perspective-1000 w-full min-h-[380px] sm:min-h-[420px] animate-fade-in">
+      <div className="flashcard-stage perspective-1000 w-full min-h-[380px] sm:min-h-[420px] animate-fade-in">
         <div
           onClick={() => {
             setShouldAnimateFlip(true);
             setFlippedCardId(isFlipped ? null : word.id);
           }}
-          className={`relative w-full h-full min-h-[380px] sm:min-h-[420px] rounded-2xl border border-slate-200 bg-white p-7 shadow-sm transform-style-3d cursor-pointer select-none dark:border-slate-800 dark:bg-[#111622] ${
+          className={`flashcard-body relative w-full h-full min-h-[380px] sm:min-h-[420px] rounded-2xl border border-slate-200 bg-white p-7 shadow-sm transform-style-3d cursor-pointer select-none dark:border-slate-800 dark:bg-[#111622] ${
             shouldAnimateFlip ? 'transition-transform duration-500' : ''
           } ${
             isFlipped ? 'rotate-y-180' : 'hover:border-slate-300 dark:hover:border-slate-700'

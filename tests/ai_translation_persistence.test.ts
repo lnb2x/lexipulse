@@ -1,14 +1,114 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { webcrypto } from 'node:crypto';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { db } from '../src/services/db';
 import { vocabRepository } from '../src/services/vocabRepository';
 import type { WordItem } from '../src/types/vocab';
 import { createInitialReviewMeta } from '../src/services/sm2';
+import { exportFullBackupToJson } from '../src/services/db/backup';
+
+function usageWord(overrides: Partial<WordItem> = {}): WordItem {
+  return {
+    id: 'word-as-soon-as', word: 'as soon as', pos: ['conjunction'],
+    vietnameseDefinition: 'ngay khi; vừa… thì…', usageNoteVi: 'Nối hai mệnh đề, diễn tả việc thứ hai xảy ra ngay sau việc thứ nhất.',
+    englishDefinition: 'immediately after something happens', phonetics: {},
+    meanings: [], collocations: [], wordFamily: [], examples: [], tags: ['#TOEIC'],
+    notes: 'Ghi chú cá nhân', status: 'learning', createdAt: 1000, updatedAt: 2000,
+    reviewMeta: { ...createInitialReviewMeta(), repetition: 5, history: [{ date: 1500, rating: 3, interval: 2, easeFactor: 2.5, repetition: 1 }] },
+    source: 'ai', vietnameseDefinitionProvenance: { source: 'ai', provider: 'groq' },
+    ...overrides,
+  };
+}
 
 describe('AI Translation Persistence & Overwrite Protection', () => {
   beforeEach(async () => {
     await db.words.clear();
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('keeps the usage note with a protected AI meaning during dictionary enrichment', async () => {
+    const original = usageWord();
+    await db.words.put(original);
+    const { word: merged } = await vocabRepository.saveOrUpdateWord({
+      word: original.word, vietnameseDefinition: 'khi', usageNoteVi: 'Ghi chú cho nghĩa khác',
+      vietnameseDefinitionProvenance: { source: 'dictionary' },
+    });
+    expect(merged.vietnameseDefinition).toBe(original.vietnameseDefinition);
+    expect(merged.usageNoteVi).toBe(original.usageNoteVi);
+    expect(merged.reviewMeta).toEqual(original.reviewMeta);
+    expect(merged.notes).toBe(original.notes);
+  });
+
+  it('replaces the usage note with a new AI meaning and clears it when an AI refresh explicitly has no usage', async () => {
+    const original = usageWord();
+    await db.words.put(original);
+    const { word: refreshed } = await vocabRepository.saveOrUpdateWord({
+      word: original.word, vietnameseDefinition: 'ngay sau khi', usageNoteVi: '  Dùng để nói hai việc xảy ra liên tiếp.  ',
+      vietnameseDefinitionProvenance: { source: 'ai' },
+    });
+    expect(refreshed.usageNoteVi).toBe('Dùng để nói hai việc xảy ra liên tiếp.');
+    expect(refreshed.reviewMeta).toEqual(original.reviewMeta);
+    const { word: withoutUsage } = await vocabRepository.saveOrUpdateWord({
+      word: original.word, vietnameseDefinition: refreshed.vietnameseDefinition,
+      usageNoteVi: undefined,
+      vietnameseDefinitionProvenance: { source: 'ai' },
+    });
+    expect(withoutUsage.usageNoteVi).toBeUndefined();
+  });
+
+  it('preserves the usage note during a partial AI update that repeats the existing meaning', async () => {
+    const original = usageWord();
+    await db.words.put(original);
+    const { word: enriched } = await vocabRepository.saveOrUpdateWord({
+      word: original.word, vietnameseDefinition: original.vietnameseDefinition,
+      vietnameseDefinitionProvenance: original.vietnameseDefinitionProvenance,
+      examples: [{ en: 'I will call as soon as I arrive.', vi: 'Tôi sẽ gọi ngay khi tôi đến.', context: 'general' }],
+    });
+    expect(enriched.vietnameseDefinition).toBe(original.vietnameseDefinition);
+    expect(enriched.usageNoteVi).toBe(original.usageNoteVi);
+    expect(enriched.examples[0].vi).toBe('Tôi sẽ gọi ngay khi tôi đến.');
+    expect(enriched.reviewMeta).toEqual(original.reviewMeta);
+  });
+
+  it('preserves usage for a protected user meaning and clears it when the user changes that meaning', async () => {
+    const original = usageWord({ isUserEdited: true, vietnameseDefinitionProvenance: { source: 'user_edit', isUserEdited: true } });
+    await db.words.put(original);
+    const { word: protectedWord } = await vocabRepository.saveOrUpdateWord({
+      word: original.word, vietnameseDefinition: 'khi', usageNoteVi: 'Ghi chú AI',
+      vietnameseDefinitionProvenance: { source: 'ai' },
+    });
+    expect(protectedWord.usageNoteVi).toBe(original.usageNoteVi);
+    const { word: edited } = await vocabRepository.saveOrUpdateWord({
+      word: original.word, vietnameseDefinition: 'ngay lập tức sau khi',
+      vietnameseDefinitionProvenance: { source: 'user_edit', isUserEdited: true },
+    });
+    expect(edited.usageNoteVi).toBeUndefined();
+    expect(edited.notes).toBe(original.notes);
+  });
+
+  it('round-trips the optional usage note and review progress through a full backup', async () => {
+    vi.stubGlobal('crypto', webcrypto);
+    const original = usageWord();
+    await vocabRepository.saveOrUpdateWord(original);
+    const backup = await exportFullBackupToJson();
+    await db.words.clear();
+    const restored = await vocabRepository.importDeckFromJson(backup);
+    expect(restored.errors).toEqual([]);
+    const saved = await db.words.get(original.id);
+    expect(saved?.usageNoteVi).toBe(original.usageNoteVi);
+    expect(saved?.reviewMeta).toEqual(original.reviewMeta);
+    expect(saved?.notes).toBe(original.notes);
+  });
+
+  it('accepts old backup cards without usage and rejects a malformed usage note', async () => {
+    const legacy = usageWord({ usageNoteVi: undefined });
+    const valid = await vocabRepository.importDeckFromJson(JSON.stringify([legacy]));
+    expect(valid.errors).toEqual([]);
+    expect((await db.words.get(legacy.id))?.usageNoteVi).toBeUndefined();
+    const invalid = await vocabRepository.importDeckFromJson(JSON.stringify([{ ...legacy, usageNoteVi: 42 }]));
+    expect(invalid.skipped).toBe(1);
+    expect(invalid.errors[0]).toContain('usageNoteVi');
   });
 
   it('protects existing AI translation from being overwritten by dictionary source during merge', async () => {

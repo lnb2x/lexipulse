@@ -1,8 +1,13 @@
-import { Calendar, CheckCircle2, CheckSquare, Flame, Headphones, HelpCircle, Layers, Play, Sparkles } from 'lucide-react';
-import React, { useState } from 'react';
+import { ArrowRight, BrainCircuit, Calendar, CheckCircle2, CheckSquare, Flame, Headphones, HelpCircle, Layers, Play, Sparkles } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { GlassDropdown } from '../common/GlassDropdown';
+import { ContentSurface, GlassButton } from '../common/Glass';
+import { SlidingSelection } from '../common/SlidingSelection';
 import { useLanguage } from '../../context/LanguageContext';
 import type { ReviewMode, ReviewQueueStats, WordItem } from '../../types/vocab';
 import { formatLocalDate } from '../../utils/dateUtils';
+import type { StudyAttempt } from '../../types/study';
+import { EMPTY_STUDY_ATTEMPTS, selectExtraPracticeWords } from '../../services/practiceSelection';
 
 interface ReviewDashboardProps {
   dueCards: WordItem[];
@@ -12,335 +17,101 @@ interface ReviewDashboardProps {
   dailyQuota: number;
   streak: number;
   queueStats?: ReviewQueueStats;
-  onStartSession: (mode: ReviewMode, cardsToReview: WordItem[], sessionType?: 'due' | 'cram') => void;
+  studyAttempts?: StudyAttempt[];
+  onStartSession: (mode: ReviewMode, cards: WordItem[], sessionType?: 'due' | 'cram') => void;
 }
 
-export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
-  dueCards,
-  allWords,
-  availableDates = [],
-  reviewedTodayCount,
-  dailyQuota,
-  streak,
-  queueStats,
-  onStartSession,
-}) => {
+export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({ dueCards, allWords, availableDates = [], reviewedTodayCount, dailyQuota, streak, queueStats, studyAttempts = EMPTY_STUDY_ATTEMPTS, onStartSession }) => {
   const { language, t } = useLanguage();
-  const [selectedMode, setSelectedMode] = useState<ReviewMode>('flashcards');
-  const [selectedReviewDate, setSelectedReviewDate] = useState<string>(
-    availableDates[0]?.date || formatLocalDate()
-  );
-
-  const quotaProgress = Math.min(100, Math.round((reviewedTodayCount / dailyQuota) * 100));
-  const masteredCount = allWords.filter((w) => w.status === 'mastered').length;
-
-  const handleStartDue = () => {
-    onStartSession(selectedMode, dueCards, 'due');
-  };
-
-  const handleStartCram = () => {
-    onStartSession(selectedMode, allWords, 'cram');
-  };
-
-  const dateWords = allWords.filter(
-    (w) => formatLocalDate(w.createdAt) === selectedReviewDate
-  );
-
-  const handleStartReviewByDate = () => {
-    if (dateWords.length > 0) {
-      onStartSession(selectedMode, dateWords, 'cram');
-    }
-  };
-
-  const practiceModes: Array<{
-    id: ReviewMode;
-    title: string;
-    desc: string;
-    icon: React.ReactNode;
-    color: string;
-  }> = [
-    {
-      id: 'flashcards',
-      title: t.review.flashcardMode,
-      desc: t.review.flashcardDesc,
-      icon: <Layers className="h-4 w-4" />,
-      color: 'bg-indigo-600',
-    },
-    {
-      id: 'cloze',
-      title: t.review.quizMode,
-      desc: t.review.quizDesc,
-      icon: <HelpCircle className="h-4 w-4" />,
-      color: 'bg-emerald-600',
-    },
-    {
-      id: 'listen',
-      title: t.review.listenMode,
-      desc: t.review.listenDesc,
-      icon: <Headphones className="h-4 w-4" />,
-      color: 'bg-violet-600',
-    },
-    {
-      id: 'choice',
-      title: t.review.choiceMode,
-      desc: t.review.choiceDesc,
-      icon: <CheckSquare className="h-4 w-4" />,
-      color: 'bg-sky-600',
-    },
-    {
-      id: 'match',
-      title: t.review.matchMode,
-      desc: t.review.matchDesc,
-      icon: <Sparkles className="h-4 w-4" />,
-      color: 'bg-amber-600',
-    },
+  const vi = language === 'vi';
+  const [selectedMode, setSelectedMode] = useState<ReviewMode>('learn');
+  const [sessionSize, setSessionSize] = useState<number>(10);
+  const [selectedReviewDate, setSelectedReviewDate] = useState(availableDates[0]?.date || formatLocalDate());
+  const activeReviewDate = availableDates.some(item => item.date === selectedReviewDate) ? selectedReviewDate : availableDates[0]?.date || selectedReviewDate;
+  const quotaProgress = dailyQuota > 0 ? Math.min(100, Math.round(reviewedTodayCount / dailyQuota * 100)) : 0;
+  const masteredCount = allWords.filter(word => word.status === 'mastered').length;
+  const dateWords = allWords.filter(word => formatLocalDate(word.createdAt) === activeReviewDate);
+  const sessionType = dueCards.length > 0 ? 'due' : 'cram';
+  const sessionCards = useMemo(() => sessionType === 'due' ? dueCards.slice(0, sessionSize)
+    : selectExtraPracticeWords(allWords, studyAttempts, sessionSize), [sessionType, dueCards, allWords, studyAttempts, sessionSize]);
+  const practiceModes = [
+    { id: 'learn' as const, title: vi ? 'Học thông minh' : 'Learn', shortTitle: vi ? 'Học thông minh' : 'Learn', desc: vi ? 'Bắt đầu với trắc nghiệm, tiến đến tự gõ từ. Những từ chưa nhớ sẽ quay lại sau vài câu để bạn luyện thêm.' : 'Start with multiple choice, then recall and type the word. Difficult words come back after a few questions for more practice.', icon: BrainCircuit },
+    { id: 'flashcards' as const, title: t.review.flashcardMode, shortTitle: t.review.flashcardMode, desc: t.review.flashcardDesc, icon: Layers },
+    { id: 'cloze' as const, title: t.review.quizMode, shortTitle: vi ? 'Điền từ' : 'Fill in', desc: t.review.quizDesc, icon: HelpCircle },
+    { id: 'listen' as const, title: t.review.listenMode, shortTitle: vi ? 'Nghe chép' : 'Listen', desc: t.review.listenDesc, icon: Headphones },
+    { id: 'choice' as const, title: t.review.choiceMode, shortTitle: vi ? 'Trắc nghiệm' : 'Test', desc: t.review.choiceDesc, icon: CheckSquare },
+    { id: 'match' as const, title: t.review.matchMode, shortTitle: vi ? 'Nối từ' : 'Match', desc: t.review.matchDesc, icon: Sparkles },
   ];
+  const activeMode = practiceModes.find(mode => mode.id === selectedMode)!;
+  const ActiveIcon = activeMode.icon;
 
-  return (
-    <div className="w-full max-w-3xl mx-auto space-y-6">
-      {/* Daily Quota & Streak Progress Header */}
-      <div className="card-elevated p-6 sm:p-7">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5 dark:border-slate-800">
-          <div>
-            <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
-              Spaced Repetition
-            </span>
-            <h2 className="mt-1 font-display text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
-              {t.review.dashboardTitle}
-            </h2>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              {t.review.dashboardSubtitle}
-            </p>
-          </div>
+  return <div className="quizlet-review-dashboard">
+    <SlidingSelection value={selectedMode} className="quizlet-review-mode-tabs" role="group" aria-label={vi ? 'Chọn cách luyện' : 'Choose a practice mode'}>
+      {practiceModes.map(mode => <button type="button" key={mode.id} aria-label={mode.title} aria-pressed={selectedMode === mode.id} onClick={() => setSelectedMode(mode.id)} className="quizlet-review-mode-tab">
+        <mode.icon size={19} aria-hidden="true" />
+        <span>{mode.shortTitle}</span>
+      </button>)}
+    </SlidingSelection>
 
-          <div className="flex items-center gap-2">
-            {/* Streak pill */}
-            <div className="flex items-center gap-2.5 rounded-xl border border-amber-200/80 bg-amber-50/60 px-3.5 py-2 dark:border-amber-900/50 dark:bg-amber-950/30">
-              <Flame className="h-5 w-5 text-amber-500 fill-amber-500" />
-              <div>
-                <span className="block text-[10px] uppercase font-bold tracking-wider text-amber-700/80 dark:text-amber-400/80">
-                  {t.review.streakCount}
-                </span>
-                <span className="font-display text-base font-bold text-amber-900 dark:text-amber-200 leading-none">
-                  {streak} {t.review.streakUnit}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
+    <ContentSurface className="quizlet-review-study-card" aria-labelledby="quizlet-review-mode-heading">
+      <div className="quizlet-review-card-heading">
+        <span className="quizlet-review-mode-symbol"><ActiveIcon size={26} aria-hidden="true" /></span>
+        <span className="quizlet-review-pill">{selectedMode === 'learn' ? (vi ? 'Lộ trình của bạn' : 'Your learning path') : (vi ? 'Luyện theo cách của bạn' : 'Practice your way')}</span>
+      </div>
+      <div className="quizlet-review-intro" aria-live="polite">
+        <h2 id="quizlet-review-mode-heading">{activeMode.title}</h2>
+        <p>{activeMode.desc}</p>
+      </div>
 
-        {/* Daily Quota Progress Bar */}
-        <div className="mt-5 space-y-2">
-          <div className="flex items-center justify-between text-xs font-medium">
-            <span className="text-slate-700 dark:text-slate-300">
-              {t.review.completedToday}{' '}
-              <strong className="text-slate-900 dark:text-white font-bold">{reviewedTodayCount}</strong> / {dailyQuota} {language === 'vi' ? 'từ' : 'words'}
-            </span>
-            <span className="text-indigo-600 dark:text-indigo-400 font-bold font-mono">
-              {quotaProgress}%
-            </span>
-          </div>
-          <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-            <div
-              className="h-full bg-indigo-600 dark:bg-indigo-500 transition-all duration-500 rounded-full"
-              style={{ width: `${quotaProgress}%` }}
-            />
-          </div>
-        </div>
+      {selectedMode === 'learn' && <ol className="quizlet-review-learning-path" aria-label={vi ? 'Cách học thông minh hoạt động' : 'How Learn works'}>
+        <li><span>1</span>{vi ? 'Nhận diện nghĩa' : 'Recognize the meaning'}</li>
+        <li><span>2</span>{vi ? 'Tự nhớ và viết' : 'Recall and write'}</li>
+        <li><span>3</span>{vi ? 'Luyện lại từ khó' : 'Revisit difficult words'}</li>
+      </ol>}
 
-        {/* Stats Grid */}
-        <div className={`mt-5 grid gap-3 ${
-          queueStats && queueStats.retentionSampleCount > 0 && queueStats.actualRetentionRate !== null
-            ? 'grid-cols-2 sm:grid-cols-4'
-            : 'grid-cols-3'
-        }`}>
-          <div className="rounded-xl border border-slate-200/70 bg-slate-50/70 p-3.5 text-center dark:border-slate-800 dark:bg-slate-900/50">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              {t.deck.dueToday}
-            </span>
-            <p className="mt-1 font-display text-2xl font-bold text-rose-600 dark:text-rose-400">
-              {dueCards.length}
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-slate-200/70 bg-slate-50/70 p-3.5 text-center dark:border-slate-800 dark:bg-slate-900/50">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              {t.deck.mastered}
-            </span>
-            <p className="mt-1 font-display text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-              {masteredCount}
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-slate-200/70 bg-slate-50/70 p-3.5 text-center dark:border-slate-800 dark:bg-slate-900/50">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              {t.deck.totalWords}
-            </span>
-            <p className="mt-1 font-display text-2xl font-bold text-slate-900 dark:text-white">
-              {allWords.length}
-            </p>
-          </div>
-
-          {queueStats && queueStats.retentionSampleCount > 0 && queueStats.actualRetentionRate !== null && (
-            <div className="rounded-xl border border-indigo-200/80 bg-indigo-50/60 p-3.5 text-center dark:border-indigo-900/50 dark:bg-indigo-950/30">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-400">
-                {language === 'vi' ? 'Độ nhớ thực tế' : 'Retention Rate'}
-              </span>
-              <p className="mt-1 font-display text-2xl font-bold text-indigo-600 dark:text-indigo-400">
-                {Math.round(queueStats.actualRetentionRate * 100)}%
-              </p>
-              <span className="text-[10px] text-slate-400 font-mono block">
-                N={queueStats.retentionSampleCount}
-              </span>
-            </div>
-          )}
+      <div className="quizlet-review-start-settings">
+        <fieldset className="quizlet-review-session-size">
+          <legend>{vi ? 'Số từ mỗi lượt' : 'Words per session'}</legend>
+          <div>{[10, 20, Infinity].map(size => <label key={String(size)} data-glass className={`glass-control glass-pill ${sessionSize === size ? 'is-selected' : ''}`}>
+            <input type="radio" name="session-size" checked={sessionSize === size} onChange={() => setSessionSize(size)} />
+            {Number.isFinite(size) ? size : vi ? 'Tất cả' : 'All'}
+          </label>)}</div>
+        </fieldset>
+        <div className="quizlet-review-session-note">
+          {dueCards.length === 0 && allWords.length > 0 && <span className="quizlet-review-done"><CheckCircle2 size={15} aria-hidden="true" />{t.review.noDueCards}</span>}
+          <p>{sessionCards.length > 0 ? sessionType === 'due' ? (vi ? `${sessionCards.length} từ đến hạn hôm nay` : `${sessionCards.length} words due today`) : (vi ? `${sessionCards.length} từ · Luyện thêm` : `${sessionCards.length} words · Extra practice`) : (vi ? 'Thêm từ vào bộ từ vựng để bắt đầu.' : 'Add words to your vocabulary deck to get started.')}</p>
+          {sessionType === 'cram' && sessionCards.length > 0 && <small>{vi ? 'Ưu tiên từ khó và từ lâu chưa luyện. Luyện thêm không thay đổi lịch ôn.' : 'Prioritizes difficult words and words you have not practiced recently. Extra practice keeps your review schedule.'}</small>}
         </div>
       </div>
 
-      {/* Select Review Mode */}
-      <div className="card-elevated p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            {language === 'vi' ? 'Chọn chế độ ôn luyện (5 phương thức)' : 'Choose Practice Mode (5 Methods)'}
-          </h3>
+      <GlassButton prominent disabled={sessionCards.length === 0} className="quizlet-review-start-button" onClick={() => onStartSession(selectedMode, sessionCards, sessionType)}>
+        <Play size={17} fill="currentColor" aria-hidden="true" />
+        <span>{selectedMode === 'learn' ? (vi ? 'Bắt đầu học' : 'Start learning') : sessionType === 'due' ? (vi ? `Ôn tập ${sessionCards.length} thẻ đến hạn hôm nay` : `Review ${sessionCards.length} Cards Due Today`) : (vi ? `Luyện thêm ${sessionCards.length} thẻ` : `Practice ${sessionCards.length} cards`)}</span>
+        <ArrowRight size={18} aria-hidden="true" />
+      </GlassButton>
+      <p className="quizlet-review-supporting-note">{selectedMode === 'learn' ? (vi ? 'Câu hỏi thay đổi theo mức độ bạn nhớ từng từ.' : 'Questions adapt to how well you know each word.') : (vi ? 'Một chút tập trung, thêm nhiều từ bạn nhớ.' : 'A little focus, more words you remember.')}</p>
+    </ContentSurface>
 
-          <span className="text-[11px] font-medium text-indigo-600 dark:text-indigo-400">
-            {practiceModes.find((m) => m.id === selectedMode)?.title}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {practiceModes.map((mode) => {
-            const isSelected = selectedMode === mode.id;
-            return (
-              <div
-                key={mode.id}
-                onClick={() => setSelectedMode(mode.id)}
-                className={`cursor-pointer rounded-xl border p-4 transition-all flex flex-col justify-between ${
-                  isSelected
-                    ? 'border-indigo-600 bg-indigo-50/50 shadow-sm dark:border-indigo-500 dark:bg-indigo-950/30 ring-1 ring-indigo-600/30 dark:ring-indigo-400/30'
-                    : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900/40 dark:hover:border-slate-700'
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between">
-                    <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${mode.color} text-white shadow-sm`}>
-                      {mode.icon}
-                    </div>
-                    {isSelected && (
-                      <span className="rounded-md bg-indigo-600 px-2 py-0.5 text-[10px] font-bold text-white uppercase tracking-wider">
-                        Active
-                      </span>
-                    )}
-                  </div>
-
-                  <h4 className="mt-3 font-display text-sm font-bold text-slate-900 dark:text-white">
-                    {mode.title}
-                  </h4>
-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                    {mode.desc}
-                  </p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Start Button for Due Cards */}
-        <div className="pt-2">
-          {dueCards.length > 0 ? (
-            <button
-              type="button"
-              onClick={handleStartDue}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 py-3.5 text-sm font-bold text-white shadow-sm hover:bg-indigo-500 active:scale-[0.99] transition-all"
-            >
-              <Play className="h-4 w-4 fill-white" />
-              <span>
-                {language === 'vi'
-                  ? `Ôn tập ${dueCards.length} thẻ đến hạn hôm nay`
-                  : `Review ${dueCards.length} Cards Due Today`}
-              </span>
-            </button>
-          ) : (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2.5 rounded-xl border border-emerald-200/80 bg-emerald-50/60 p-3.5 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300">
-                <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
-                <p className="text-xs font-medium">
-                  {t.review.noDueCards}
-                </p>
-              </div>
-
-              {allWords.length > 0 && (
-                <button
-                  type="button"
-                  onClick={handleStartCram}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 py-3 text-xs font-bold text-slate-700 hover:bg-slate-100 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:bg-slate-800 transition-all"
-                >
-                  <Sparkles className="h-4 w-4 text-indigo-500" />
-                  <span>{t.review.reviewAllAnyway} ({allWords.length} {language === 'vi' ? 'từ' : 'words'})</span>
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+    <ContentSurface className="quizlet-review-today" aria-label={vi ? 'Tiến độ hôm nay' : "Today's progress"}>
+      <div className="quizlet-review-today-heading"><h3>{vi ? 'Tiến độ hôm nay' : "Today's progress"}</h3><span className="quizlet-review-streak"><Flame size={15} aria-hidden="true" />{streak} {t.review.streakUnit}</span></div>
+      <div className="quizlet-review-today-stats">
+        <p><strong>{reviewedTodayCount}<small> / {dailyQuota}</small></strong><span>{t.review.completedToday}</span></p>
+        <p><strong>{dueCards.length}</strong><span>{vi ? 'Từ đến hạn' : 'Words due'}</span></p>
+        <div className="quizlet-review-daily-progress"><span>{vi ? 'Mục tiêu mỗi ngày' : 'Daily goal'}<strong>{quotaProgress}%</strong></span><div className="study-progress-track" role="progressbar" aria-label={t.review.completedToday} aria-valuemin={0} aria-valuemax={100} aria-valuenow={quotaProgress}><div style={{ width: `${quotaProgress}%` }} /></div></div>
       </div>
+      <div className="quizlet-review-library-summary"><span><strong>{allWords.length}</strong> {t.deck.totalWords}</span><span><strong>{masteredCount}</strong> {t.deck.mastered}</span>
+        {queueStats && queueStats.retentionSampleCount > 0 && queueStats.actualRetentionRate !== null && <span>{vi ? 'Độ nhớ thực tế' : 'Retention'} <strong>{Math.round(queueStats.actualRetentionRate * 100)}%</strong> (N={queueStats.retentionSampleCount})</span>}
+      </div>
+    </ContentSurface>
 
-      {/* FEATURE: Ôn tập từ vựng theo ngày nhập (Review by Date Added) */}
-      {availableDates && availableDates.length > 0 && (
-        <div className="card-elevated p-6 space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
-            <div className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400">
-                <Calendar className="h-4 w-4" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                  {t.review.reviewByDate}
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {t.review.reviewByDateDesc}
-                </p>
-              </div>
-            </div>
-            <span className="rounded-lg bg-indigo-50 border border-indigo-100 px-2.5 py-1 text-xs font-bold font-mono text-indigo-600 dark:border-indigo-900/50 dark:bg-indigo-950/60 dark:text-indigo-400">
-              {dateWords.length} {language === 'vi' ? 'từ' : 'words'}
-            </span>
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-center gap-3 pt-1">
-            <div className="relative w-full sm:flex-1">
-              <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-                {t.review.selectDateLabel}
-              </label>
-              <select
-                value={selectedReviewDate}
-                onChange={(e) => setSelectedReviewDate(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-white py-2 px-3 text-xs font-semibold text-slate-800 shadow-sm focus:border-indigo-500 focus:outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100"
-              >
-                {availableDates.map((item) => (
-                  <option key={item.date} value={item.date}>
-                    {item.date} ({item.count} {language === 'vi' ? 'từ vựng' : 'words'})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="w-full sm:w-auto self-end">
-              <button
-                type="button"
-                onClick={handleStartReviewByDate}
-                disabled={dateWords.length === 0}
-                className="flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-indigo-500 disabled:opacity-50 active:scale-[0.99] transition-all"
-              >
-                <Play className="h-3.5 w-3.5 fill-white" />
-                <span>
-                  {t.review.startReviewDateBtn} ({dateWords.length})
-                </span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+    {availableDates.length > 0 && <ContentSurface className="quizlet-review-date-panel">
+      <div className="quizlet-review-date-heading"><h3><Calendar size={17} aria-hidden="true" />{t.review.reviewByDate}</h3><span>{dateWords.length} {vi ? 'từ' : 'words'}</span></div>
+      <p>{t.review.reviewByDateDesc}</p>
+      <div className="quizlet-review-date-controls">
+        <div><span className="quizlet-review-date-label">{t.review.selectDateLabel}</span><GlassDropdown label={t.review.selectDateLabel} value={activeReviewDate} onChange={setSelectedReviewDate}
+          icon={<Calendar size={15} />} options={availableDates.map(item => ({ value: item.date, label: `${item.date} (${item.count} ${vi ? 'từ vựng' : 'words'})` }))} /></div>
+        <GlassButton disabled={dateWords.length === 0} onClick={() => onStartSession(selectedMode, dateWords.slice(0, sessionSize), 'cram')}><Play size={15} aria-hidden="true" />{t.review.startReviewDateBtn} ({Math.min(dateWords.length, sessionSize)})</GlassButton>
+      </div>
+    </ContentSurface>}
+  </div>;
 };

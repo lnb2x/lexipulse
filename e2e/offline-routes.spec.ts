@@ -18,8 +18,11 @@ test('first visit precaches unopened deck and review routes for offline use', as
   await page.getByRole('tab', { name: /Deck/i }).click();
   await expect(page.getByRole('heading', { name: 'resilience', exact: true })).toBeVisible();
   await page.getByRole('tab', { name: /Review/i }).click();
+  await page.getByRole('button', { name: /^Flashcards/ }).click();
   await page.getByRole('button', { name: /Review 1 Cards Due Today/i }).click();
   await expect(page.getByText('Front Card')).toBeVisible();
+  // Keyboard presses do not wait for the lazy card's entrance animation.
+  await page.getByText('Front Card').click({ trial: true });
   await page.keyboard.press('Space');
   await expect(page.getByText('kiên cường').first()).toBeVisible();
   await page.getByRole('button', { name: /Good.*3/i }).click();

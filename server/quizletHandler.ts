@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { normalizeQuizletUrl } from './quizletUrl.ts';
 import { scrapeQuizletWithPlaywright } from './quizletScraper.ts';
+import { beginQuizletJob, inspectQuizletJob } from './quizletJobs.ts';
 
 const MAX_BODY_BYTES = 8192;
 let activeRequests = 0;
@@ -27,7 +28,7 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-export async function handleQuizletFetch(req: IncomingMessage, res: ServerResponse): Promise<void> {
+export async function handleQuizletFetch(req: IncomingMessage, res: ServerResponse, action: 'fetch' | 'status' | 'cancel' = 'fetch'): Promise<void> {
   const send = (status: number, body: object) => {
     if (res.destroyed) return;
     res.writeHead(status, { 'Content-Type': 'application/json', 'Connection': 'close' });
@@ -45,9 +46,21 @@ export async function handleQuizletFetch(req: IncomingMessage, res: ServerRespon
   try {
     const body = await readBody(req);
     let input: unknown = body;
-    try { input = JSON.parse(body)?.url; } catch { /* Accept a plain URL for compatibility. */ }
+    let parsed: { url?: unknown; async?: boolean; requestId?: unknown } | undefined;
+    try { parsed = JSON.parse(body); input = parsed?.url; } catch { /* Accept a plain URL for compatibility. */ }
+    if (action !== 'fetch') {
+      const reply = inspectQuizletJob(parsed?.requestId, action === 'cancel');
+      send(reply.status, reply.body); return;
+    }
     const url = normalizeQuizletUrl(input);
     if (!url) { fail(400, 'invalid_url'); return; }
+    if (res.destroyed || controller.signal.aborted) return;
+    if (parsed?.async === true) {
+      const address = req.socket.remoteAddress;
+      const local = address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
+      const reply = beginQuizletJob(url, local);
+      send(reply.status, reply.body); return;
+    }
     const result = await scrapeQuizletWithPlaywright(url, { signal: controller.signal });
     const status = result.success ? 200 : result.code === 'timeout' ? 504 : result.code === 'not_found' ? 404
       : result.code === 'rate_limited' ? 429 : result.code === 'login_required' ? 403 : 422;

@@ -274,12 +274,12 @@ export const ContributionHeatmap = React.memo<ContributionHeatmapProps>(({
   }, [isRollingLastYear, totalContributions, selectedYear, t]);
 
   return (
-    <div ref={containerRef} className="relative w-full rounded-2xl border border-slate-200/90 bg-white p-4 sm:p-5 shadow-card dark:border-slate-800 dark:bg-[#121824]">
-      <div className="flex flex-col lg:flex-row items-start gap-4">
+    <div ref={containerRef} className="contribution-heatmap study-panel relative w-full p-4 sm:p-6">
+      <div className="flex flex-col items-stretch gap-4">
         {/* Main Contribution Box */}
-        <div className="flex-1 w-full space-y-3">
+        <div className="min-w-0 w-full space-y-3">
           {/* Header with Title and Settings */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
                 <BookPlus className="h-4 w-4" />
@@ -397,11 +397,11 @@ export const ContributionHeatmap = React.memo<ContributionHeatmapProps>(({
                   {/* Day of Week Labels (Mon, Wed, Fri) */}
                   <div className="w-8 flex flex-col justify-between py-[2px] pr-2 text-[10px] font-medium text-slate-400 dark:text-slate-400 select-none">
                     <span className="h-[11px] leading-[11px]"></span>
-                    <span className="h-[11px] leading-[11px]">Mon</span>
+                    <span className="h-[11px] leading-[11px]">{language === 'vi' ? 'T2' : 'Mon'}</span>
                     <span className="h-[11px] leading-[11px]"></span>
-                    <span className="h-[11px] leading-[11px]">Wed</span>
+                    <span className="h-[11px] leading-[11px]">{language === 'vi' ? 'T4' : 'Wed'}</span>
                     <span className="h-[11px] leading-[11px]"></span>
-                    <span className="h-[11px] leading-[11px]">Fri</span>
+                    <span className="h-[11px] leading-[11px]">{language === 'vi' ? 'T6' : 'Fri'}</span>
                     <span className="h-[11px] leading-[11px]"></span>
                   </div>
 
@@ -416,6 +416,7 @@ export const ContributionHeatmap = React.memo<ContributionHeatmapProps>(({
                           return (
                             <div
                               key={`day-${wIdx}-${dIdx}`}
+                              data-date={day?.date}
                               onMouseEnter={(e) => {
                                 if (day) {
                                   const rect = e.currentTarget.getBoundingClientRect();
@@ -501,7 +502,7 @@ export const ContributionHeatmap = React.memo<ContributionHeatmapProps>(({
                   <button
                     type="button"
                     onClick={() => onReviewDateWords(selectedDayDetail.date)}
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-500 active:scale-98 transition-all"
+                    className="btn-primary inline-flex items-center gap-1.5 text-xs"
                   >
                     <Play className="h-3 w-3 fill-white" />
                     <span>{t.contribution.reviewThisDate}</span>
@@ -532,7 +533,7 @@ export const ContributionHeatmap = React.memo<ContributionHeatmapProps>(({
         </div>
 
         {/* Year Sidebar Selector */}
-        <div className="w-full lg:w-28 flex lg:flex-col flex-row gap-1.5 pt-7 shrink-0 overflow-x-auto">
+        <div className="flex flex-row justify-end gap-1.5 overflow-x-auto" aria-label={language === 'vi' ? 'Năm thống kê' : 'Activity year'}>
           {availableYears.map((year) => {
             const isSelected = selectedYear === year;
             return (
@@ -545,7 +546,7 @@ export const ContributionHeatmap = React.memo<ContributionHeatmapProps>(({
                 }}
                 className={`text-center rounded-lg text-xs font-semibold transition-all ${
                   isSelected
-                    ? 'bg-emerald-600 text-white shadow-sm px-3.5 py-1.5'
+                    ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 px-3.5 py-1.5'
                     : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/60 px-3.5 py-1.5'
                 }`}
               >

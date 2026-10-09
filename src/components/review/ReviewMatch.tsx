@@ -7,6 +7,7 @@ interface ReviewMatchProps {
   cards: WordItem[];
   onCompleteSession: (history: Array<{ word: WordItem; rating: ReviewRating }>) => void;
   onGradeSingleWord?: (wordId: string, rating: ReviewRating) => Promise<void> | void;
+  initialHistory?: Array<{ word: WordItem; rating: number }>;
 }
 
 const BATCH_SIZE = 5; // 5 words = 10 cards per round for optimal desktop readability
@@ -15,11 +16,13 @@ export const ReviewMatch: React.FC<ReviewMatchProps> = ({
   cards,
   onCompleteSession,
   onGradeSingleWord,
+  initialHistory = [],
 }) => {
   const { language, t } = useLanguage();
 
+  const [activeCards] = useState(() => cards.filter(w => !initialHistory.some(h => h.word.id === w.id)));
   const [currentRound, setCurrentRound] = useState(0);
-  const totalRounds = Math.max(1, Math.ceil(cards.length / BATCH_SIZE));
+  const totalRounds = Math.max(1, Math.ceil(activeCards.length / BATCH_SIZE));
 
   const [boardCards, setBoardCards] = useState<MatchCardItem[]>([]);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
@@ -29,7 +32,20 @@ export const ReviewMatch: React.FC<ReviewMatchProps> = ({
   const [combos, setCombos] = useState(0);
   const [maxCombos, setMaxCombos] = useState(0);
   const [seconds, setSeconds] = useState(0);
-  const historyRef = useRef<Array<{ word: WordItem; rating: ReviewRating }>>([]);
+  const historyRef = useRef<Array<{ word: WordItem; rating: ReviewRating }>>(
+    initialHistory.map(h => ({ ...h, rating: h.rating as ReviewRating }))
+  );
+  const checkingRef = useRef(false);
+  const mountedRef = useRef(true);
+  const roundTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [saveError, setSaveError] = useState(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (roundTimerRef.current) clearTimeout(roundTimerRef.current);
+    };
+  }, []);
 
   // Timer interval
   useEffect(() => {
@@ -42,7 +58,7 @@ export const ReviewMatch: React.FC<ReviewMatchProps> = ({
   // Setup round cards
   useEffect(() => {
     const startIdx = currentRound * BATCH_SIZE;
-    const roundWords = cards.slice(startIdx, startIdx + BATCH_SIZE);
+    const roundWords = activeCards.slice(startIdx, startIdx + BATCH_SIZE);
 
     if (roundWords.length === 0) return;
 
@@ -72,10 +88,10 @@ export const ReviewMatch: React.FC<ReviewMatchProps> = ({
     // Shuffle cards
     setBoardCards([...items].sort(() => 0.5 - Math.random()));
     setSelectedCardId(null);
-  }, [currentRound, cards]);
+  }, [currentRound, activeCards]);
 
-  const handleCardClick = (card: MatchCardItem) => {
-    if (isChecking || card.isMatched) return;
+  const handleCardClick = async (card: MatchCardItem) => {
+    if (checkingRef.current || isChecking || card.isMatched) return;
 
     // If clicking same card, deselect
     if (selectedCardId === card.id) {
@@ -100,10 +116,25 @@ export const ReviewMatch: React.FC<ReviewMatchProps> = ({
     }
 
     setIsChecking(true);
+    checkingRef.current = true;
+    setSaveError(false);
 
     const isMatch = firstCard.wordId === card.wordId;
 
     if (isMatch) {
+      const targetWord = cards.find((w) => w.id === card.wordId);
+      const hadMistakes = (mistakesMap[card.wordId] || 0) > 0;
+      const rating: ReviewRating = hadMistakes ? 2 : 3;
+      try {
+        if (onGradeSingleWord) await onGradeSingleWord(card.wordId, rating);
+      } catch {
+        if (!mountedRef.current) return;
+        setSaveError(true);
+        setIsChecking(false);
+        checkingRef.current = false;
+        return;
+      }
+      if (!mountedRef.current) return;
       // Correct match!
       setCombos((prev) => {
         const next = prev + 1;
@@ -113,13 +144,7 @@ export const ReviewMatch: React.FC<ReviewMatchProps> = ({
       setMatchedCount((prev) => prev + 1);
 
       // Record SM-2 rating
-      const targetWord = cards.find((w) => w.id === card.wordId);
       if (targetWord) {
-        const hadMistakes = (mistakesMap[card.wordId] || 0) > 0;
-        const rating: ReviewRating = hadMistakes ? 2 : 3;
-        if (onGradeSingleWord) {
-          onGradeSingleWord(card.wordId, rating);
-        }
         historyRef.current = [...historyRef.current, { word: targetWord, rating }];
       }
 
@@ -132,6 +157,7 @@ export const ReviewMatch: React.FC<ReviewMatchProps> = ({
       );
       setSelectedCardId(null);
       setIsChecking(false);
+      checkingRef.current = false;
 
       // Check if all cards in current round are matched
       const remainingUnmatched = boardCards.filter(
@@ -140,14 +166,18 @@ export const ReviewMatch: React.FC<ReviewMatchProps> = ({
 
       if (remainingUnmatched.length === 0) {
         // Round complete
-        setTimeout(() => {
+        roundTimerRef.current = setTimeout(() => {
           if (currentRound + 1 < totalRounds) {
+            checkingRef.current = false;
+            setIsChecking(false);
             setCurrentRound((prev) => prev + 1);
           } else {
             // Whole session complete!
             onCompleteSession(historyRef.current);
           }
         }, 800);
+        checkingRef.current = true;
+        setIsChecking(true);
       }
     } else {
       // Mismatch
@@ -166,12 +196,13 @@ export const ReviewMatch: React.FC<ReviewMatchProps> = ({
         )
       );
 
-      setTimeout(() => {
+      roundTimerRef.current = setTimeout(() => {
         setBoardCards((prev) =>
           prev.map((c) => ({ ...c, isError: false, isSelected: false }))
         );
         setSelectedCardId(null);
         setIsChecking(false);
+        checkingRef.current = false;
       }, 700);
     }
   };
@@ -183,7 +214,8 @@ export const ReviewMatch: React.FC<ReviewMatchProps> = ({
   };
 
   return (
-    <div className="w-full max-w-3xl mx-auto space-y-5 animate-slide-up">
+    <div className="review-exercise w-full max-w-3xl mx-auto space-y-5 animate-slide-up">
+      {saveError && <p role="alert" className="text-sm text-rose-600">{language === 'vi' ? 'Chưa lưu được kết quả. Hãy chọn lại cặp từ.' : 'Could not save the result. Select the pair again.'}</p>}
       {/* Top metrics bar */}
       <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
         <div className="flex items-center gap-3">
@@ -208,7 +240,7 @@ export const ReviewMatch: React.FC<ReviewMatchProps> = ({
           )}
 
           <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-bold text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300">
-            {matchedCount} / {cards.length} {language === 'vi' ? 'cặp từ' : 'pairs'}
+            {matchedCount} / {activeCards.length} {language === 'vi' ? 'cặp từ' : 'pairs'}
           </span>
         </div>
       </div>
@@ -247,9 +279,13 @@ export const ReviewMatch: React.FC<ReviewMatchProps> = ({
               <button
                 key={card.id}
                 type="button"
+                aria-label={`${card.type.toUpperCase()} ${card.text}`}
+                aria-pressed={isSelected}
+                data-glass
+                data-answer-state={card.isMatched ? 'correct' : card.isError ? 'incorrect' : isSelected ? 'selected' : 'idle'}
                 onClick={() => handleCardClick(card)}
                 disabled={card.isMatched || isChecking}
-                className={`flex min-h-[72px] items-center justify-between rounded-xl border p-4 text-left transition-all shadow-sm active:scale-[0.98] ${cardStyle}`}
+                className={`review-answer flex min-h-[72px] items-center justify-between rounded-xl border p-4 text-left transition-all shadow-sm active:scale-[0.98] ${cardStyle}`}
               >
                 <div className="flex items-center gap-3">
                   <span
